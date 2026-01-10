@@ -1,8 +1,9 @@
 "use client";
 
-import { EventSourceExample } from './demo/event-source';
-import { EventSourcePaserExample } from './demo/fetch-eventsource-paser';
-import { ReadableStreamExample } from './demo/fetch-readableStream';
+import TiptapEditor from '@/features/rich-editor/editor';
+import { EventSourceExample } from '../features/ai-sdk/demo/event-source';
+import { EventSourcePaserExample } from '../features/ai-sdk/demo/fetch-eventsource-paser';
+import { ReadableStreamExample } from '../features/ai-sdk/demo/fetch-readableStream';
 
 
 
@@ -13,6 +14,8 @@ export default function Page() {
       <EventSourceExample />
       <ReadableStreamExample />
       <EventSourcePaserExample />
+
+      <TiptapEditor />
     </div>
   );
 }
