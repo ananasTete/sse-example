@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 基础
 
-## Getting Started
+## SSE 技术：
 
-First, run the development server:
+1. 服务端返回的 Content-Type 必须是 text/event-stream，并且数据格式有严格要求，必须以 data: 开头，以 \n\n 结尾。
+2. 最后的消息是 `"[done]\n\n"`，表示结束。
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+参考：
+
+```
+data: {"text":"这"}
+
+data: {"text":"是"}
+
+data: {"text":"一"}
+
+data: {"text":"段"}
+
+data: {"text":"测试"}
+
+data: {"text":"文"}
+
+data: {"text":"本"}
+
+data: [done]
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`{text: xx}` 是自定义的格式
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## EventSource API
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+缺点：
 
-## Learn More
+1. 只支持 GET 请求（但现在的 AI 对话通常需要 POST 发送长 Prompt）。
+2. 不支持自定义 Header（无法发送 Authorization: Bearer token）。
 
-To learn more about Next.js, take a look at the following resources:
+## fetch API + ReadableStream
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+缺点：需要自己开发解析器，处理数据截断/粘连的情况。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## fetch API + ReadableStream + eventsource-parser
 
-## Deploy on Vercel
+使用 eventsource-parser 解析器，处理数据截断/粘连的情况。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## @microsoft/fetch-event-source
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. 允许 post 请求，支持自定义 header
+2. 内置了指数退避算法（断网了会自动重试，重试间隔越来越长）。
+3. 提供了 onopen, onmessage, onclose, onerror 完整的钩子。
+4. 内部自动处理了数据被截断或粘连的情况。
+
+这个库是为 “保活（Keep-Alive）” 设计的（比如监控大盘、消息通知），它想方设法让连接不断开。
+
+它的设计假设是：流永远不应该结束。所以它没有标准的 "onFinish" 概念，只有 onclose（通常被认为是意外断开需要重连）。你需要手动抛出错误来强制它停止重试。
