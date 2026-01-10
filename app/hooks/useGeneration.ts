@@ -14,6 +14,8 @@ interface UseGenerationOptions {
   onResponse?: (data: string) => void;
   /** 开始流式传输的回调 */
   onStartStream?: () => void;
+  /** 自定义数据解析函数 */
+  dataParser?: (data: string) => string;
 }
 
 interface GenerateParams {
@@ -28,6 +30,7 @@ export function useGeneration({
   onError,
   onResponse,
   onStartStream,
+  dataParser,
 }: UseGenerationOptions) {
   const [value, setValue] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -108,29 +111,27 @@ export function useGeneration({
             // 处理结束标识 (根据你的后端约定，有时是 [DONE])
             if (data === "[DONE]") return;
 
-            try {
-              const json = JSON.parse(data);
-              const textChunk = json.text || json.content || "";
-              if (textChunk) {
-                if (!hasStartedStream) {
-                  onStartStream?.();
-                  hasStartedStream = true;
-                }
-                accumulatedText += textChunk;
-                setValue((prev) => prev + textChunk);
-                onResponse?.(textChunk);
+            let textChunk = "";
+
+            if (dataParser) {
+              textChunk = dataParser(data) || "";
+            } else {
+              try {
+                const json = JSON.parse(data);
+                textChunk = json.text || "";
+              } catch (e) {
+                // 默认只处理 JSON 格式且包含 text 字段的数据
               }
-            } catch (e) {
-              // 如果解析 JSON 失败，说明是纯文本格式，直接使用
-              if (data) {
-                if (!hasStartedStream) {
-                  onStartStream?.();
-                  hasStartedStream = true;
-                }
-                accumulatedText += data;
-                setValue((prev) => prev + data);
-                onResponse?.(data);
+            }
+
+            if (textChunk) {
+              if (!hasStartedStream) {
+                onStartStream?.();
+                hasStartedStream = true;
               }
+              accumulatedText += textChunk;
+              setValue((prev) => prev + textChunk);
+              onResponse?.(textChunk);
             }
           },
         });
@@ -161,7 +162,7 @@ export function useGeneration({
         abortControllerRef.current = null;
       }
     },
-    [api, headers, onFinish, onResponse, onStartStream, onError]
+    [api, headers, onFinish, onResponse, onStartStream, onError, dataParser]
   );
 
   return {
