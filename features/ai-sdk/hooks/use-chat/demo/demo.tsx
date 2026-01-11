@@ -3,7 +3,8 @@ import { useChat } from "../useChat";
 import { ToolCallRenderer } from "./ToolCallRenderer";
 
 export const ChatExample = () => {
-  const { messages, input, handleInputChange, handleSubmit, status, error, isLoading, stop, regenerate } = useChat({ api: '/api/chats', chatId: '123', model: 'gpt-3.5-turbo' });
+  const [selectedModel, setSelectedModel] = useState('gpt-3.5-turbo');
+  const { messages, input, handleInputChange, handleSubmit, status, error, isLoading, stop, regenerate } = useChat({ api: '/api/chats', chatId: '123', model: selectedModel });
 
   // 编辑状态管理
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
@@ -53,8 +54,13 @@ export const ChatExample = () => {
             <div key={message.id} className={`p-3 rounded-lg ${
               message.role === 'user' ? 'bg-blue-100 ml-auto max-w-[80%]' : 'bg-gray-100 mr-auto max-w-[80%]'
             }`}>
-              <div className="text-xs text-gray-500 mb-1 font-bold uppercase">
-                {message.role}
+              <div className="text-xs text-gray-500 mb-1 font-bold uppercase flex items-center gap-2">
+                <span>{message.role}</span>
+                {message.role === 'assistant' && message.model && (
+                  <span className="text-[10px] bg-gray-200 px-1.5 py-0.5 rounded text-gray-600 font-normal normal-case">
+                    {message.model}
+                  </span>
+                )}
               </div>
               
               {/* 核心渲染逻辑：遍历 Parts */}
@@ -169,6 +175,16 @@ export const ChatExample = () => {
       </div>
 
       <form onSubmit={handleSubmit} className="flex gap-2">
+        <select
+          value={selectedModel}
+          onChange={(e) => setSelectedModel(e.target.value)}
+          className="border border-gray-300 rounded px-2 py-2 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          disabled={isLoading}
+        >
+          <option value="gpt-3.5-turbo">GPT-3.5 (Mock)</option>
+          <option value="gpt-4">GPT-4 (Mock)</option>
+          <option value="claude-3-opus">Claude 3 Opus (Mock)</option>
+        </select>
         <input
           value={input}
           onChange={handleInputChange}

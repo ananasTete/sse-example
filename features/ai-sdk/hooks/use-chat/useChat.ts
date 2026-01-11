@@ -163,12 +163,22 @@ export function useChat({
             switch (eventType) {
               case "start":
                 // 服务器分配的消息 ID，可选择覆盖本地 ID
-                if (parsed.messageId) {
-                  aiMessageId = parsed.messageId;
+                if (parsed.messageId || parsed.modelId) {
+                  if (parsed.messageId) {
+                    aiMessageId = parsed.messageId;
+                  }
                   setMessages((prev) =>
                     prev.map((msg) =>
                       msg.id === aiMessage.id
-                        ? { ...msg, id: parsed.messageId }
+                        ? {
+                            ...msg,
+                            ...(parsed.messageId
+                              ? { id: parsed.messageId }
+                              : {}),
+                            ...(parsed.modelId
+                              ? { model: parsed.modelId }
+                              : {}),
+                          }
                         : msg
                     )
                   );

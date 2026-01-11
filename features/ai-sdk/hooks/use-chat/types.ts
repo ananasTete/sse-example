@@ -66,6 +66,7 @@ export interface Message {
   parts: MessagePart[];
   createdAt: string; // 统一用 ISO String，方便前后端传输
   chatId?: string;
+  model?: string;
 }
 
 export const getMessageText = (message: Message) => {

@@ -106,7 +106,7 @@ export async function POST(
 ) {
   const { chatId } = await params;
   const body = await req.json();
-  const { messages } = body;
+  const { messages, model } = body;
 
   // 解析最后一条消息
   const lastMsg = messages[messages.length - 1];
@@ -130,7 +130,11 @@ export async function POST(
       const encoder = new TextEncoder();
 
       // === 开始阶段 ===
-      sendEvent(controller, encoder, { type: "start", messageId });
+      sendEvent(controller, encoder, {
+        type: "start",
+        messageId,
+        modelId: model,
+      });
       await delay(50);
       sendEvent(controller, encoder, { type: "start-step" });
       await delay(50);
