@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useChat } from "../useChat";
-
+import { ToolCallRenderer } from "./ToolCallRenderer";
 
 export const ChatExample = () => {
   const { messages, input, handleInputChange, handleSubmit, status, error, isLoading, stop, regenerate } = useChat({ api: '/api/chats', chatId: '123', model: 'gpt-3.5-turbo' });
@@ -105,6 +105,9 @@ export const ChatExample = () => {
                     }
                     if (part.type === 'image') {
                       return <img src={part.imageUrl} key={index} alt="AI generated" className="max-w-full rounded" />;
+                    }
+                    if (part.type === 'tool-call') {
+                      return <ToolCallRenderer key={index} part={part} />;
                     }
                     return null;
                   })

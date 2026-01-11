@@ -1,10 +1,64 @@
 export type PartState = "streaming" | "done";
 
+/**
+ * 工具调用状态
+ * - streaming-input: 正在流式生成工具参数
+ * - input-available: 参数生成完成，工具正在执行
+ * - output-available: 工具执行完成，结果可用
+ */
+export type ToolCallState =
+  | "streaming-input"
+  | "input-available"
+  | "output-available";
+
+/**
+ * 天气数据类型
+ */
+export interface WeatherCondition {
+  text: string;
+  icon: string;
+}
+
+export interface DailyForecast {
+  day: string;
+  high: number;
+  low: number;
+  condition: WeatherCondition;
+}
+
+export interface WeatherData {
+  location: string;
+  temperature: number;
+  temperatureHigh: number;
+  temperatureLow: number;
+  condition: WeatherCondition;
+  humidity: number;
+  windSpeed: number;
+  dailyForecast: DailyForecast[];
+}
+
+/**
+ * 工具调用 Part
+ */
+export interface ToolCallPart {
+  type: "tool-call";
+  toolCallId: string;
+  toolName: string;
+  state: ToolCallState;
+  /** 流式生成中的参数文本（JSON 字符串片段） */
+  inputText?: string;
+  /** 解析后的完整参数 */
+  input?: Record<string, unknown>;
+  /** 工具执行结果 */
+  output?: unknown;
+}
+
 export type MessagePart =
   | { type: "step-start" }
   | { type: "reasoning"; text: string; state: PartState }
   | { type: "text"; text: string; state: PartState }
-  | { type: "image"; imageUrl: string };
+  | { type: "image"; imageUrl: string }
+  | ToolCallPart;
 
 export interface Message {
   id: string;

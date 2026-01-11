@@ -284,6 +284,87 @@ export function useChat({
                 }
                 break;
 
+              // === 工具调用事件 ===
+              case "tool-input-start":
+                // 工具调用开始，创建新的 tool-call part
+                updateAiMessageParts((parts) => [
+                  ...parts,
+                  {
+                    type: "tool-call",
+                    toolCallId: parsed.toolCallId,
+                    toolName: parsed.toolName,
+                    state: "streaming-input",
+                    inputText: "",
+                  },
+                ]);
+                break;
+
+              case "tool-input-delta":
+                // 工具参数增量更新
+                updateAiMessageParts((parts) => {
+                  const toolCallIndex = parts.findLastIndex(
+                    (p) =>
+                      p.type === "tool-call" &&
+                      p.toolCallId === parsed.toolCallId
+                  );
+                  if (toolCallIndex !== -1) {
+                    const toolPart = parts[toolCallIndex];
+                    if (toolPart.type === "tool-call") {
+                      parts[toolCallIndex] = {
+                        ...toolPart,
+                        inputText:
+                          (toolPart.inputText || "") + parsed.inputTextDelta,
+                      };
+                    }
+                  }
+                  return parts;
+                });
+                break;
+
+              case "tool-input-available":
+                // 工具参数完整可用，开始执行
+                updateAiMessageParts((parts) => {
+                  const toolCallIndex = parts.findLastIndex(
+                    (p) =>
+                      p.type === "tool-call" &&
+                      p.toolCallId === parsed.toolCallId
+                  );
+                  if (toolCallIndex !== -1) {
+                    const toolPart = parts[toolCallIndex];
+                    if (toolPart.type === "tool-call") {
+                      parts[toolCallIndex] = {
+                        ...toolPart,
+                        state: "input-available",
+                        input: parsed.input,
+                      };
+                    }
+                  }
+                  return parts;
+                });
+                break;
+
+              case "tool-output-available":
+                // 工具执行结果可用
+                updateAiMessageParts((parts) => {
+                  const toolCallIndex = parts.findLastIndex(
+                    (p) =>
+                      p.type === "tool-call" &&
+                      p.toolCallId === parsed.toolCallId
+                  );
+                  if (toolCallIndex !== -1) {
+                    const toolPart = parts[toolCallIndex];
+                    if (toolPart.type === "tool-call") {
+                      parts[toolCallIndex] = {
+                        ...toolPart,
+                        state: "output-available",
+                        output: parsed.output,
+                      };
+                    }
+                  }
+                  return parts;
+                });
+                break;
+
               default:
                 // 未知事件类型，忽略
                 break;
