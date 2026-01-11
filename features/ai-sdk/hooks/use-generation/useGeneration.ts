@@ -1,7 +1,5 @@
 import { useState, useRef, useCallback } from "react";
 import { createParser } from "eventsource-parser";
-import { useCompletion } from "@ai-sdk/react";
-import Stream from "stream";
 
 interface UseGenerationOptions {
   api: string;
@@ -140,11 +138,9 @@ export function useGeneration({
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          const chunk = decoder.decode(value, { stream: true });
-          parser.feed(chunk);
+          parser.feed(decoder.decode(value));
         }
 
-        // 成功结束
         // 成功结束
         onFinish?.(accumulatedText, params);
 

@@ -11,7 +11,7 @@ import {
   autoUpdate,
   FloatingPortal 
 } from '@floating-ui/react'
-import { useGeneration } from '@/features/ai-sdk/hooks/useGeneration'
+import { useGeneration } from '@/features/ai-sdk/hooks/use-generation/useGeneration'
 
 interface SavedSelection {
   from: number

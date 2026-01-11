@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { type Editor } from '@tiptap/react'
 import { Loader2, ArrowRight, Replace } from 'lucide-react'
-import { useGeneration } from '@/features/ai-sdk/hooks/useGeneration'
+import { useGeneration } from '@/features/ai-sdk/hooks/use-generation/useGeneration'
 
 interface SavedSelection {
   from: number

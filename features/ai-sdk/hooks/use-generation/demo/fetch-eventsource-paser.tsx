@@ -1,4 +1,4 @@
-import { useGeneration } from '../hooks/useGeneration';
+import { useGeneration } from '../useGeneration';
 
 export const EventSourcePaserExample = () => {
   const { generate, value, isLoading, stop, error } = useGeneration({
