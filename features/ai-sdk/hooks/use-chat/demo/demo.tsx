@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useChat } from "../useChat";
 import { ToolCallRenderer } from "./ToolCallRenderer";
+import { MarkdownRenderer } from "./MarkdownRenderer";
 import {
   SendHorizontal,
   StopCircle,
@@ -251,14 +252,11 @@ export const ChatExample = () => {
                             }
 
                             return (
-                              <div
-                                key={index}
-                                className="prose prose-stone prose-sm max-w-none text-stone-800 break-words whitespace-pre-wrap leading-7"
-                              >
-                                {part.text}
-                                {part.state === "streaming" && (
-                                  <span className="inline-block w-2 h-4 align-middle bg-stone-400 ml-1 animate-pulse rounded-full" />
-                                )}
+                              <div key={index} className="text-stone-800">
+                                <MarkdownRenderer
+                                  content={part.text}
+                                  isStreaming={part.state === "streaming"}
+                                />
                               </div>
                             );
                           })}
