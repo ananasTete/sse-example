@@ -161,13 +161,7 @@ export const ChatExample = () => {
                         : "w-full text-stone-800" // Assistant: No bubble background by default, raw text flow like ChatGPT
                     }`}
                   >
-                    <div
-                      className={`${
-                        !isUser
-                          ? "bg-white border border-stone-100 px-6 py-5 rounded-[20px] shadow-sm w-full"
-                          : ""
-                      }`}
-                    >
+                    <div className={`${!isUser ? "px-6 py-5 w-full" : ""}`}>
                       {isEditing && isUser ? (
                         <div className="flex flex-col gap-2 min-w-[300px]">
                           <textarea
