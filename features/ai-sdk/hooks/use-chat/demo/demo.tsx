@@ -1,14 +1,44 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useChat } from "../useChat";
 import { ToolCallRenderer } from "./ToolCallRenderer";
+import {
+  SendHorizontal,
+  StopCircle,
+  User,
+  Bot,
+  Pencil,
+  RefreshCw,
+  X,
+  Check,
+  ChevronDown,
+  Sparkles,
+} from "lucide-react";
 
 export const ChatExample = () => {
-  const [selectedModel, setSelectedModel] = useState('gpt-3.5-turbo');
-  const { messages, input, handleInputChange, handleSubmit, status, error, isLoading, stop, regenerate } = useChat({ api: '/api/chats', chatId: '123', model: selectedModel });
+  const [selectedModel, setSelectedModel] = useState("gpt-3.5-turbo");
+  const {
+    messages,
+    input,
+    handleInputChange,
+    handleSubmit,
+    status,
+    error,
+    isLoading,
+    stop,
+    regenerate,
+  } = useChat({ api: "/api/chats", chatId: "123", model: selectedModel });
 
   // 编辑状态管理
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
+
+  // Auto-scroll logic
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (status === "streaming" || status === "submitted") {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages, status]);
 
   // 开始编辑
   const handleStartEdit = (messageId: string, currentText: string) => {
@@ -30,185 +60,303 @@ export const ChatExample = () => {
     setEditingContent("");
   };
 
+  // Auto-resize textarea
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = "auto";
+      textareaRef.current.style.height =
+        textareaRef.current.scrollHeight + "px";
+    }
+  }, [input]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      handleSubmit(e as any);
+    }
+  };
+
   return (
-    <div className="max-w-3xl mx-auto p-4">
-      {/* 状态指示器 */}
-      <div className="mb-4 text-sm text-gray-500">
-        Status: <span className="font-mono font-semibold">{status}</span>
+    <div className="flex flex-col h-screen bg-[#f9f8f6] font-sans text-slate-800">
+      {/* Header */}
+      <header className="sticky top-0 z-10 flex items-center justify-center p-4 bg-[#f9f8f6]/80 backdrop-blur-md">
+        <div className="relative group">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#ebe6e0]/50 hover:bg-[#ebe6e0] transition-colors cursor-pointer text-sm font-medium text-stone-700">
+            <span>{selectedModel}</span>
+            <ChevronDown className="w-3.5 h-3.5 opacity-50" />
+          </div>
+          <select
+            value={selectedModel}
+            onChange={(e) => setSelectedModel(e.target.value)}
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            disabled={isLoading}
+          >
+            <option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>
+            <option value="gpt-4">GPT-4</option>
+            <option value="claude-3-opus">Claude 3 Opus</option>
+          </select>
+        </div>
+      </header>
+
+      {/* Messages Area */}
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-3xl mx-auto px-6 py-8 space-y-10">
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-[60vh] text-stone-400">
+              <div className="w-14 h-14 bg-white rounded-2xl shadow-sm flex items-center justify-center mb-4">
+                <Sparkles className="w-7 h-7 text-stone-300" />
+              </div>
+              <p className="text-base font-medium text-stone-500">
+                How can I help you today?
+              </p>
+            </div>
+          )}
+
+          {messages.map((message) => {
+            const messageText =
+              message.parts.find((p) => p.type === "text")?.text || "";
+            const isEditing = editingMessageId === message.id;
+            const isUser = message.role === "user";
+
+            return (
+              <div
+                key={message.id}
+                className={`group flex gap-4 ${isUser ? "justify-end" : "justify-start"}`}
+              >
+                {/* Avatar (AI only) */}
+                {!isUser && (
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border border-stone-200 flex items-center justify-center shadow-sm mt-1">
+                    <Bot className="w-5 h-5 text-emerald-600" />
+                  </div>
+                )}
+
+                {/* Message Content Container */}
+                <div
+                  className={`flex flex-col ${
+                    isUser
+                      ? "items-end max-w-[85%]" // User: Bubble behavior, constained width
+                      : "flex-1 min-w-0" // Assistant: Full width of the container, no shrinking
+                  }`}
+                >
+                  {/* Name Label */}
+                  <div className="flex items-center gap-2 mb-1 px-1">
+                    <span className="text-xs font-semibold text-stone-400 uppercase tracking-wider">
+                      {isUser ? "You" : "Assistant"}
+                    </span>
+                    {message.role === "assistant" && message.model && (
+                      <span className="text-[10px] text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded-full">
+                        {message.model}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Message Body */}
+                  <div
+                    className={`relative text-sm leading-relaxed ${
+                      isUser
+                        ? "bg-[#efede6] text-stone-800 px-5 py-3.5 rounded-[24px] rounded-tr-lg"
+                        : "w-full text-stone-800" // Assistant: No bubble background by default, raw text flow like ChatGPT
+                    }`}
+                  >
+                    <div
+                      className={`${
+                        !isUser
+                          ? "bg-white border border-stone-100 px-6 py-5 rounded-[20px] shadow-sm w-full"
+                          : ""
+                      }`}
+                    >
+                      {isEditing && isUser ? (
+                        <div className="flex flex-col gap-2 min-w-[300px]">
+                          <textarea
+                            value={editingContent}
+                            onChange={(e) => setEditingContent(e.target.value)}
+                            className="w-full p-3 bg-white border border-stone-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-stone-400/50 text-stone-800"
+                            rows={3}
+                            autoFocus
+                          />
+                          <div className="flex justify-end gap-2 mt-1">
+                            <button
+                              onClick={handleCancelEdit}
+                              className="p-1.5 text-stone-500 hover:text-stone-700 hover:bg-stone-100 rounded-lg transition-colors"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={handleSubmitEdit}
+                              className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors"
+                            >
+                              <Check className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {message.parts.map((part, index) => {
+                            if (part.type === "step-start") return null;
+
+                            if (part.type === "reasoning") {
+                              return (
+                                <div key={index} className="my-2">
+                                  <details
+                                    className="group/details"
+                                    open={part.state === "streaming"}
+                                  >
+                                    <summary className="list-none cursor-pointer select-none inline-flex items-center gap-2 text-stone-500 hover:text-stone-700 transition-colors py-1">
+                                      <div className="w-6 h-6 rounded-lg bg-amber-50 flex items-center justify-center">
+                                        <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                                      </div>
+                                      <span className="text-xs font-medium">
+                                        Thinking process
+                                      </span>
+                                      <ChevronDown className="w-3 h-3 transition-transform group-open/details:rotate-180" />
+                                    </summary>
+                                    <div className="mt-2 pl-3 border-l-2 border-amber-100 ml-3">
+                                      <div className="text-xs text-stone-500 leading-relaxed font-mono whitespace-pre-wrap bg-stone-50/50 p-3 rounded-r-lg">
+                                        {part.text}
+                                        {part.state === "streaming" && (
+                                          <span className="animate-pulse">
+                                            ▊
+                                          </span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </details>
+                                </div>
+                              );
+                            }
+
+                            if (part.type === "image") {
+                              return (
+                                <div
+                                  key={index}
+                                  className="rounded-xl overflow-hidden border border-stone-100"
+                                >
+                                  <img
+                                    src={part.imageUrl}
+                                    alt="AI generated"
+                                    className="max-w-full h-auto"
+                                  />
+                                </div>
+                              );
+                            }
+
+                            if (part.type === "tool-call") {
+                              return (
+                                <div key={index} className="max-w-2xl">
+                                  <ToolCallRenderer part={part} />
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <div
+                                key={index}
+                                className="prose prose-stone prose-sm max-w-none text-stone-800 break-words whitespace-pre-wrap leading-7"
+                              >
+                                {part.text}
+                                {part.state === "streaming" && (
+                                  <span className="inline-block w-2 h-4 align-middle bg-stone-400 ml-1 animate-pulse rounded-full" />
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Action Buttons (Hover) */}
+                  <div
+                    className={`mt-1 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity px-2 ${isUser ? "flex-row-reverse" : ""}`}
+                  >
+                    {isUser && !isEditing && (
+                      <button
+                        onClick={() => handleStartEdit(message.id, messageText)}
+                        disabled={isLoading}
+                        className="text-stone-400 hover:text-stone-600 p-1 rounded hover:bg-stone-100 transition-colors"
+                        title="Edit"
+                      >
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {message.role === "assistant" && !isLoading && (
+                      <button
+                        onClick={() =>
+                          regenerate({ assistantMessageId: message.id })
+                        }
+                        className="text-stone-400 hover:text-stone-600 p-1 rounded hover:bg-stone-100 transition-colors"
+                        title="Regenerate"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Avatar (User) */}
+                {isUser && (
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-stone-200 border border-stone-300 flex items-center justify-center shadow-sm mt-1">
+                    <User className="w-4 h-4 text-stone-500" />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
-      {/* 错误提示 */}
-      {error && (
-        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded">
-          Error: {error.message}
-        </div>
-      )}
+      {/* Input Area */}
+      <div className="p-4 bg-gradient-to-t from-[#f9f8f6] via-[#f9f8f6] to-transparent pb-8">
+        <div className="max-w-3xl mx-auto relative">
+          {error && (
+            <div className="absolute -top-14 left-0 right-0 mx-auto w-max max-w-full flex items-center gap-2 p-3 bg-red-50 text-red-600 text-sm rounded-xl border border-red-100 shadow-sm animate-in fade-in slide-in-from-bottom-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 flex-shrink-0" />
+              {error.message}
+            </div>
+          )}
 
-      <div className="space-y-4 mb-4">
-        {messages.map((message) => {
-          // 获取消息文本内容（用于编辑）
-          const messageText = message.parts.find((p) => p.type === "text")?.text || "";
-          const isEditing = editingMessageId === message.id;
-
-          return (
-            <div key={message.id} className={`p-3 rounded-lg ${
-              message.role === 'user' ? 'bg-blue-100 ml-auto max-w-[80%]' : 'bg-gray-100 mr-auto max-w-[80%]'
-            }`}>
-              <div className="text-xs text-gray-500 mb-1 font-bold uppercase flex items-center gap-2">
-                <span>{message.role}</span>
-                {message.role === 'assistant' && message.model && (
-                  <span className="text-[10px] bg-gray-200 px-1.5 py-0.5 rounded text-gray-600 font-normal normal-case">
-                    {message.model}
-                  </span>
-                )}
-              </div>
-              
-              {/* 核心渲染逻辑：遍历 Parts */}
-              <div className="space-y-2">
-                {/* 编辑模式：显示 textarea */}
-                {message.role === 'user' && isEditing ? (
-                  <textarea
-                    value={editingContent}
-                    onChange={(e) => setEditingContent(e.target.value)}
-                    className="w-full p-2 border border-blue-300 rounded resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    rows={3}
-                    autoFocus
-                  />
-                ) : (
-                  // 非编辑模式：正常渲染消息内容
-                  message.parts.map((part, index) => {
-                    if (part.type === 'step-start') {
-                      return null; // step-start 暂不渲染
-                    }
-                    if (part.type === 'reasoning') {
-                      return (
-                        <details 
-                          key={index} 
-                          className="bg-amber-50 border border-amber-200 rounded p-2"
-                          open={part.state === 'streaming'}
-                        >
-                          <summary className="cursor-pointer text-amber-700 text-sm font-medium flex items-center gap-2">
-                            <span>💭 思考过程</span>
-                            {part.state === 'streaming' && (
-                              <span className="inline-block w-2 h-2 bg-amber-500 rounded-full animate-pulse" />
-                            )}
-                          </summary>
-                          <div className="mt-2 text-sm text-amber-800 whitespace-pre-wrap">
-                            {part.text}
-                          </div>
-                        </details>
-                      );
-                    }
-                    if (part.type === 'text') {
-                      return (
-                        <div key={index} className="whitespace-pre-wrap">
-                          {part.text}
-                          {part.state === 'streaming' && (
-                            <span className="inline-block w-1.5 h-4 bg-gray-500 ml-0.5 animate-pulse" />
-                          )}
-                        </div>
-                      );
-                    }
-                    if (part.type === 'image') {
-                      return <img src={part.imageUrl} key={index} alt="AI generated" className="max-w-full rounded" />;
-                    }
-                    if (part.type === 'tool-call') {
-                      return <ToolCallRenderer key={index} part={part} />;
-                    }
-                    return null;
-                  })
-                )}
-              </div>
-              
-              {/* User 消息：编辑按钮 或 取消/提交按钮 */}
-              {message.role === 'user' && (
-                <div className="mt-2 flex items-center gap-2">
-                  {isEditing ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={handleCancelEdit}
-                        className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 border border-gray-300 rounded"
-                      >
-                        取消
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleSubmitEdit}
-                        className="text-xs text-white bg-blue-500 hover:bg-blue-600 px-2 py-1 rounded"
-                      >
-                        提交
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => handleStartEdit(message.id, messageText)}
-                      disabled={isLoading}
-                      className="text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                      </svg>
-                      编辑
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* 重新生成按钮：仅在 assistant 消息且非加载状态时显示 */}
-              {message.role === 'assistant' && !isLoading && (
+          <div className="relative flex items-end shadow-xl shadow-stone-200/50 bg-white border border-stone-200 rounded-[26px] focus-within:ring-2 focus-within:ring-stone-200/50 transition-shadow">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              onChange={handleInputChange}
+              onKeyDown={handleKeyDown}
+              placeholder="Message..."
+              className="w-full max-h-[200px] py-4 pl-5 pr-14 bg-transparent border-none focus:ring-0 resize-none rounded-[26px] placeholder:text-stone-400 text-stone-800 leading-relaxed scrollbar-hide"
+              rows={1}
+              disabled={isLoading}
+            />
+            <div className="absolute right-2 bottom-2">
+              {isLoading ? (
                 <button
-                  type="button"
-                  onClick={() => regenerate({ assistantMessageId: message.id })}
-                  className="mt-2 text-xs text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                  onClick={stop}
+                  className="p-2 bg-stone-900 text-white rounded-full hover:opacity-90 transition-opacity"
                 >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                  </svg>
-                  重新生成
+                  <StopCircle className="w-5 h-5" />
+                </button>
+              ) : (
+                <button
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  onClick={(e) => handleSubmit(e as any)}
+                  disabled={!input.trim()}
+                  className="p-2 bg-stone-900 text-white rounded-full disabled:bg-stone-200 disabled:text-stone-400 transition-colors"
+                >
+                  <SendHorizontal className="w-5 h-5" />
                 </button>
               )}
             </div>
-          );
-        })}
+          </div>
+          <div className="text-center mt-2.5">
+            <p className="text-[11px] text-stone-400 font-medium">
+              AI can make mistakes. Please double-check responses.
+            </p>
+          </div>
+        </div>
       </div>
-
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <select
-          value={selectedModel}
-          onChange={(e) => setSelectedModel(e.target.value)}
-          className="border border-gray-300 rounded px-2 py-2 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          disabled={isLoading}
-        >
-          <option value="gpt-3.5-turbo">GPT-3.5 (Mock)</option>
-          <option value="gpt-4">GPT-4 (Mock)</option>
-          <option value="claude-3-opus">Claude 3 Opus (Mock)</option>
-        </select>
-        <input
-          value={input}
-          onChange={handleInputChange}
-          placeholder="Say something..."
-          className="flex-1 border border-gray-300 rounded px-3 py-2"
-          disabled={isLoading}
-        />
-        {isLoading ? (
-          <button 
-            type="button"
-            onClick={stop}
-            className="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600"
-          >
-            Stop
-          </button>
-        ) : (
-          <button 
-            type="submit" 
-            className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800"
-          >
-            Send
-          </button>
-        )}
-      </form>
     </div>
   );
 };
