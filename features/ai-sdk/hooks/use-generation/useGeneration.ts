@@ -81,11 +81,8 @@ export function useGeneration({
           signal: controller.signal,
         });
 
-        if (!response.ok) {
-          throw new Error(`Request failed with status ${response.status}`);
-        }
-
-        if (!response.body) return;
+        if (!response.ok) throw new Error(`Request failed with status ${response.status}`);
+        if (!response.body) throw new Error("No response body");
 
         // 3. 准备流解析
         const reader = response.body.getReader();
@@ -100,7 +97,7 @@ export function useGeneration({
             console.log("chunk", data);
 
             /**
-             * 会得到：
+             * chunk 数据为：
              *
              * data: {"text":"这"}\n\n
              *
@@ -113,10 +110,9 @@ export function useGeneration({
              * ...
              * data: [done]\n\n
              *
-             * 得到已经解析好的数据
              */
 
-            // 处理结束标识 (根据你的后端约定，有时是 [DONE])
+            // 处理结束标识
             if (data === "[DONE]") return;
 
             let textChunk = "";

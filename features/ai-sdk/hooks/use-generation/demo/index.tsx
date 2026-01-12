@@ -15,7 +15,7 @@ export const EventSourcePaserExample = () => {
   };
 
   return (
-    <div className="p-4 border rounded shadow-md max-w-lg">
+    <div className="p-4 border rounded shadow-md w-lg">
       <h3 className="text-lg font-bold mb-2">eventsource-parser</h3>
       
       {/* 错误提示 */}

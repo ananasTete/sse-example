@@ -58,6 +58,8 @@ export type MessagePart =
   | { type: "reasoning"; text: string; state: PartState }
   | { type: "text"; text: string; state: PartState }
   | { type: "image"; imageUrl: string }
+  | { type: "source-url"; title: string; url: string }
+  | { type: "file"; mediaType: string; filename: string; url: string }
   | ToolCallPart;
 
 export interface Message {

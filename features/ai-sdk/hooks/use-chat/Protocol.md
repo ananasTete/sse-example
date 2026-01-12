@@ -8,7 +8,7 @@
 
 ## 请求格式
 
-### Endpoint and Headers and Body
+### Endpoint / Headers / Body
 
 ```
 POST /api/chats/{chatId}
@@ -53,43 +53,42 @@ Connection: keep-alive
 
 ---
 
-## 客户端状态映射
-
-| 事件              | 客户端 Part 状态变化                                       |
-| ----------------- | ---------------------------------------------------------- |
-| `reasoning-start` | 添加 `{ type: "reasoning", text: "", state: "streaming" }` |
-| `reasoning-delta` | 更新最后一个 reasoning part 的 `text`                      |
-| `reasoning-end`   | 将 reasoning part 的 `state` 设为 `"done"`                 |
-| `text-start`      | 添加 `{ type: "text", text: "", state: "streaming" }`      |
-| `text-delta`      | 更新最后一个 text part 的 `text`                           |
-| `text-end`        | 将 text part 的 `state` 设为 `"done"`                      |
-
----
-
 ## 完整示例
 
 服务器响应流示例：
 
 ```
-data: {"type":"start","messageId":"1736589600000_abc123"}
+data: {"type":"start","messageId":"1736589600000_abc123",model:"xxx"}
 
 data: {"type":"start-step"}
 
+// [推理开始]
+
 data: {"type":"reasoning-start","id":"rs_001"}
 
-data: {"type":"reasoning-delta","id":"rs_001","delta":"让"}
+// [推理内容]
+
+data: {"type":"reasoning-delta","id":"rs_001","delta":"让"} 
 
 data: {"type":"reasoning-delta","id":"rs_001","delta":"我"}
 
 data: {"type":"reasoning-delta","id":"rs_001","delta":"思考..."}
 
+// [推理结束]
+
 data: {"type":"reasoning-end","id":"rs_001"}
 
+// [text开始]
+
 data: {"type":"text-start","id":"msg_001"}
+
+// [text内容]
 
 data: {"type":"text-delta","id":"msg_001","delta":"你好！"}
 
 data: {"type":"text-delta","id":"msg_001","delta":"这是回复。"}
+
+// [text结束]
 
 data: {"type":"text-end","id":"msg_001"}
 
@@ -102,109 +101,16 @@ data: [DONE]
 
 ---
 
-## 错误处理
-
-如果发生错误，建议发送 `finish` 事件并设置 `finishReason: "error"`：
-
-```json
-{
-  "type": "finish",
-  "finishReason": "error",
-  "error": {
-    "code": "rate_limit_exceeded",
-    "message": "请求频率过高，请稍后重试"
-  }
-}
-```
-
----
-
 ## 工具调用（Tool Calling）
 
 本协议支持 AI 模型调用外部工具（如天气查询、搜索、数据库操作等）。工具调用采用**服务端执行模式**，即工具在后端执行，前端仅接收状态更新和结果。
 
 ---
 
-### 工具调用事件详情
-
-#### 1. `tool-input-start` - 工具调用开始
-
-AI 开始调用工具，标记工具调用的开始。
-
-```json
-{
-  "type": "tool-input-start",
-  "toolCallId": "call_ZdyKfjQzyQS47gGAEEzA6uX2",
-  "toolName": "weather"
-}
-```
-
----
-
-#### 2. `tool-input-delta` - 参数增量
-
-AI 正在流式生成工具调用的参数（JSON 字符串片段）。
-
-```json
-{
-  "type": "tool-input-delta",
-  "toolCallId": "call_ZdyKfjQzyQS47gGAEEzA6uX2",
-  "inputTextDelta": "{\"location\":"
-}
-```
-
----
-
-#### 3. `tool-input-available` - 参数完整可用
-
-AI 完成了参数生成，后端开始执行工具。
-
-```json
-{
-  "type": "tool-input-available",
-  "toolCallId": "call_ZdyKfjQzyQS47gGAEEzA6uX2",
-  "toolName": "weather",
-  "input": {
-    "location": "Bordeaux"
-  }
-}
-```
-
----
-
-#### 4. `tool-output-available` - 执行结果可用
-
-工具执行完成，返回结果。
-
-```json
-{
-  "type": "tool-output-available",
-  "toolCallId": "call_ZdyKfjQzyQS47gGAEEzA6uX2",
-  "output": {
-    "location": "Bordeaux",
-    "temperature": 22,
-    "condition": { "text": "Foggy", "icon": "cloud-fog" }
-  }
-}
-```
-
----
-
-### 客户端状态映射
-
-| 事件                    | 客户端 ToolCallPart 状态变化                                                                |
-| ----------------------- | ------------------------------------------------------------------------------------------- |
-| `tool-input-start`      | 添加 `{ type: "tool-call", toolCallId, toolName, state: "streaming-input", inputText: "" }` |
-| `tool-input-delta`      | 更新对应 tool-call part 的 `inputText`                                                      |
-| `tool-input-available`  | 设置 `state: "input-available"`，添加 `input` 字段                                          |
-| `tool-output-available` | 设置 `state: "output-available"`，添加 `output` 字段                                        |
-
----
-
 ### 工具调用完整示例
 
 ```
-data: {"type":"start","messageId":"xxx"}
+data: {"type":"start","messageId":"xxx",model:"xxx"}
 
 data: {"type":"start-step"}
 
@@ -214,7 +120,11 @@ data: {"type":"reasoning-delta","id":"rs_001","delta":"我需要查询天气..."
 
 data: {"type":"reasoning-end","id":"rs_001"}
 
+// [工具调用开始]
+
 data: {"type":"tool-input-start","toolCallId":"call_xxx","toolName":"weather"}
+
+// [开始生成工具调用参数]
 
 data: {"type":"tool-input-delta","toolCallId":"call_xxx","inputTextDelta":"{\""}
 
@@ -226,7 +136,11 @@ data: {"type":"tool-input-delta","toolCallId":"call_xxx","inputTextDelta":"Borde
 
 data: {"type":"tool-input-delta","toolCallId":"call_xxx","inputTextDelta":"\"}"}
 
+// [完成了参数生成，后端开始执行工具]
+
 data: {"type":"tool-input-available","toolCallId":"call_xxx","toolName":"weather","input":{"location":"Bordeaux"}}
+
+// [工具执行完成，返回结果]
 
 data: {"type":"tool-output-available","toolCallId":"call_xxx","output":{"location":"Bordeaux","temperature":22,"condition":{"text":"Foggy"}}}
 
@@ -289,5 +203,4 @@ data: [DONE]
   目的地: Tokyo →
   日期: 2026-02-01
 ```
-
 ---

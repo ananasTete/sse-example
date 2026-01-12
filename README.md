@@ -31,8 +31,6 @@ data: [done]
 
 缺点：
 
-1. 只支持 GET 请求（但现在的 AI 对话通常需要 POST 发送长 Prompt）。
-2. 不支持自定义 Header（无法发送 Authorization: Bearer token）。
 
 ## fetch API + ReadableStream
 
