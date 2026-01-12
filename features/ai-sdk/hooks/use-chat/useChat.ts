@@ -14,6 +14,7 @@ interface UseChatOptions {
   api: string;
   chatId: string;
   model: string;
+  headers?: Record<string, string>;
   trigger?: "submit-message" | "regenerate-message";
   initialMessages?: Message[];
   /** 响应完成后调用，包含响应消息、所有消息以及中止、断开连接和错误的标志 */
@@ -28,6 +29,7 @@ export function useChat({
   api,
   chatId: initialChatId,
   model,
+  headers = {},
   trigger = "submit-message",
   initialMessages = [],
   onFinish,
@@ -98,7 +100,10 @@ export function useChat({
     try {
       const response = await fetch(`${api}/${chatId}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...headers,
+        },
         body: JSON.stringify({
           id: chatId,
           messages: newMessages,
