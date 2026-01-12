@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { createParser } from "eventsource-parser";
 
 interface UseGenerationOptions {
@@ -36,6 +36,16 @@ export function useGeneration({
 
   // 使用 useRef 存储 AbortController，确保在组件渲染之间保持引用
   const abortControllerRef = useRef<AbortController | null>(null);
+  // 使用 useRef 存储 headers，避免每次渲染都重新创建 generate 函数
+  const headersRef = useRef(headers);
+  headersRef.current = headers;
+
+  // 组件卸载时自动取消请求
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   // 停止生成的函数
   const stop = useCallback(() => {
@@ -65,7 +75,7 @@ export function useGeneration({
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...headers,
+            ...headersRef.current,
           },
           body: JSON.stringify(params),
           signal: controller.signal,
@@ -118,7 +128,7 @@ export function useGeneration({
                 const json = JSON.parse(data);
                 textChunk = json.text || "";
               } catch (e) {
-                // 默认只处理 JSON 格式且包含 text 字段的数据
+                console.warn("Failed to parse SSE data as JSON:", data, e);
               }
             }
 
@@ -138,7 +148,7 @@ export function useGeneration({
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
-          parser.feed(decoder.decode(value));
+          parser.feed(decoder.decode(value, { stream: true }));
         }
 
         // 成功结束
@@ -158,7 +168,7 @@ export function useGeneration({
         abortControllerRef.current = null;
       }
     },
-    [api, headers, onFinish, onResponse, onStartStream, onError, dataParser]
+    [api, onFinish, onResponse, onStartStream, onError, dataParser]
   );
 
   return {
