@@ -164,7 +164,9 @@ export function useEditorAgent({
 
   // 使用 ref 存储最新的 mode 值，避免事件监听器频繁重新绑定
   const modeRef = useRef(mode);
-  modeRef.current = mode;
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
 
   // 监听编辑器点击事件，清除选中模式
   useEffect(() => {

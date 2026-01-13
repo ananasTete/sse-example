@@ -245,14 +245,18 @@ export const ChatExample = () => {
                               );
                             }
 
-                            return (
-                              <div key={index} className="text-stone-800">
-                                <MarkdownRenderer
-                                  content={part.text}
-                                  isStreaming={part.state === "streaming"}
-                                />
-                              </div>
-                            );
+                            if (part.type === "text") {
+                              return (
+                                <div key={index} className="text-stone-800">
+                                  <MarkdownRenderer
+                                    content={part.text}
+                                    isStreaming={part.state === "streaming"}
+                                  />
+                                </div>
+                              );
+                            }
+
+                            return null;
                           })}
                         </div>
                       )}
