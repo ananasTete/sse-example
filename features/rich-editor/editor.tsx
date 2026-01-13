@@ -1,4 +1,4 @@
-import { useEditor, EditorContent } from '@tiptap/react'
+import { useEditor, EditorContent, Editor } from '@tiptap/react'
 import { StarterKit } from '@tiptap/starter-kit'
 import { TextAlign } from '@tiptap/extension-text-align'
 import { TextStyle } from '@tiptap/extension-text-style'
@@ -6,6 +6,7 @@ import { Color } from '@tiptap/extension-color'
 import { Highlight } from '@tiptap/extension-highlight'
 import { AISelectionHighlight } from './extensions/ai-selection-highlight'
 import { BubbleMenu } from './bubble-menu'
+import { useEffect } from 'react'
 import './editor.css'
 
 export const DEFAULT_EDITOR_CONTENT = `
@@ -38,9 +39,10 @@ export interface TiptapEditorRef {
 
 interface TiptapEditorProps {
   initialContent?: string
+  onEditorReady?: (editor: Editor) => void
 }
 
-const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
+const TiptapEditor = ({ initialContent, onEditorReady }: TiptapEditorProps) => {
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -59,6 +61,13 @@ const TiptapEditor = ({ initialContent }: TiptapEditorProps) => {
     content: initialContent || DEFAULT_EDITOR_CONTENT || '',
     immediatelyRender: false,
   })
+
+  // 当 editor 准备好时通知父组件
+  useEffect(() => {
+    if (editor && onEditorReady) {
+      onEditorReady(editor)
+    }
+  }, [editor, onEditorReady])
 
   if (!editor) {
     return null

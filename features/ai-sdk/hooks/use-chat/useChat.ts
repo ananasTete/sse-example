@@ -1,6 +1,7 @@
 import { ChangeEvent, FormEvent, useEffect, useReducer, useRef } from "react";
 import {
   Message,
+  MessagePart,
   OnFinishCallback,
   OnErrorCallback,
   OnDataCallback,
@@ -65,6 +66,10 @@ export function useChat({
     e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
   ) => {
     dispatch({ type: "SET_INPUT", payload: e.target.value });
+  };
+
+  const setInput = (value: string) => {
+    dispatch({ type: "SET_INPUT", payload: value });
   };
 
   // 停止当前的流式请求
@@ -306,6 +311,16 @@ export function useChat({
     await submitCore(userText, messagesBeforeTargetUser, "regenerate-message");
   };
 
+  /**
+   * 更新指定消息的 parts
+   */
+  const updateMessageParts = (
+    messageId: string,
+    updater: (parts: MessagePart[]) => MessagePart[]
+  ) => {
+    dispatch({ type: "UPDATE_AI_PARTS", payload: { messageId, updater } });
+  };
+
   return {
     messages,
     input,
@@ -313,9 +328,11 @@ export function useChat({
     error,
     isLoading: status === "submitted" || status === "streaming",
     handleInputChange,
+    setInput,
     handleSubmit,
     sendMessage,
     regenerate,
+    updateMessageParts,
     stop,
   };
 }

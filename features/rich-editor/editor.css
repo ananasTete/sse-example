@@ -3,9 +3,6 @@
   outline: none;
   min-height: 150px;
   padding: 30px;
-  border: 1px solid #e2e8f0;
-  border-radius: 0.5rem;
-  background-color: #ffffff;
   font-family:
     ui-sans-serif,
     system-ui,
@@ -19,11 +16,6 @@
   line-height: 1.5;
   color: #334155;
   box-sizing: border-box; /* Ensure padding doesn't affect width if set elsewhere */
-}
-
-.ProseMirror:focus {
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
 /* Typography styles inside the editor */

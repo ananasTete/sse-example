@@ -17,6 +17,12 @@ export default function Page() {
         >
           useGeneration Demo
         </Link>
+        <Link
+          href="/agent-editor"
+          className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded transition-colors"
+        >
+          Agent Editor Demo
+        </Link>
       </div>
     </div>
   );

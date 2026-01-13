@@ -12,6 +12,7 @@
     "@ai-sdk/openai": "^3.0.7",
     "@ai-sdk/react": "^3.0.28",
     "@floating-ui/react": "^0.27.16",
+    "@radix-ui/react-scroll-area": "^1.2.10",
     "@tiptap/core": "^3.15.3",
     "@tiptap/extension-bubble-menu": "^3.14.0",
     "@tiptap/extension-color": "^3.14.0",
