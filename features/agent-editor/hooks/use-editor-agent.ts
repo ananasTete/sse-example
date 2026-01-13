@@ -1,5 +1,4 @@
 import { useCallback, useState, useEffect, useRef } from "react";
-import type { Editor } from "@tiptap/react";
 import type {
   EditorMode,
   SelectionInfo,
@@ -11,10 +10,12 @@ import type {
 export function useEditorAgent({
   editor,
 }: UseEditorAgentOptions): UseEditorAgentReturn {
-  const [mode, setMode] = useState<EditorMode>("fulltext");
-  const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>(
+  const [mode, setMode] = useState<EditorMode>("fulltext"); // 滑词还是全文
+  const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>( // 当前选区信息，有什么用？
     null
   );
+
+  // ============ 激活选区与取消选区 ============
 
   // 激活选中模式：检查编辑器是否有选区，有则触发高亮
   const activateSelectionMode = useCallback(() => {
@@ -161,6 +162,8 @@ export function useEditorAgent({
     const content = editor.getText();
     return { mode: "fulltext", content };
   }, [editor, mode, selectionInfo]);
+
+  // ============ 在选中模式下，点击编辑器任意位置会取消选区激活模式 ===========
 
   // 使用 ref 存储最新的 mode 值，避免事件监听器频繁重新绑定
   const modeRef = useRef(mode);

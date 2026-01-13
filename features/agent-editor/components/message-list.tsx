@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import type {
   Message,
   MessagePart,
@@ -28,6 +29,13 @@ export function MessageList({
   onApplySuggestion,
   onLocateSuggestion,
 }: MessageListProps) {
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // 新消息时自动滚动到底部
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
   // 空消息列表提示
   if (messages.length === 0) {
     return (
@@ -51,6 +59,7 @@ export function MessageList({
           onLocateSuggestion={onLocateSuggestion}
         />
       ))}
+      {messagesEndRef && <div ref={messagesEndRef} />}
     </ScrollArea>
   );
 }

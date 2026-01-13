@@ -8,11 +8,7 @@ import type {
   QuickAction,
   SelectionInfo,
 } from "../types";
-import {
-  AGENT_EDITOR_API,
-  CHAT_ID,
-  DEFAULT_MODEL,
-} from "../types";
+import { AGENT_EDITOR_API, CHAT_ID, DEFAULT_MODEL } from "../types";
 import { ContextBar } from "./context-bar";
 import { MessageList } from "./message-list";
 import {
@@ -27,7 +23,6 @@ interface AgentChatProps {
 
 export function AgentChat({ editorAgent }: AgentChatProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   // 保存发送消息时的选区信息，用于后续应用建议
   const lastSelectionInfoRef = useRef<SelectionInfo | null>(null);
 
@@ -45,20 +40,6 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
     chatId: CHAT_ID,
     model: DEFAULT_MODEL,
   });
-
-  // 滚动到底部
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, []);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
-
-  // 输入框聚焦时激活选中模式
-  const handleInputFocus = useCallback(() => {
-    editorAgent.activateSelectionMode();
-  }, [editorAgent]);
 
   // 将指定消息中所有建议工具的状态设为 canceled
   const cancelAllSuggestionsInMessage = useCallback(
@@ -184,13 +165,19 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
             suggestion.newText
           );
         } else if (suggestion.originalText) {
-          success = editorAgent.replaceText(suggestion.originalText, suggestion.newText);
+          success = editorAgent.replaceText(
+            suggestion.originalText,
+            suggestion.newText
+          );
         }
       }
 
       if (!success) {
         // 失败时标记为 failed 状态，给用户反馈
-        updateMessageParts(targetMessage.id, createFailSuggestionUpdater(toolCallId, index));
+        updateMessageParts(
+          targetMessage.id,
+          createFailSuggestionUpdater(toolCallId, index)
+        );
         return;
       }
 
@@ -198,7 +185,10 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
       lastSelectionInfoRef.current = null;
 
       // 更新状态：使用工具函数
-      updateMessageParts(targetMessage.id, createApplySuggestionUpdater(toolCallId, index));
+      updateMessageParts(
+        targetMessage.id,
+        createApplySuggestionUpdater(toolCallId, index)
+      );
     },
     [messages, editorAgent, updateMessageParts]
   );
@@ -213,7 +203,14 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
     [editorAgent]
   );
 
-  // 清除选中模式
+  // ============ 激活与取消选中模式 ============
+
+  // 输入框聚焦时激活选中模式
+  const handleInputFocus = useCallback(() => {
+    editorAgent.activateSelectionMode();
+  }, [editorAgent]);
+
+  // 清除选中模式，用于快捷键和 context-bar 的取消按钮
   const handleClearSelection = useCallback(() => {
     editorAgent.clearSelectionMode();
   }, [editorAgent]);
@@ -221,17 +218,12 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
   // 键盘快捷键
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // Ctrl+Enter 发送
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        submitMessage();
-      }
       // Escape 取消选中模式
       if (e.key === "Escape") {
         handleClearSelection();
       }
     },
-    [submitMessage, handleClearSelection]
+    [handleClearSelection]
   );
 
   return (
@@ -242,7 +234,6 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
         onApplySuggestion={handleApplySuggestion}
         onLocateSuggestion={handleLocateSuggestion}
       />
-      <div ref={messagesEndRef} />
 
       {/* 上下文提示条（选中模式） */}
       {editorAgent.mode === "selection" && (

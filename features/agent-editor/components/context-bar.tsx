@@ -15,6 +15,13 @@ export function ContextBar({
   onQuickAction,
   onClear,
 }: ContextBarProps) {
+  const handleQuickAction = useCallback(
+    (action: (typeof QUICK_ACTIONS)[number]) => {
+      onQuickAction(action.key, action.prompt);
+    },
+    [onQuickAction]
+  );
+
   if (!selectionInfo) return null;
 
   // 截断显示文本（超过 20 字则截断）
@@ -22,13 +29,6 @@ export function ContextBar({
     selectionInfo.text.length > 20
       ? selectionInfo.text.slice(0, 20) + "..."
       : selectionInfo.text;
-
-  const handleQuickAction = useCallback(
-    (action: (typeof QUICK_ACTIONS)[number]) => {
-      onQuickAction(action.key, action.prompt);
-    },
-    [onQuickAction]
-  );
 
   return (
     <div className="border-b border-gray-200 p-3 bg-gray-50">
