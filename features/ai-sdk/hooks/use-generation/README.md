@@ -17,7 +17,7 @@
 
 #### 方案二：fetch API + ReadableStream
 
-得到的 chunk 是 `data: {"text":"这"}\n\n` 这样的结构，需要自己解析出内容。并且在网络波动时，收到的 chunk 可能是半截的，或者粘在一起的，称为数据截断/粘连，自己处理太麻烦了
+得到的 chunk 是 `data: {"text":"这"}\n\n` 这样的结构，需要自己解析出内容。并且在网络波动时，收到的 chunk 可能是半截的，或者两条粘在一起的，称为数据截断/粘连，自己处理太麻烦了
 
 #### 方案三：fetch + ReadableStream + eventsource-parser （最终）
 
@@ -41,7 +41,7 @@
 ## 非核心实现
 
 1. stop 停止输出（使用 AbortController 实现）
-2. datapaser 自定义 `data: [内容]\n\n` 中内容格式的解析
+2. datapaser 自定义 `data: [内容]\n\n` 中[内容]格式的解析
 3. 自定义 header
 4. loading 状态
 5. 生命周期 hook：onFinish / onError / onResponse / onStartStream

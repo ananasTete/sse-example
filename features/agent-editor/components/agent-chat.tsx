@@ -2,12 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { useChat } from "@/features/ai-sdk/hooks/use-chat/useChat";
-import type {
-  UseEditorAgentReturn,
-  Suggestion,
-  QuickAction,
-  SelectionInfo,
-} from "../types";
+import type { UseEditorAgentReturn, Suggestion, QuickAction } from "../types";
 import { AGENT_EDITOR_API, CHAT_ID, DEFAULT_MODEL } from "../types";
 import { ContextBar } from "./context-bar";
 import { MessageList } from "./message-list";
@@ -23,8 +18,6 @@ interface AgentChatProps {
 
 export function AgentChat({ editorAgent }: AgentChatProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
-  // 保存发送消息时的选区信息，用于后续应用建议
-  const lastSelectionInfoRef = useRef<SelectionInfo | null>(null);
 
   const {
     messages,
@@ -46,7 +39,7 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
     (messageId: string) => {
       updateMessageParts(messageId, createCancelAllUpdater());
     },
-    [updateMessageParts]
+    [updateMessageParts],
   );
 
   // 当选区被清除时（mode 从 selection 变为 fulltext），使所有建议失效
@@ -77,84 +70,22 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
           cancelAllSuggestionsInMessage(msg.id);
         }
       });
-      // 清除保存的选区信息
-      lastSelectionInfoRef.current = null;
     }
   }, [editorAgent.mode, messages, cancelAllSuggestionsInMessage]);
 
-  // 发送消息时附加上下文
-  const handleSendMessage = useCallback(
-    async (text: string) => {
-      const context = editorAgent.getContext();
-
-      // 保存当前选区信息，用于后续应用建议
-      lastSelectionInfoRef.current = editorAgent.selectionInfo;
-
-      // 发送新消息前，使所有旧消息中的建议失效
-      messages.forEach((msg) => {
-        if (msg.role === "assistant") {
-          cancelAllSuggestionsInMessage(msg.id);
-        }
-      });
-
-      // 发送结构化上下文（通过特殊格式，让 API 能解析）
-      const payload = JSON.stringify({ context, userRequest: text });
-      await sendMessage(payload);
-    },
-    [editorAgent, messages, cancelAllSuggestionsInMessage, sendMessage]
-  );
-
-  // 直接发送消息（不依赖表单事件）
-  const submitMessage = useCallback(async () => {
-    if (!input.trim() || isLoading) return;
-
-    const text = input;
-    setInput(""); // 清空输入框
-    await handleSendMessage(text);
-  }, [input, isLoading, handleSendMessage, setInput]);
-
-  // 表单提交
-  const handleFormSubmit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      await submitMessage();
-    },
-    [submitMessage]
-  );
-
-  // 快捷操作
-  const handleQuickAction = useCallback(
-    (action: QuickAction, prompt: string) => {
-      handleSendMessage(prompt);
-    },
-    [handleSendMessage]
-  );
-
   // 应用建议 - 更新 message part 中的状态
   const handleApplySuggestion = useCallback(
-    (toolCallId: string, index: number, suggestion: Suggestion) => {
-      // 找到包含该工具调用的消息
-      const targetMessage = messages.find((msg) =>
-        msg.parts.some(
-          (part) => part.type === "tool-call" && part.toolCallId === toolCallId
-        )
-      );
-
-      if (!targetMessage) return;
-
+    (
+      messageId: string,
+      toolCallId: string,
+      index: number,
+      suggestion: Suggestion,
+    ) => {
       // 执行替换
       let success = false;
       if (suggestion.type === "rewrite") {
-        // 优先使用当前选区，如果没有则使用保存的选区信息
         if (editorAgent.selectionInfo) {
           success = editorAgent.replaceSelection(suggestion.newText);
-        } else if (lastSelectionInfoRef.current) {
-          // 使用保存的选区位置进行替换
-          success = editorAgent.replaceAt(
-            lastSelectionInfoRef.current.from,
-            lastSelectionInfoRef.current.to,
-            suggestion.newText
-          );
         }
       } else if (suggestion.type === "edit") {
         // 全文模式：优先使用 position，否则根据 originalText 查找替换
@@ -162,12 +93,12 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
           success = editorAgent.replaceAt(
             suggestion.position.from,
             suggestion.position.to,
-            suggestion.newText
+            suggestion.newText,
           );
         } else if (suggestion.originalText) {
           success = editorAgent.replaceText(
             suggestion.originalText,
-            suggestion.newText
+            suggestion.newText,
           );
         }
       }
@@ -175,22 +106,19 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
       if (!success) {
         // 失败时标记为 failed 状态，给用户反馈
         updateMessageParts(
-          targetMessage.id,
-          createFailSuggestionUpdater(toolCallId, index)
+          messageId,
+          createFailSuggestionUpdater(toolCallId, index),
         );
         return;
       }
 
-      // 清除保存的选区信息
-      lastSelectionInfoRef.current = null;
-
       // 更新状态：使用工具函数
       updateMessageParts(
-        targetMessage.id,
-        createApplySuggestionUpdater(toolCallId, index)
+        messageId,
+        createApplySuggestionUpdater(toolCallId, index),
       );
     },
-    [messages, editorAgent, updateMessageParts]
+    [editorAgent, updateMessageParts],
   );
 
   // 定位建议
@@ -200,7 +128,7 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
         editorAgent.scrollToPosition(suggestion.position.from);
       }
     },
-    [editorAgent]
+    [editorAgent],
   );
 
   // ============ 激活与取消选中模式 ============
@@ -223,7 +151,50 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
         handleClearSelection();
       }
     },
-    [handleClearSelection]
+    [handleClearSelection],
+  );
+
+  // ============ 提交 ============
+
+  // 发送消息时附加上下文
+  const handleSendMessage = useCallback(
+    async (text: string) => {
+      const context = editorAgent.getContext();
+
+      // 发送新消息前，使最近一条 assistant 消息中的建议失效
+      const lastAssistantMsg = messages.findLast(
+        (msg) => msg.role === "assistant",
+      );
+      if (lastAssistantMsg) {
+        cancelAllSuggestionsInMessage(lastAssistantMsg.id);
+      }
+
+      // 发送结构化上下文（通过特殊格式，让 API 能解析）
+      const payload = JSON.stringify({ context, userRequest: text });
+      await sendMessage(payload);
+    },
+    [editorAgent, messages, cancelAllSuggestionsInMessage, sendMessage],
+  );
+
+  // 表单提交
+  const handleFormSubmit = useCallback(
+    async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!input.trim() || isLoading) return;
+
+      const text = input;
+      setInput("");
+      await handleSendMessage(text);
+    },
+    [input, isLoading, handleSendMessage, setInput],
+  );
+
+  // context-bar 快捷操作提交
+  const handleQuickAction = useCallback(
+    (action: QuickAction, prompt: string) => {
+      handleSendMessage(prompt);
+    },
+    [handleSendMessage],
   );
 
   return (
@@ -285,9 +256,7 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
             )}
           </div>
         </div>
-        <div className="text-xs text-gray-400 mt-1">
-          Ctrl+Enter 发送 | Escape 取消选中
-        </div>
+        <div className="text-xs text-gray-400 mt-1">Escape 取消选中</div>
       </form>
     </div>
   );

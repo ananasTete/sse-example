@@ -13,8 +13,8 @@ export interface SelectionInfo {
 // 聊天上下文（发送给 AI 的结构化数据）
 export interface ChatContext {
   mode: EditorMode;
-  content: string;  // 全文模式下是全文，选中模式下是选中内容
-  selection?: SelectionInfo;  // 选中模式下的选区信息
+  content: string; // 全文模式下是全文，选中模式下是选中内容
+  selection?: SelectionInfo; // 选中模式下的选区信息
 }
 
 // 建议状态：idle(初始) -> checked(已选择) | canceled(已取消/失效) | failed(应用失败)
@@ -26,30 +26,22 @@ export type SuggestionType = "rewrite" | "edit";
 // 单个建议项（存储在 ToolCallPart.input 中）
 export interface SuggestionItem {
   label?: string;
+  originalText?: string; // edit 类型需要，rewrite 类型可选
   newText: string;
   status: SuggestionStatus;
 }
 
-// suggest_rewrite 工具的 input 类型
-export interface SuggestRewriteInput {
+// 建议工具的统一 input 类型
+// suggest_rewrite 和 suggest_edit 都使用相同结构
+export interface SuggestionToolInput {
   suggestions: SuggestionItem[];
-}
-
-// suggest_edit 工具的 input 类型（单个 edit，每个 edit 是独立的 tool call）
-export interface SuggestEditInput {
-  edit: {
-    label?: string;
-    originalText: string;
-    newText: string;
-    status: SuggestionStatus;
-  };
 }
 
 // 渲染用的建议（从 part.input 解析出来）
 export interface Suggestion {
-  id: string;           // toolCallId-index
+  id: string; // toolCallId-index
   type: SuggestionType;
-  index: number;        // 在数组中的索引，用于更新状态
+  index: number; // 在数组中的索引，用于更新状态
   label?: string;
   originalText?: string;
   newText: string;
@@ -79,8 +71,16 @@ export interface UseEditorAgentReturn {
 export type QuickAction = "optimize" | "continue" | "expand" | "explain";
 
 // 快捷操作配置
-export const QUICK_ACTIONS: { key: QuickAction; label: string; prompt: string }[] = [
-  { key: "optimize", label: "优化", prompt: "请优化这段文字，使其更加简洁流畅" },
+export const QUICK_ACTIONS: {
+  key: QuickAction;
+  label: string;
+  prompt: string;
+}[] = [
+  {
+    key: "optimize",
+    label: "优化",
+    prompt: "请优化这段文字，使其更加简洁流畅",
+  },
   { key: "continue", label: "续写", prompt: "请根据上下文续写这段内容" },
   { key: "expand", label: "扩写", prompt: "请扩展这段内容，增加更多细节" },
   { key: "explain", label: "解释", prompt: "请解释这段内容的含义" },
@@ -118,31 +118,14 @@ function isSuggestionItem(item: unknown): item is SuggestionItem {
 }
 
 /**
- * 判断是否是 SuggestRewriteInput
+ * 判断是否是 SuggestionToolInput（统一的建议工具输入类型）
  */
-export function isSuggestRewriteInput(input: unknown): input is SuggestRewriteInput {
+export function isSuggestionToolInput(
+  input: unknown,
+): input is SuggestionToolInput {
   if (typeof input !== "object" || input === null) return false;
   const obj = input as Record<string, unknown>;
   return (
-    Array.isArray(obj.suggestions) &&
-    obj.suggestions.every(isSuggestionItem)
-  );
-}
-
-/**
- * 判断是否是 SuggestEditInput
- */
-export function isSuggestEditInput(input: unknown): input is SuggestEditInput {
-  if (typeof input !== "object" || input === null) return false;
-  const obj = input as Record<string, unknown>;
-  if (typeof obj.edit !== "object" || obj.edit === null) return false;
-  const edit = obj.edit as Record<string, unknown>;
-  return (
-    typeof edit.originalText === "string" &&
-    typeof edit.newText === "string" &&
-    (edit.status === "idle" ||
-      edit.status === "checked" ||
-      edit.status === "canceled" ||
-      edit.status === "failed")
+    Array.isArray(obj.suggestions) && obj.suggestions.every(isSuggestionItem)
   );
 }

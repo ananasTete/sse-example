@@ -6,20 +6,17 @@ import type {
   MessagePart,
   ToolCallPart,
 } from "@/features/ai-sdk/hooks/use-chat/types";
-import type {
-  Suggestion,
-  SuggestRewriteInput,
-  SuggestEditInput,
-} from "../types";
+import type { Suggestion, SuggestionToolInput } from "../types";
 import { SuggestionCard } from "./suggestion-card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface MessageListProps {
   messages: Message[];
   onApplySuggestion: (
+    messageId: string,
     toolCallId: string,
     index: number,
-    suggestion: Suggestion
+    suggestion: Suggestion,
   ) => void;
   onLocateSuggestion?: (suggestion: Suggestion) => void;
 }
@@ -67,9 +64,10 @@ export function MessageList({
 interface MessageItemProps {
   message: Message;
   onApplySuggestion: (
+    messageId: string,
     toolCallId: string,
     index: number,
-    suggestion: Suggestion
+    suggestion: Suggestion,
   ) => void;
   onLocateSuggestion?: (suggestion: Suggestion) => void;
 }
@@ -101,6 +99,7 @@ function MessageItem({
         {message.parts.map((part, index) => (
           <MessagePartRenderer
             key={index}
+            messageId={message.id}
             part={part}
             onApplySuggestion={onApplySuggestion}
             onLocateSuggestion={onLocateSuggestion}
@@ -112,16 +111,19 @@ function MessageItem({
 }
 
 interface MessagePartRendererProps {
+  messageId: string;
   part: MessagePart;
   onApplySuggestion: (
+    messageId: string,
     toolCallId: string,
     index: number,
-    suggestion: Suggestion
+    suggestion: Suggestion,
   ) => void;
   onLocateSuggestion?: (suggestion: Suggestion) => void;
 }
 
 function MessagePartRenderer({
+  messageId,
   part,
   onApplySuggestion,
   onLocateSuggestion,
@@ -138,6 +140,7 @@ function MessagePartRenderer({
     case "tool-call":
       return (
         <ToolCallRenderer
+          messageId={messageId}
           part={part}
           onApplySuggestion={onApplySuggestion}
           onLocateSuggestion={onLocateSuggestion}
@@ -153,11 +156,13 @@ function MessagePartRenderer({
 }
 
 interface ToolCallRendererProps {
+  messageId: string;
   part: ToolCallPart;
   onApplySuggestion: (
+    messageId: string,
     toolCallId: string,
     index: number,
-    suggestion: Suggestion
+    suggestion: Suggestion,
   ) => void;
   onLocateSuggestion?: (suggestion: Suggestion) => void;
 }
@@ -166,34 +171,22 @@ interface ToolCallRendererProps {
 function parseSuggestionsFromPart(part: ToolCallPart): Suggestion[] {
   const { toolName, toolCallId, input } = part;
 
-  if (toolName === "suggest_rewrite" && input) {
-    const rewriteInput = input as unknown as SuggestRewriteInput;
-    if (rewriteInput.suggestions) {
-      return rewriteInput.suggestions.map((s, index) => ({
+  if (
+    (toolName === "suggest_rewrite" || toolName === "suggest_edit") &&
+    input
+  ) {
+    const toolInput = input as unknown as SuggestionToolInput;
+    const type = toolName === "suggest_rewrite" ? "rewrite" : "edit";
+    if (toolInput.suggestions) {
+      return toolInput.suggestions.map((s, index) => ({
         id: `${toolCallId}-${index}`,
-        type: "rewrite" as const,
+        type,
         index,
         label: s.label,
+        originalText: s.originalText,
         newText: s.newText,
         status: s.status || "idle",
       }));
-    }
-  }
-
-  if (toolName === "suggest_edit" && input) {
-    const editInput = input as unknown as SuggestEditInput;
-    // 单个 edit（每个 tool call 只有一个 edit）
-    if (editInput.edit) {
-      const e = editInput.edit;
-      return [{
-        id: `${toolCallId}-0`,
-        type: "edit" as const,
-        index: 0,
-        label: e.label,
-        originalText: e.originalText,
-        newText: e.newText,
-        status: e.status || "idle",
-      }];
     }
   }
 
@@ -228,6 +221,7 @@ function SuggestionSkeleton() {
 }
 
 function ToolCallRenderer({
+  messageId,
   part,
   onApplySuggestion,
   onLocateSuggestion,
@@ -252,7 +246,9 @@ function ToolCallRenderer({
               <SuggestionCard
                 key={suggestion.id}
                 suggestion={suggestion}
-                onApply={(s) => onApplySuggestion(toolCallId, s.index, s)}
+                onApply={(s) =>
+                  onApplySuggestion(messageId, toolCallId, s.index, s)
+                }
                 onLocate={
                   suggestion.type === "edit" ? onLocateSuggestion : undefined
                 }

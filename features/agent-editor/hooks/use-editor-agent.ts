@@ -12,7 +12,7 @@ export function useEditorAgent({
 }: UseEditorAgentOptions): UseEditorAgentReturn {
   const [mode, setMode] = useState<EditorMode>("fulltext"); // 滑词还是全文
   const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>( // 当前选区信息，有什么用？
-    null
+    null,
   );
 
   // ============ 激活选区与取消选区 ============
@@ -52,6 +52,34 @@ export function useEditorAgent({
     setMode("fulltext");
   }, [editor]);
 
+  // ============ 在选中模式下，点击编辑器任意位置会取消选区激活模式 ===========
+
+  // 使用 ref 存储最新的 mode 值，避免事件监听器频繁重新绑定
+  const modeRef = useRef(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+
+  // 监听编辑器点击事件，清除选中模式
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleFocus = () => {
+      if (modeRef.current === "selection") {
+        clearSelectionMode();
+      }
+    };
+
+    // 监听编辑器的 focus 事件
+    editor.on("focus", handleFocus);
+
+    return () => {
+      editor.off("focus", handleFocus);
+    };
+  }, [editor, clearSelectionMode]);
+
+  // ============ 更新编辑器 ============
+
   // 替换选中内容
   const replaceSelection = useCallback(
     (newText: string) => {
@@ -73,7 +101,7 @@ export function useEditorAgent({
 
       return true;
     },
-    [editor, selectionInfo, clearSelectionMode]
+    [editor, selectionInfo, clearSelectionMode],
   );
 
   // 替换指定位置内容（全文模式下使用）
@@ -91,7 +119,7 @@ export function useEditorAgent({
 
       return true;
     },
-    [editor]
+    [editor],
   );
 
   // 根据原文查找并替换（全文模式下，没有 position 时使用）
@@ -130,7 +158,7 @@ export function useEditorAgent({
 
       return true;
     },
-    [editor]
+    [editor],
   );
 
   // 滚动到指定位置
@@ -141,7 +169,7 @@ export function useEditorAgent({
       editor.commands.setTextSelection(from);
       editor.commands.scrollIntoView();
     },
-    [editor]
+    [editor],
   );
 
   // 获取上下文（用于发送给 AI）
@@ -162,32 +190,6 @@ export function useEditorAgent({
     const content = editor.getText();
     return { mode: "fulltext", content };
   }, [editor, mode, selectionInfo]);
-
-  // ============ 在选中模式下，点击编辑器任意位置会取消选区激活模式 ===========
-
-  // 使用 ref 存储最新的 mode 值，避免事件监听器频繁重新绑定
-  const modeRef = useRef(mode);
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
-
-  // 监听编辑器点击事件，清除选中模式
-  useEffect(() => {
-    if (!editor) return;
-
-    const handleFocus = () => {
-      if (modeRef.current === "selection") {
-        clearSelectionMode();
-      }
-    };
-
-    // 监听编辑器的 focus 事件
-    editor.on("focus", handleFocus);
-
-    return () => {
-      editor.off("focus", handleFocus);
-    };
-  }, [editor, clearSelectionMode]);
 
   return {
     mode,
