@@ -5,6 +5,7 @@ import { TextStyle } from '@tiptap/extension-text-style'
 import { Color } from '@tiptap/extension-color'
 import { Highlight } from '@tiptap/extension-highlight'
 import { AISelectionHighlight } from './extensions/ai-selection-highlight'
+import { InlineDiff } from './extensions/inline-diff'
 import { BubbleMenu } from './bubble-menu'
 import { useEffect } from 'react'
 import './editor.css'
@@ -40,9 +41,11 @@ export interface TiptapEditorRef {
 interface TiptapEditorProps {
   initialContent?: string
   onEditorReady?: (editor: Editor) => void
+  onDiffAccept?: (suggestionId: string) => void
+  onDiffReject?: (suggestionId: string) => void
 }
 
-const TiptapEditor = ({ initialContent, onEditorReady }: TiptapEditorProps) => {
+const TiptapEditor = ({ initialContent, onEditorReady, onDiffAccept, onDiffReject }: TiptapEditorProps) => {
   const editor = useEditor({
     extensions: [
       StarterKit,
@@ -57,6 +60,10 @@ const TiptapEditor = ({ initialContent, onEditorReady }: TiptapEditorProps) => {
         multicolor: true,
       }),
       AISelectionHighlight,
+      InlineDiff.configure({
+        onAccept: onDiffAccept,
+        onReject: onDiffReject,
+      }),
     ],
     content: initialContent || DEFAULT_EDITOR_CONTENT || '',
     immediatelyRender: false,

@@ -172,6 +172,134 @@ export function useEditorAgent({
     [editor],
   );
 
+  // ============ Inline Diff 相关方法 ============
+
+  // 插入 diff 节点（指定位置）
+  const insertDiffNode = useCallback(
+    (from: number, to: number, newText: string, suggestionId: string) => {
+      if (!editor) return false;
+      editor.commands.insertDiffNode(from, to, newText, suggestionId);
+      return true;
+    },
+    [editor],
+  );
+
+  // 根据原文查找并插入 diff 节点
+  const insertDiffByText = useCallback(
+    (originalText: string, newText: string, suggestionId: string) => {
+      if (!editor) return false;
+
+      // 查找原文位置
+      let foundFrom = -1;
+      let foundTo = -1;
+
+      editor.state.doc.descendants((node, pos) => {
+        if (foundFrom !== -1) return false;
+
+        if (node.isText && node.text) {
+          const index = node.text.indexOf(originalText);
+          if (index !== -1) {
+            foundFrom = pos + index;
+            foundTo = foundFrom + originalText.length;
+            return false;
+          }
+        }
+        return true;
+      });
+
+      if (foundFrom === -1) return false;
+
+      editor.commands.insertDiffNode(foundFrom, foundTo, newText, suggestionId);
+      return true;
+    },
+    [editor],
+  );
+
+  // 批量插入 diff 节点（处理多个建议）
+  const insertMultipleDiffs = useCallback(
+    (
+      suggestions: Array<{
+        originalText: string;
+        newText: string;
+        suggestionId: string;
+      }>,
+    ) => {
+      if (!editor) return;
+
+      // 先收集所有位置，从后向前插入避免位置偏移
+      const positions: Array<{
+        from: number;
+        to: number;
+        newText: string;
+        suggestionId: string;
+      }> = [];
+
+      suggestions.forEach(({ originalText, newText, suggestionId }) => {
+        let foundFrom = -1;
+        let foundTo = -1;
+
+        editor.state.doc.descendants((node, pos) => {
+          if (foundFrom !== -1) return false;
+
+          if (node.isText && node.text) {
+            const index = node.text.indexOf(originalText);
+            if (index !== -1) {
+              foundFrom = pos + index;
+              foundTo = foundFrom + originalText.length;
+              return false;
+            }
+          }
+          return true;
+        });
+
+        if (foundFrom !== -1) {
+          positions.push({ from: foundFrom, to: foundTo, newText, suggestionId });
+        }
+      });
+
+      // 按位置从后向前排序
+      positions.sort((a, b) => b.from - a.from);
+
+      // 逐个插入（从后向前）
+      positions.forEach(({ from, to, newText, suggestionId }) => {
+        editor.commands.insertDiffNode(from, to, newText, suggestionId);
+      });
+    },
+    [editor],
+  );
+
+  // 接受 diff
+  const acceptDiff = useCallback(
+    (suggestionId: string) => {
+      if (!editor) return false;
+      editor.commands.acceptDiff(suggestionId);
+      return true;
+    },
+    [editor],
+  );
+
+  // 拒绝 diff
+  const rejectDiff = useCallback(
+    (suggestionId: string) => {
+      if (!editor) return false;
+      editor.commands.rejectDiff(suggestionId);
+      return true;
+    },
+    [editor],
+  );
+
+  // 清除所有 diff 节点（恢复原文）
+  const clearAllDiffs = useCallback(() => {
+    if (!editor) return;
+    editor.commands.clearAllDiffs();
+  }, [editor]);
+
+  // 接受所有 diff
+  const acceptAllDiffs = useCallback(() => {
+    if (!editor) return;
+    editor.commands.acceptAllDiffs();
+  }, [editor]);
+
   // 获取上下文（用于发送给 AI）
   const getContext = useCallback((): ChatContext => {
     if (!editor) {
@@ -201,5 +329,13 @@ export function useEditorAgent({
     replaceText,
     scrollToPosition,
     getContext,
+    // Inline Diff 相关
+    insertDiffNode,
+    insertDiffByText,
+    insertMultipleDiffs,
+    acceptDiff,
+    rejectDiff,
+    clearAllDiffs,
+    acceptAllDiffs,
   };
 }

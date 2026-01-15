@@ -68,7 +68,8 @@ export function createCancelAllUpdater(): (
 }
 
 /**
- * 创建应用建议的 updater
+ * 创建应用建议的 updater（选区模式，互斥）
+ * 将指定建议设为 checked，同一 toolCallId 下的其他 idle 建议设为 canceled
  * @param toolCallId - 工具调用 ID
  * @param index - 建议索引
  */
@@ -86,6 +87,24 @@ export function createApplySuggestionUpdater(
 }
 
 /**
+ * 创建应用单个建议的 updater（全文模式，独立）
+ * 只将指定建议设为 checked，不影响其他建议
+ * @param toolCallId - 工具调用 ID
+ * @param index - 建议索引
+ */
+export function createCheckSuggestionUpdater(
+  toolCallId: string,
+  index: number,
+): (parts: MessagePart[]) => MessagePart[] {
+  return (parts) =>
+    updateSuggestionStatus(
+      parts,
+      (part) => part.toolCallId === toolCallId,
+      (status, i) => (i === index ? "checked" : status),
+    );
+}
+
+/**
  * 创建标记建议为失败状态的 updater
  * @param toolCallId - 工具调用 ID
  * @param index - 建议索引
@@ -99,5 +118,22 @@ export function createFailSuggestionUpdater(
       parts,
       (part) => part.toolCallId === toolCallId,
       (status, i) => (i === index ? "failed" : status),
+    );
+}
+
+/**
+ * 创建取消单个建议的 updater
+ * @param toolCallId - 工具调用 ID
+ * @param index - 建议索引
+ */
+export function createCancelSuggestionUpdater(
+  toolCallId: string,
+  index: number,
+): (parts: MessagePart[]) => MessagePart[] {
+  return (parts) =>
+    updateSuggestionStatus(
+      parts,
+      (part) => part.toolCallId === toolCallId,
+      (status, i) => (i === index ? "canceled" : status),
     );
 }

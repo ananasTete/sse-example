@@ -65,6 +65,29 @@ export interface UseEditorAgentReturn {
   replaceText: (originalText: string, newText: string) => boolean;
   scrollToPosition: (from: number) => void;
   getContext: () => ChatContext;
+  // Inline Diff 相关
+  insertDiffNode: (
+    from: number,
+    to: number,
+    newText: string,
+    suggestionId: string,
+  ) => boolean;
+  insertDiffByText: (
+    originalText: string,
+    newText: string,
+    suggestionId: string,
+  ) => boolean;
+  insertMultipleDiffs: (
+    suggestions: Array<{
+      originalText: string;
+      newText: string;
+      suggestionId: string;
+    }>,
+  ) => void;
+  acceptDiff: (suggestionId: string) => boolean;
+  rejectDiff: (suggestionId: string) => boolean;
+  clearAllDiffs: () => void;
+  acceptAllDiffs: () => void;
 }
 
 // 快捷操作类型

@@ -237,52 +237,48 @@ export async function POST(
 
         sendEvent(controller, encoder, { type: "text-end", id: textId });
       } else {
-        // === 全文模式：每个 edit 作为单独的 tool call ===
+        // === 全文模式：调用 suggest_edit 工具 ===
         const fullText = selectedContent; // 直接使用结构化的 context.content
+        const toolCallId = `call_${generateId()}`;
         const toolName = "suggest_edit";
         const edits = generateEditSuggestions(fullText, userRequest);
 
-        // 每个 edit 单独发送一个 tool call
-        for (const edit of edits) {
-          const toolCallId = `call_${generateId()}`;
+        // 工具调用开始
+        sendEvent(controller, encoder, {
+          type: "tool-input-start",
+          toolCallId,
+          toolName,
+        });
+        await delay(50);
 
-          // 工具调用开始
+        // 流式生成工具参数（使用 suggestions 数组格式，与 suggest_rewrite 保持一致）
+        const inputJson = JSON.stringify({ suggestions: edits });
+        for (const char of inputJson) {
           sendEvent(controller, encoder, {
-            type: "tool-input-start",
+            type: "tool-input-delta",
             toolCallId,
-            toolName,
+            inputTextDelta: char,
           });
-          await delay(50);
-
-          // 流式生成工具参数（单个 edit）
-          const inputJson = JSON.stringify({ edit });
-          for (const char of inputJson) {
-            sendEvent(controller, encoder, {
-              type: "tool-input-delta",
-              toolCallId,
-              inputTextDelta: char,
-            });
-            await delay(10);
-          }
-          await delay(100);
-
-          // 工具参数完整可用
-          sendEvent(controller, encoder, {
-            type: "tool-input-available",
-            toolCallId,
-            toolName,
-            input: { edit },
-          });
-          await delay(200);
-
-          // 工具执行结果
-          sendEvent(controller, encoder, {
-            type: "tool-output-available",
-            toolCallId,
-            output: { success: true },
-          });
-          await delay(100);
+          await delay(10);
         }
+        await delay(100);
+
+        // 工具参数完整可用
+        sendEvent(controller, encoder, {
+          type: "tool-input-available",
+          toolCallId,
+          toolName,
+          input: { suggestions: edits },
+        });
+        await delay(200);
+
+        // 工具执行结果
+        sendEvent(controller, encoder, {
+          type: "tool-output-available",
+          toolCallId,
+          output: { success: true, count: edits.length },
+        });
+        await delay(100);
 
         // 生成文本回复
         sendEvent(controller, encoder, { type: "text-start", id: textId });
