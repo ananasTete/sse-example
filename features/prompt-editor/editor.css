@@ -1,0 +1,102 @@
+.ProseMirror {
+  height: 100%;
+  outline: none;
+  min-height: 150px;
+  padding: 10px;
+  font-family:
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+  line-height: 1.5;
+  color: #334155;
+  box-sizing: border-box; /* Ensure padding doesn't affect width if set elsewhere */
+}
+
+.ProseMirror p {
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+/* 图片标签样式 */
+.image-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #92400e;
+  background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%);
+  border: 1px solid #f59e0b;
+  border-radius: 9999px;
+  cursor: default;
+  user-select: none;
+  box-shadow: 0 1px 2px rgba(245, 158, 11, 0.15);
+  vertical-align: middle;
+  transform: translateY(-1px);
+}
+
+/* 使用伪元素创建左右间距，避免 margin 导致光标跳动 */
+.image-tag::before,
+.image-tag::after {
+  content: "";
+  display: inline-block;
+  width: 2px;
+}
+
+.image-tag:hover {
+  background: linear-gradient(135deg, #fde68a 0%, #fcd34d 100%);
+  box-shadow: 0 2px 4px rgba(245, 158, 11, 0.25);
+}
+
+/* 选中状态 */
+.ProseMirror .image-tag.ProseMirror-selectednode {
+  outline: 2px solid #f59e0b;
+  outline-offset: 1px;
+  background: linear-gradient(135deg, #fcd34d 0%, #fbbf24 100%);
+}
+
+/* 拖拽时的标签样式 */
+.image-tag[draggable="true"] {
+  cursor: grab;
+}
+
+.image-tag[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+/* 拖拽指示器 */
+.image-tag-drop-indicator {
+  position: absolute;
+  width: 2px;
+  height: 1.2em;
+  background-color: #f59e0b;
+  border-radius: 1px;
+  margin-left: -1px;
+  pointer-events: none;
+  animation: blink 1s ease-in-out infinite;
+}
+
+/* 拖拽时隐藏默认光标 */
+.ProseMirror.dragging {
+  caret-color: transparent;
+}
+
+/* 隐藏 ProseMirror 默认的拖拽光标 */
+.ProseMirror-dropcursor {
+  display: none !important;
+}
+
+@keyframes blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}

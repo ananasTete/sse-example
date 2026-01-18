@@ -1,14 +1,14 @@
-import { useEditor, EditorContent, Editor } from '@tiptap/react'
-import { StarterKit } from '@tiptap/starter-kit'
-import { TextAlign } from '@tiptap/extension-text-align'
-import { TextStyle } from '@tiptap/extension-text-style'
-import { Color } from '@tiptap/extension-color'
-import { Highlight } from '@tiptap/extension-highlight'
-import { AISelectionHighlight } from './extensions/ai-selection-highlight'
-import { InlineDiff } from './extensions/inline-diff'
-import { BubbleMenu } from './bubble-menu'
-import { useEffect } from 'react'
-import './editor.css'
+import { useEditor, EditorContent, Editor } from "@tiptap/react";
+import { StarterKit } from "@tiptap/starter-kit";
+import { TextAlign } from "@tiptap/extension-text-align";
+import { TextStyle } from "@tiptap/extension-text-style";
+import { Color } from "@tiptap/extension-color";
+import { Highlight } from "@tiptap/extension-highlight";
+import { AISelectionHighlight } from "./extensions/ai-selection-highlight";
+import { InlineDiff } from "./extensions/inline-diff";
+import { BubbleMenu } from "./bubble-menu";
+import { useEffect } from "react";
+import "./editor.css";
 
 export const DEFAULT_EDITOR_CONTENT = `
   <h1>Welcome to Tiptap Editor</h1>
@@ -26,33 +26,38 @@ export const DEFAULT_EDITOR_CONTENT = `
     <p>This is a blockquote. It can contain multiple paragraphs.</p>
   </blockquote>
   <p>Try selecting this paragraph and applying some <code>formatting</code>!</p>
-`
+`;
 
 export interface TiptapEditorRef {
   startStreamSession: (options?: {
-    replaceSelection?: boolean
-  }) => Promise<AbortSignal | undefined>
-  write: (chunk: string) => void
-  abort: () => void
-  isStreaming: boolean
-  stopStream: () => void
+    replaceSelection?: boolean;
+  }) => Promise<AbortSignal | undefined>;
+  write: (chunk: string) => void;
+  abort: () => void;
+  isStreaming: boolean;
+  stopStream: () => void;
 }
 
 interface TiptapEditorProps {
-  initialContent?: string
-  onEditorReady?: (editor: Editor) => void
-  onDiffAccept?: (suggestionId: string) => void
-  onDiffReject?: (suggestionId: string) => void
+  initialContent?: string;
+  onEditorReady?: (editor: Editor) => void;
+  onDiffAccept?: (suggestionId: string) => void;
+  onDiffReject?: (suggestionId: string) => void;
 }
 
-const TiptapEditor = ({ initialContent, onEditorReady, onDiffAccept, onDiffReject }: TiptapEditorProps) => {
+const TiptapEditor = ({
+  initialContent,
+  onEditorReady,
+  onDiffAccept,
+  onDiffReject,
+}: TiptapEditorProps) => {
   const editor = useEditor({
     extensions: [
       StarterKit,
       TextAlign.configure({
-        types: ['heading', 'paragraph'],
-        alignments: ['left', 'center', 'right'],
-        defaultAlignment: 'left',
+        types: ["heading", "paragraph"],
+        alignments: ["left", "center", "right"],
+        defaultAlignment: "left",
       }),
       TextStyle,
       Color,
@@ -65,19 +70,19 @@ const TiptapEditor = ({ initialContent, onEditorReady, onDiffAccept, onDiffRejec
         onReject: onDiffReject,
       }),
     ],
-    content: initialContent || DEFAULT_EDITOR_CONTENT || '',
+    content: initialContent || DEFAULT_EDITOR_CONTENT || "",
     immediatelyRender: false,
-  })
+  });
 
   // 当 editor 准备好时通知父组件
   useEffect(() => {
     if (editor && onEditorReady) {
-      onEditorReady(editor)
+      onEditorReady(editor);
     }
-  }, [editor, onEditorReady])
+  }, [editor, onEditorReady]);
 
   if (!editor) {
-    return null
+    return null;
   }
 
   return (
@@ -85,9 +90,9 @@ const TiptapEditor = ({ initialContent, onEditorReady, onDiffAccept, onDiffRejec
       <BubbleMenu editor={editor} />
       <EditorContent editor={editor} />
     </div>
-  )
-}
+  );
+};
 
-TiptapEditor.displayName = 'TiptapEditor'
+TiptapEditor.displayName = "TiptapEditor";
 
-export default TiptapEditor
+export default TiptapEditor;

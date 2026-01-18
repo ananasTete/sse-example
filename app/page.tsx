@@ -7,7 +7,7 @@ export default function Page() {
       <div className="flex gap-4">
         <Link
           href="/use-chat"
-          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded transition-colors"
+          className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded transition-colors"
         >
           useChat Demo
         </Link>
@@ -22,6 +22,12 @@ export default function Page() {
           className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded transition-colors"
         >
           Agent Editor Demo
+        </Link>
+        <Link
+          href="/prompt-editor"
+          className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded transition-colors"
+        >
+          Prompt Editor Demo
         </Link>
       </div>
     </div>
