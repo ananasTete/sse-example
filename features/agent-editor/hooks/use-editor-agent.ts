@@ -12,7 +12,7 @@ export function useEditorAgent({
 }: UseEditorAgentOptions): UseEditorAgentReturn {
   const [mode, setMode] = useState<EditorMode>("fulltext"); // 滑词还是全文
   const [selectionInfo, setSelectionInfo] = useState<SelectionInfo | null>( // 当前选区信息，有什么用？
-    null
+    null,
   );
 
   // ============ 激活选区与取消选区 ============
@@ -52,6 +52,34 @@ export function useEditorAgent({
     setMode("fulltext");
   }, [editor]);
 
+  // ============ 在选中模式下，点击编辑器任意位置会取消选区激活模式 ===========
+
+  // 使用 ref 存储最新的 mode 值，避免事件监听器频繁重新绑定
+  const modeRef = useRef(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+
+  // 监听编辑器点击事件，清除选中模式
+  useEffect(() => {
+    if (!editor) return;
+
+    const handleFocus = () => {
+      if (modeRef.current === "selection") {
+        clearSelectionMode();
+      }
+    };
+
+    // 监听编辑器的 focus 事件
+    editor.on("focus", handleFocus);
+
+    return () => {
+      editor.off("focus", handleFocus);
+    };
+  }, [editor, clearSelectionMode]);
+
+  // ============ 更新编辑器 ============
+
   // 替换选中内容
   const replaceSelection = useCallback(
     (newText: string) => {
@@ -73,7 +101,7 @@ export function useEditorAgent({
 
       return true;
     },
-    [editor, selectionInfo, clearSelectionMode]
+    [editor, selectionInfo, clearSelectionMode],
   );
 
   // 替换指定位置内容（全文模式下使用）
@@ -91,7 +119,7 @@ export function useEditorAgent({
 
       return true;
     },
-    [editor]
+    [editor],
   );
 
   // 根据原文查找并替换（全文模式下，没有 position 时使用）
@@ -130,7 +158,7 @@ export function useEditorAgent({
 
       return true;
     },
-    [editor]
+    [editor],
   );
 
   // 滚动到指定位置
@@ -141,8 +169,136 @@ export function useEditorAgent({
       editor.commands.setTextSelection(from);
       editor.commands.scrollIntoView();
     },
-    [editor]
+    [editor],
   );
+
+  // ============ Inline Diff 相关方法 ============
+
+  // 插入 diff 节点（指定位置）
+  const insertDiffNode = useCallback(
+    (from: number, to: number, newText: string, suggestionId: string) => {
+      if (!editor) return false;
+      editor.commands.insertDiffNode(from, to, newText, suggestionId);
+      return true;
+    },
+    [editor],
+  );
+
+  // 根据原文查找并插入 diff 节点
+  const insertDiffByText = useCallback(
+    (originalText: string, newText: string, suggestionId: string) => {
+      if (!editor) return false;
+
+      // 查找原文位置
+      let foundFrom = -1;
+      let foundTo = -1;
+
+      editor.state.doc.descendants((node, pos) => {
+        if (foundFrom !== -1) return false;
+
+        if (node.isText && node.text) {
+          const index = node.text.indexOf(originalText);
+          if (index !== -1) {
+            foundFrom = pos + index;
+            foundTo = foundFrom + originalText.length;
+            return false;
+          }
+        }
+        return true;
+      });
+
+      if (foundFrom === -1) return false;
+
+      editor.commands.insertDiffNode(foundFrom, foundTo, newText, suggestionId);
+      return true;
+    },
+    [editor],
+  );
+
+  // 批量插入 diff 节点（处理多个建议）
+  const insertMultipleDiffs = useCallback(
+    (
+      suggestions: Array<{
+        originalText: string;
+        newText: string;
+        suggestionId: string;
+      }>,
+    ) => {
+      if (!editor) return;
+
+      // 先收集所有位置，从后向前插入避免位置偏移
+      const positions: Array<{
+        from: number;
+        to: number;
+        newText: string;
+        suggestionId: string;
+      }> = [];
+
+      suggestions.forEach(({ originalText, newText, suggestionId }) => {
+        let foundFrom = -1;
+        let foundTo = -1;
+
+        editor.state.doc.descendants((node, pos) => {
+          if (foundFrom !== -1) return false;
+
+          if (node.isText && node.text) {
+            const index = node.text.indexOf(originalText);
+            if (index !== -1) {
+              foundFrom = pos + index;
+              foundTo = foundFrom + originalText.length;
+              return false;
+            }
+          }
+          return true;
+        });
+
+        if (foundFrom !== -1) {
+          positions.push({ from: foundFrom, to: foundTo, newText, suggestionId });
+        }
+      });
+
+      // 按位置从后向前排序
+      positions.sort((a, b) => b.from - a.from);
+
+      // 逐个插入（从后向前）
+      positions.forEach(({ from, to, newText, suggestionId }) => {
+        editor.commands.insertDiffNode(from, to, newText, suggestionId);
+      });
+    },
+    [editor],
+  );
+
+  // 接受 diff
+  const acceptDiff = useCallback(
+    (suggestionId: string) => {
+      if (!editor) return false;
+      editor.commands.acceptDiff(suggestionId);
+      return true;
+    },
+    [editor],
+  );
+
+  // 拒绝 diff
+  const rejectDiff = useCallback(
+    (suggestionId: string) => {
+      if (!editor) return false;
+      editor.commands.rejectDiff(suggestionId);
+      return true;
+    },
+    [editor],
+  );
+
+  // 清除所有 diff 节点（恢复原文）
+  const clearAllDiffs = useCallback(() => {
+    if (!editor) return;
+    editor.commands.clearAllDiffs();
+  }, [editor]);
+
+  // 接受所有 diff
+  const acceptAllDiffs = useCallback(() => {
+    if (!editor) return;
+    editor.commands.acceptAllDiffs();
+  }, [editor]);
 
   // 获取上下文（用于发送给 AI）
   const getContext = useCallback((): ChatContext => {
@@ -163,32 +319,6 @@ export function useEditorAgent({
     return { mode: "fulltext", content };
   }, [editor, mode, selectionInfo]);
 
-  // ============ 在选中模式下，点击编辑器任意位置会取消选区激活模式 ===========
-
-  // 使用 ref 存储最新的 mode 值，避免事件监听器频繁重新绑定
-  const modeRef = useRef(mode);
-  useEffect(() => {
-    modeRef.current = mode;
-  }, [mode]);
-
-  // 监听编辑器点击事件，清除选中模式
-  useEffect(() => {
-    if (!editor) return;
-
-    const handleFocus = () => {
-      if (modeRef.current === "selection") {
-        clearSelectionMode();
-      }
-    };
-
-    // 监听编辑器的 focus 事件
-    editor.on("focus", handleFocus);
-
-    return () => {
-      editor.off("focus", handleFocus);
-    };
-  }, [editor, clearSelectionMode]);
-
   return {
     mode,
     selectionInfo,
@@ -199,5 +329,13 @@ export function useEditorAgent({
     replaceText,
     scrollToPosition,
     getContext,
+    // Inline Diff 相关
+    insertDiffNode,
+    insertDiffByText,
+    insertMultipleDiffs,
+    acceptDiff,
+    rejectDiff,
+    clearAllDiffs,
+    acceptAllDiffs,
   };
 }

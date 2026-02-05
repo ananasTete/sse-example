@@ -265,3 +265,84 @@
   background-color: transparent !important;
   color: inherit;
 }
+
+/* ============ Inline Diff Styles ============ */
+
+.inline-diff-wrapper {
+  display: inline;
+  position: relative;
+  border-radius: 3px;
+  padding: 1px 2px;
+  background-color: rgba(255, 235, 59, 0.15);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.inline-diff-deleted {
+  color: #dc2626;
+  text-decoration: line-through;
+  background-color: rgba(220, 38, 38, 0.1);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.inline-diff-added {
+  color: #16a34a;
+  background-color: rgba(22, 163, 74, 0.1);
+  padding: 0 2px;
+  border-radius: 2px;
+  margin-left: 4px;
+}
+
+.inline-diff-actions {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 4px;
+  gap: 2px;
+  vertical-align: middle;
+}
+
+.inline-diff-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: bold;
+  transition: all 0.15s ease;
+  line-height: 1;
+}
+
+.inline-diff-accept {
+  background-color: #dcfce7;
+  color: #16a34a;
+}
+
+.inline-diff-accept:hover {
+  background-color: #16a34a;
+  color: white;
+}
+
+.inline-diff-reject {
+  background-color: #fee2e2;
+  color: #dc2626;
+}
+
+.inline-diff-reject:hover {
+  background-color: #dc2626;
+  color: white;
+}
+
+/* 已解决状态 */
+.inline-diff-resolved {
+  display: inline;
+}
+
+/* 悬停时高亮整个 diff 区域 */
+.inline-diff-wrapper:hover {
+  background-color: rgba(255, 235, 59, 0.25);
+  border-color: rgba(255, 193, 7, 0.5);
+}

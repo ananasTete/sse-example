@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import type { Editor } from "@tiptap/react";
 import TiptapEditor from "@/features/rich-editor/editor";
 import { AgentChat } from "@/features/agent-editor/components/agent-chat";
@@ -11,9 +11,25 @@ export default function AgentEditorPage() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const editorAgent = useEditorAgent({ editor });
 
+  // Diff 回调 ref，用于连接 AgentChat 和 TiptapEditor
+  const diffCallbacksRef = useRef<{
+    onAccept?: (suggestionId: string) => void;
+    onReject?: (suggestionId: string) => void;
+  }>({});
+
   const handleEditorReady = (editorInstance: Editor) => {
     setEditor(editorInstance);
   };
+
+  // 编辑器中的 diff 接受回调
+  const handleDiffAccept = useCallback((suggestionId: string) => {
+    diffCallbacksRef.current.onAccept?.(suggestionId);
+  }, []);
+
+  // 编辑器中的 diff 拒绝回调
+  const handleDiffReject = useCallback((suggestionId: string) => {
+    diffCallbacksRef.current.onReject?.(suggestionId);
+  }, []);
 
   return (
     <div className="h-screen p-4">
@@ -22,7 +38,11 @@ export default function AgentEditorPage() {
         <div className="rounded-md flex-1  overflow-auto">
           <div className="w-200 mx-auto">
             <ErrorBoundary>
-              <TiptapEditor onEditorReady={handleEditorReady} />
+              <TiptapEditor
+                onEditorReady={handleEditorReady}
+                onDiffAccept={handleDiffAccept}
+                onDiffReject={handleDiffReject}
+              />
             </ErrorBoundary>
           </div>
         </div>
@@ -30,7 +50,10 @@ export default function AgentEditorPage() {
         {/* Chatbot 区域 */}
         <div className="rounded-md w-150 overflow-hidden">
           <ErrorBoundary>
-            <AgentChat editorAgent={editorAgent} />
+            <AgentChat
+              editorAgent={editorAgent}
+              diffCallbacksRef={diffCallbacksRef}
+            />
           </ErrorBoundary>
         </div>
       </div>
