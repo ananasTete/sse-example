@@ -50,18 +50,22 @@ export function MessageList({
   // 空消息列表提示
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center p-4">
-        <div className="text-center text-gray-400">
+      <div className="flex-1 flex items-center justify-center p-6">
+        <div className="text-center text-[#8b8074]">
           <div className="text-4xl mb-3">💬</div>
-          <div className="text-sm">选中编辑器中的文字，或直接输入问题</div>
-          <div className="text-xs mt-1">AI 将帮助你优化、改写或解释内容</div>
+          <div className="text-sm font-medium">
+            选中编辑器中的文字，或直接输入问题
+          </div>
+          <div className="text-xs mt-1 text-[#a99d91]">
+            AI 将帮助你优化、改写或解释内容
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <ScrollArea className="flex-1 overflow-y-auto p-4">
+    <ScrollArea className="flex-1 overflow-y-auto px-4 py-5">
       {messages.map((message) => (
         <MessageItem
           key={message.id}
@@ -111,32 +115,42 @@ function MessageItem({
 
   return (
     <div
-      className={`mt-3 first:mt-0 flex ${isUser ? "justify-end" : "justify-start"}`}
+      className={`mt-4 first:mt-0 flex ${isUser ? "justify-end" : "justify-start"}`}
     >
       <div
-        className={`max-w-[85%] rounded-lg px-4 py-2 ${
-          isUser ? "bg-blue-500 text-white" : "bg-gray-100 text-gray-800"
+        className={`max-w-[85%] text-[13px] leading-6 ${
+          isUser
+            ? "rounded-md px-4 py-3 bg-[#2b2a28] text-[#f8f6f3] border border-[#1f1e1c] shadow-[0_10px_20px_rgba(43,42,40,0.2)]"
+            : "px-1 py-1 text-[#2f2a24]"
         }`}
       >
         {/* 上下文模式标签 */}
         {message.chatId && (
-          <div className="text-xs opacity-70 mb-1">
-            [{message.chatId === "selection" ? "选中" : "全文"}]
+          <div
+            className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-medium mb-2 ${
+              isUser
+                ? "border-white/20 text-white/70"
+                : "border-[#e1d7c9] text-[#7b6f64] bg-white/80"
+            }`}
+          >
+            {message.chatId === "selection" ? "选中" : "全文"}
           </div>
         )}
 
         {/* 消息内容 */}
-        {message.parts.map((part, index) => (
-          <MessagePartRenderer
-            key={index}
-            messageId={message.id}
-            part={part}
-            onApplySuggestion={onApplySuggestion}
-            onAcceptSuggestion={onAcceptSuggestion}
-            onRejectSuggestion={onRejectSuggestion}
-            onLocateSuggestion={onLocateSuggestion}
-          />
-        ))}
+        <div className="space-y-2">
+          {message.parts.map((part, index) => (
+            <MessagePartRenderer
+              key={index}
+              messageId={message.id}
+              part={part}
+              onApplySuggestion={onApplySuggestion}
+              onAcceptSuggestion={onAcceptSuggestion}
+              onRejectSuggestion={onRejectSuggestion}
+              onLocateSuggestion={onLocateSuggestion}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -176,11 +190,17 @@ function MessagePartRenderer({
 }: MessagePartRendererProps) {
   switch (part.type) {
     case "text":
-      return <div className="whitespace-pre-wrap">{part.text}</div>;
+      return (
+        <div className="whitespace-pre-wrap text-[13px] leading-6">
+          {part.text}
+        </div>
+      );
 
     case "reasoning":
       return (
-        <div className="text-sm text-gray-500 italic mb-2">{part.text}</div>
+        <div className="text-xs text-[#8e8074] italic border-l-2 border-[#e2d9cc] pl-2">
+          {part.text}
+        </div>
       );
 
     case "tool-call":
@@ -260,19 +280,19 @@ function SuggestionSkeleton() {
       {[1, 2, 3].map((i) => (
         <div
           key={i}
-          className="border border-gray-200 rounded-lg p-3 animate-pulse"
+          className="border border-[#e6ddd1] rounded-md p-3 animate-pulse bg-white/70"
         >
           {/* 标签骨架 */}
-          <div className="h-4 w-16 bg-gray-200 rounded mb-2" />
+          <div className="h-4 w-16 bg-[#eee6dc] rounded-sm mb-2" />
           {/* 内容骨架 */}
           <div className="space-y-1.5">
-            <div className="h-3 bg-gray-200 rounded w-full" />
-            <div className="h-3 bg-gray-200 rounded w-4/5" />
+            <div className="h-3 bg-[#eee6dc] rounded-sm w-full" />
+            <div className="h-3 bg-[#eee6dc] rounded-sm w-4/5" />
           </div>
           {/* 按钮骨架 */}
           <div className="flex gap-2 mt-3">
-            <div className="h-7 w-14 bg-gray-200 rounded" />
-            <div className="h-7 w-14 bg-gray-200 rounded" />
+            <div className="h-7 w-14 bg-[#eee6dc] rounded-md" />
+            <div className="h-7 w-14 bg-[#eee6dc] rounded-md" />
           </div>
         </div>
       ))}
@@ -334,11 +354,11 @@ function ToolCallRenderer({
 
   // 其他工具调用显示默认样式
   return (
-    <div className="text-sm text-gray-500 bg-gray-50 rounded p-2 my-1">
-      <div className="font-medium">{toolName}</div>
+    <div className="text-sm text-[#7b6f64] bg-white/70 border border-[#e3dacd] rounded-md p-2 my-1">
+      <div className="font-medium text-[#5f564c]">{toolName}</div>
       {state === "streaming-input" && (
         <div className="flex items-center gap-2 mt-1">
-          <div className="w-3 h-3 border-2 border-gray-300 border-t-gray-500 rounded-full animate-spin" />
+          <div className="w-3 h-3 border-2 border-[#e2d9cc] border-t-[#8a7d72] rounded-full animate-spin" />
           <span>执行中...</span>
         </div>
       )}

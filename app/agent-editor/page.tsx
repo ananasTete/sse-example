@@ -32,10 +32,10 @@ export default function AgentEditorPage() {
   }, []);
 
   return (
-    <div className="h-screen p-4">
-      <div className="h-full flex gap-2 border border-gray-200 ">
+    <div className="h-screen p-4 bg-[#fbf7f2]">
+      <div className="h-full flex gap-2 border border-[#ece4d8] bg-[#fdfaf6]">
         {/* 编辑器区域 */}
-        <div className="rounded-md flex-1  overflow-auto">
+        <div className="rounded-sm flex-1 overflow-auto bg-white shadow-[0_1px_0_rgba(63,53,45,0.05)]">
           <div className="w-200 mx-auto">
             <ErrorBoundary>
               <TiptapEditor
@@ -48,7 +48,7 @@ export default function AgentEditorPage() {
         </div>
 
         {/* Chatbot 区域 */}
-        <div className="rounded-md w-150 overflow-hidden">
+        <div className="rounded-sm w-150 overflow-hidden">
           <ErrorBoundary>
             <AgentChat
               editorAgent={editorAgent}

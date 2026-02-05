@@ -271,78 +271,101 @@
 .inline-diff-wrapper {
   display: inline;
   position: relative;
-  border-radius: 3px;
-  padding: 1px 2px;
-  background-color: rgba(255, 235, 59, 0.15);
-  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 4px;
+  padding: 2px 4px;
+  background-color: rgba(233, 222, 208, 0.45);
+  border: 1px solid rgba(215, 198, 176, 0.6);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .inline-diff-deleted {
-  color: #dc2626;
+  color: #b42318;
   text-decoration: line-through;
-  background-color: rgba(220, 38, 38, 0.1);
-  padding: 0 2px;
-  border-radius: 2px;
+  background-color: rgba(239, 68, 68, 0.1);
+  padding: 0 3px;
+  border-radius: 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .inline-diff-added {
-  color: #16a34a;
-  background-color: rgba(22, 163, 74, 0.1);
-  padding: 0 2px;
-  border-radius: 2px;
+  color: #0f766e;
+  background-color: rgba(34, 197, 94, 0.1);
+  padding: 0 3px;
+  border-radius: 3px;
   margin-left: 4px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
 }
 
 .inline-diff-actions {
   display: inline-flex;
   align-items: center;
-  margin-left: 4px;
-  gap: 2px;
+  margin-left: 6px;
+  gap: 4px;
   vertical-align: middle;
+  opacity: 0.85;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 
 .inline-diff-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  border: none;
-  border-radius: 3px;
+  width: 20px;
+  height: 20px;
+  border: 1px solid transparent;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: bold;
   transition: all 0.15s ease;
   line-height: 1;
+  box-shadow: 0 1px 2px rgba(63, 53, 45, 0.12);
 }
 
 .inline-diff-accept {
-  background-color: #dcfce7;
-  color: #16a34a;
+  background-color: #ecfdf3;
+  color: #0f766e;
+  border-color: rgba(15, 118, 110, 0.2);
 }
 
 .inline-diff-accept:hover {
-  background-color: #16a34a;
+  background-color: #0f766e;
   color: white;
 }
 
 .inline-diff-reject {
-  background-color: #fee2e2;
-  color: #dc2626;
+  background-color: #fff1f1;
+  color: #b42318;
+  border-color: rgba(180, 35, 24, 0.2);
 }
 
 .inline-diff-reject:hover {
-  background-color: #dc2626;
+  background-color: #b42318;
   color: white;
 }
 
 /* 已解决状态 */
 .inline-diff-resolved {
   display: inline;
+  background: transparent;
 }
 
 /* 悬停时高亮整个 diff 区域 */
 .inline-diff-wrapper:hover {
-  background-color: rgba(255, 235, 59, 0.25);
-  border-color: rgba(255, 193, 7, 0.5);
+  background-color: rgba(233, 222, 208, 0.65);
+  border-color: rgba(199, 178, 150, 0.7);
+}
+
+.inline-diff-wrapper:hover .inline-diff-actions {
+  opacity: 1;
+}
+
+.inline-diff-btn:focus-visible {
+  outline: 2px solid rgba(201, 184, 157, 0.9);
+  outline-offset: 1px;
 }
