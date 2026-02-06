@@ -7,12 +7,14 @@ interface MoreMenuProps {
   editor: Editor
   placementDir?: 'top' | 'bottom'
   isBlockNode?: boolean
+  onRequestPlacement?: () => void
 }
 
 export function MoreMenu({
   editor,
   placementDir = 'bottom',
   isBlockNode = false,
+  onRequestPlacement,
 }: MoreMenuProps) {
   const {
     isOpen,
@@ -22,7 +24,10 @@ export function MoreMenu({
     getReferenceProps,
     getFloatingProps,
     close,
-  } = useFloatingSelect({ placement: `${placementDir}-end` })
+  } = useFloatingSelect({
+    placement: `${placementDir}-end`,
+    onOpen: onRequestPlacement,
+  })
 
   const handleCopy = () => {
     // If block node, we might want to copy node content?

@@ -1,6 +1,5 @@
 import { type Editor } from '@tiptap/react'
 import { FloatingPortal } from '@floating-ui/react'
-import { useEffect, useState } from 'react'
 import {
   AlignLeft,
   AlignCenter,
@@ -13,6 +12,8 @@ import { useFloatingSelect } from '../hooks/use-floating-select'
 interface AlignSelectProps {
   editor: Editor
   placementDir?: 'top' | 'bottom'
+  activeAlignId: AlignId
+  onRequestPlacement?: () => void
 }
 
 const alignOptions = [
@@ -21,22 +22,13 @@ const alignOptions = [
   { id: 'right', label: 'Align right', icon: AlignRight },
 ] as const
 
-type AlignId = (typeof alignOptions)[number]['id']
-
-function getActiveAlign(editor: Editor): AlignId {
-  if (editor.isActive({ textAlign: 'center' })) return 'center'
-  if (editor.isActive({ textAlign: 'right' })) return 'right'
-  return 'left'
-}
-
-function getActiveAlignOption(editor: Editor) {
-  const activeAlign = getActiveAlign(editor)
-  return alignOptions.find((o) => o.id === activeAlign) ?? alignOptions[0]
-}
+export type AlignId = (typeof alignOptions)[number]['id']
 
 export function AlignSelect({
   editor,
   placementDir = 'bottom',
+  activeAlignId,
+  onRequestPlacement,
 }: AlignSelectProps) {
   const {
     isOpen,
@@ -46,28 +38,18 @@ export function AlignSelect({
     getReferenceProps,
     getFloatingProps,
     close,
-  } = useFloatingSelect({ placement: `${placementDir}-start` })
-
-  // Force re-render on editor state change
-  const [, forceUpdate] = useState({})
-
-  useEffect(() => {
-    const handler = () => forceUpdate({})
-    editor.on('transaction', handler)
-    editor.on('selectionUpdate', handler)
-    return () => {
-      editor.off('transaction', handler)
-      editor.off('selectionUpdate', handler)
-    }
-  }, [editor])
+  } = useFloatingSelect({
+    placement: `${placementDir}-start`,
+    onOpen: onRequestPlacement,
+  })
 
   const handleSelect = (alignId: AlignId) => {
     editor.chain().focus().setTextAlign(alignId).run()
     close()
   }
 
-  const activeOption = getActiveAlignOption(editor)
-  const activeAlignId = activeOption.id
+  const activeOption =
+    alignOptions.find((o) => o.id === activeAlignId) ?? alignOptions[0]
 
   return (
     <>
