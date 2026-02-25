@@ -6,7 +6,10 @@ import { Color } from "@tiptap/extension-color";
 import { Highlight } from "@tiptap/extension-highlight";
 import { AISelectionHighlight } from "./extensions/ai-selection-highlight";
 import { InlineDiff } from "./extensions/inline-diff";
+import { Underline } from "./extensions/underline";
+import { SlashCommand } from "./extensions/slash-command";
 import { BubbleMenu } from "./bubble-menu";
+import { SlashCommandMenu } from "./slash-command";
 import { useEffect } from "react";
 import "./editor.css";
 
@@ -54,6 +57,8 @@ const TiptapEditor = ({
   const editor = useEditor({
     extensions: [
       StarterKit,
+      Underline,
+      SlashCommand,
       TextAlign.configure({
         types: ["heading", "paragraph"],
         alignments: ["left", "center", "right"],
@@ -88,6 +93,7 @@ const TiptapEditor = ({
   return (
     <div className="editor-container">
       <BubbleMenu editor={editor} />
+      <SlashCommandMenu editor={editor} />
       <EditorContent editor={editor} />
     </div>
   );

@@ -1,12 +1,14 @@
 import { type Editor } from '@tiptap/react'
 import { FloatingPortal } from '@floating-ui/react'
-import { useEffect, useState } from 'react'
 import { Palette, ChevronDown, Check } from 'lucide-react'
 import { useFloatingSelect } from '../hooks/use-floating-select'
 
 interface ColorSelectProps {
   editor: Editor
   placementDir?: 'top' | 'bottom'
+  activeTextColor: string | null
+  activeHighlight: string | null
+  onRequestPlacement?: () => void
 }
 
 const textColors = [
@@ -33,19 +35,12 @@ const backgroundColors = [
   { id: 'grey-bg', label: 'Grey', color: '#e5e7eb' },
 ] as const
 
-function getActiveTextColor(editor: Editor): string | null {
-  const color = editor.getAttributes('textStyle').color
-  return color || null
-}
-
-function getActiveHighlight(editor: Editor): string | null {
-  const highlight = editor.getAttributes('highlight').color
-  return highlight || null
-}
-
 export function ColorSelect({
   editor,
   placementDir = 'bottom',
+  activeTextColor,
+  activeHighlight,
+  onRequestPlacement,
 }: ColorSelectProps) {
   const {
     isOpen,
@@ -55,20 +50,10 @@ export function ColorSelect({
     getReferenceProps,
     getFloatingProps,
     close,
-  } = useFloatingSelect({ placement: `${placementDir}-start` })
-
-  // Force re-render on editor state change
-  const [, forceUpdate] = useState({})
-
-  useEffect(() => {
-    const handler = () => forceUpdate({})
-    editor.on('transaction', handler)
-    editor.on('selectionUpdate', handler)
-    return () => {
-      editor.off('transaction', handler)
-      editor.off('selectionUpdate', handler)
-    }
-  }, [editor])
+  } = useFloatingSelect({
+    placement: `${placementDir}-start`,
+    onOpen: onRequestPlacement,
+  })
 
   const handleTextColorSelect = (color: string | null) => {
     if (color === null) {
@@ -87,9 +72,6 @@ export function ColorSelect({
     }
     close()
   }
-
-  const activeTextColor = getActiveTextColor(editor)
-  const activeHighlight = getActiveHighlight(editor)
 
   return (
     <>

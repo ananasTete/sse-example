@@ -1,6 +1,5 @@
 import { type Editor } from '@tiptap/react'
 import { FloatingPortal } from '@floating-ui/react'
-import { useEffect, useState } from 'react'
 import {
   Type,
   Heading1,
@@ -21,6 +20,8 @@ import { useFloatingSelect } from '../hooks/use-floating-select'
 interface NodeTypeSelectProps {
   editor: Editor
   placementDir?: 'top' | 'bottom'
+  activeTypeId: NodeTypeId
+  onRequestPlacement?: () => void
 }
 
 const nodeTypes = [
@@ -37,30 +38,13 @@ const nodeTypes = [
   { id: 'blockquote', label: 'Quote', icon: Quote },
 ] as const
 
-type NodeTypeId = (typeof nodeTypes)[number]['id']
-
-function getActiveNodeType(editor: Editor): NodeTypeId {
-  if (editor.isActive('heading', { level: 1 })) return 'heading1'
-  if (editor.isActive('heading', { level: 2 })) return 'heading2'
-  if (editor.isActive('heading', { level: 3 })) return 'heading3'
-  if (editor.isActive('heading', { level: 4 })) return 'heading4'
-  if (editor.isActive('heading', { level: 5 })) return 'heading5'
-  if (editor.isActive('heading', { level: 6 })) return 'heading6'
-  if (editor.isActive('bulletList')) return 'bulletList'
-  if (editor.isActive('orderedList')) return 'orderedList'
-  if (editor.isActive('codeBlock')) return 'codeBlock'
-  if (editor.isActive('blockquote')) return 'blockquote'
-  return 'paragraph'
-}
-
-function getActiveNodeTypeOption(editor: Editor) {
-  const activeType = getActiveNodeType(editor)
-  return nodeTypes.find((t) => t.id === activeType) ?? nodeTypes[0]
-}
+export type NodeTypeId = (typeof nodeTypes)[number]['id']
 
 export function NodeTypeSelect({
   editor,
   placementDir = 'bottom',
+  activeTypeId,
+  onRequestPlacement,
 }: NodeTypeSelectProps) {
   const {
     isOpen,
@@ -70,20 +54,10 @@ export function NodeTypeSelect({
     getReferenceProps,
     getFloatingProps,
     close,
-  } = useFloatingSelect({ placement: `${placementDir}-start` })
-
-  // Force re-render on editor state change
-  const [, forceUpdate] = useState({})
-
-  useEffect(() => {
-    const handler = () => forceUpdate({})
-    editor.on('transaction', handler)
-    editor.on('selectionUpdate', handler)
-    return () => {
-      editor.off('transaction', handler)
-      editor.off('selectionUpdate', handler)
-    }
-  }, [editor])
+  } = useFloatingSelect({
+    placement: `${placementDir}-start`,
+    onOpen: onRequestPlacement,
+  })
 
   const handleSelect = (typeId: NodeTypeId) => {
     switch (typeId) {
@@ -124,8 +98,8 @@ export function NodeTypeSelect({
     close()
   }
 
-  const activeOption = getActiveNodeTypeOption(editor)
-  const activeTypeId = activeOption.id
+  const activeOption =
+    nodeTypes.find((t) => t.id === activeTypeId) ?? nodeTypes[0]
 
   return (
     <>

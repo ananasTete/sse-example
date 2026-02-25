@@ -376,7 +376,10 @@ export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
   );
 
   return (
-    <div className="h-full flex flex-col border-l border-gray-200">
+    <div
+      className="h-full flex flex-col border-l border-[#e6ddd1] bg-[#faf7f3] text-[#2f2a24]"
+      style={{ fontFamily: "var(--font-chat)" }}
+    >
       {/* 消息列表 */}
       <MessageList
         messages={messages}
@@ -398,7 +401,7 @@ export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
       {/* 输入区域 */}
       <form
         onSubmit={handleFormSubmit}
-        className="p-3 border-t border-gray-200"
+        className="p-3 border-t border-[#e6ddd1] bg-[#faf7f3]"
       >
         <div className="flex gap-2">
           <textarea
@@ -412,7 +415,7 @@ export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
                 ? "针对选中内容提问..."
                 : "请输入..."
             }
-            className="flex-1 resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="flex-1 resize-none rounded-md border border-[#e2d9cc] bg-white/90 px-3 py-2 text-[13px] leading-5 text-[#2f2a24] placeholder:text-[#9b8f83] shadow-[0_1px_0_rgba(63,53,45,0.05)] focus:outline-none focus:ring-2 focus:ring-[#c9b89d] focus:border-[#c9b89d]"
             rows={2}
             disabled={isLoading}
           />
@@ -421,7 +424,7 @@ export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
               <button
                 type="button"
                 onClick={stop}
-                className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 text-sm"
+                className="px-4 py-2 rounded-md bg-[#b24a4a] text-white text-sm shadow-[0_2px_6px_rgba(178,74,74,0.22)] hover:bg-[#9f3e3e]"
               >
                 停止
               </button>
@@ -429,14 +432,14 @@ export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
               <button
                 type="submit"
                 disabled={!input.trim()}
-                className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm"
+                className="px-4 py-2 rounded-md bg-[#1f2a44] text-white text-sm shadow-[0_2px_6px_rgba(31,42,68,0.25)] hover:bg-[#162036] disabled:bg-[#e1d9cf] disabled:text-[#7e746a] disabled:cursor-not-allowed"
               >
                 发送
               </button>
             )}
           </div>
         </div>
-        <div className="text-xs text-gray-400 mt-1">Escape 取消选中</div>
+        <div className="text-xs text-[#a09286] mt-1">Escape 取消选中</div>
       </form>
     </div>
   );

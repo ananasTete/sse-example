@@ -14,15 +14,21 @@ import {
 interface UseFloatingSelectOptions {
   placement?: Placement;
   offsetValue?: number;
+  onOpen?: () => void;
+  onClose?: () => void;
 }
 
 export function useFloatingSelect(options: UseFloatingSelectOptions = {}) {
-  const { placement = "bottom-start", offsetValue = 8 } = options;
+  const { placement = "bottom-start", offsetValue = 8, onOpen, onClose } = options;
   const [isOpen, setIsOpen] = useState(false);
 
   const { refs, floatingStyles, context, elements } = useFloating({
     open: isOpen,
-    onOpenChange: setIsOpen,
+    onOpenChange: (nextOpen) => {
+      if (nextOpen && !isOpen) onOpen?.();
+      if (!nextOpen && isOpen) onClose?.();
+      setIsOpen(nextOpen);
+    },
     placement,
     middleware: [offset(offsetValue), flip(), shift({ padding: 8 })],
     whileElementsMounted: autoUpdate,

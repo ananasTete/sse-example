@@ -1,4 +1,5 @@
 import { ChangeEvent, FormEvent, useEffect, useReducer, useRef } from "react";
+import { nanoid } from "nanoid";
 import {
   Message,
   MessagePart,
@@ -9,7 +10,7 @@ import {
 import { ChatState, chatReducer } from "./reducer";
 import { createSSEParser } from "./parser";
 
-const generateId = () => crypto.randomUUID();
+const generateId = () => nanoid();
 
 // ============ Hook Options ============
 

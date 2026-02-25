@@ -293,6 +293,13 @@
    AI Floating Panel (独立浮动)
    =========================== */
 
+.ai-floating-backdrop {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  z-index: 9998;
+}
+
 .ai-floating-panel {
   display: flex;
   flex-direction: column;

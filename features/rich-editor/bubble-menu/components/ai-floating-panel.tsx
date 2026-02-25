@@ -153,12 +153,18 @@ export function AIFloatingPanel({
   }, [handleSubmit, onClose])
 
   return (
-    <FloatingPortal>
-      <div 
+      <FloatingPortal>
+      <div
+        className="ai-floating-backdrop"
+        style={{ visibility: isPositioned ? 'visible' : 'hidden' }}
+        onPointerDown={() => onClose()}
+      />
+      <div
         ref={(node) => refs.setFloating(node)}
         style={safeFloatingStyles}
         className="ai-floating-panel"
         onKeyDown={handleKeyDown}
+        onPointerDown={(e) => e.stopPropagation()}
       >
         {/* Textarea 输入框 */}
         <textarea

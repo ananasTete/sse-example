@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -48,6 +49,8 @@
 
 :root {
   --radius: 0.625rem;
+  --font-chat: "IBM Plex Sans", "Noto Sans", "Helvetica Neue", sans-serif;
+  --font-chat-accent: "IBM Plex Mono", "Noto Sans Mono", monospace;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
