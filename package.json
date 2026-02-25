@@ -7,8 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "DATABASE_URL=\"file:$(pwd)/prisma/dev.db\" prisma migrate dev",
+    "prisma:migrate:deploy": "DATABASE_URL=\"file:$(pwd)/prisma/dev.db\" prisma migrate deploy"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.7",
