@@ -1,8 +1,9 @@
-import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useChat } from "../useChat";
 import { Message } from "../types";
 import { ToolCallRenderer } from "./ToolCallRenderer";
 import { MarkdownRenderer } from "./MarkdownRenderer";
+import { useTopPinnedScroll } from "./useTopPinnedScroll";
 import {
   SendHorizontal,
   StopCircle,
@@ -49,100 +50,18 @@ export const ChatExample = ({
   // 编辑状态管理
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
-
-  // Auto-scroll logic
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const userMessageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const pendingScrollToLatestUserMessageRef = useRef(false);
-  const pendingScrollUserToTopAfterLayoutRef = useRef(false);
-  const [isResponseViewportLocked, setIsResponseViewportLocked] = useState(false);
-  const [lockedTurnUserMessageId, setLockedTurnUserMessageId] = useState<string | null>(null);
-  const [responsePlaceholderHeight, setResponsePlaceholderHeight] = useState<number | null>(
-    null
-  );
-  const pinnedAssistantMessageId =
-    isResponseViewportLocked && lockedTurnUserMessageId
-      ? (() => {
-          const userIndex = messages.findIndex(
-            (message) => message.id === lockedTurnUserMessageId
-          );
-          if (userIndex < 0) return null;
-          return (
-            messages.slice(userIndex + 1).find((message) => message.role === "assistant")?.id ??
-            null
-          );
-        })()
-      : null;
-
-  const scrollUserMessageToTop = useCallback(
-    (userMessageId: string, behavior: ScrollBehavior) => {
-    const container = scrollContainerRef.current;
-    if (!container) return;
-
-    const messageElement = userMessageRefs.current.get(userMessageId);
-    if (!messageElement) return;
-
-    const containerRect = container.getBoundingClientRect();
-    const messageRect = messageElement.getBoundingClientRect();
-    const nextScrollTop = container.scrollTop + (messageRect.top - containerRect.top);
-    container.scrollTo({ top: nextScrollTop, behavior });
-    },
-    []
-  );
-
-  useEffect(() => {
-    if (pendingScrollToLatestUserMessageRef.current) {
-      const latestUserMessage = [...messages]
-        .reverse()
-        .find((message) => message.role === "user");
-      if (latestUserMessage) {
-        const container = scrollContainerRef.current;
-        const messageElement = userMessageRefs.current.get(latestUserMessage.id);
-        if (container && messageElement) {
-          const containerHeight = Math.round(container.getBoundingClientRect().height);
-          const userMessageHeight = Math.round(messageElement.getBoundingClientRect().height);
-          const nextMinHeight = Math.max(containerHeight - userMessageHeight, 0);
-          const nextLockedUserId = latestUserMessage.id;
-          requestAnimationFrame(() => {
-            setLockedTurnUserMessageId(nextLockedUserId);
-            setResponsePlaceholderHeight(nextMinHeight);
-            pendingScrollUserToTopAfterLayoutRef.current = true;
-          });
-          pendingScrollToLatestUserMessageRef.current = false;
-          return;
-        }
-      }
-    }
-
-    // No-op: placeholder height is calculated only at "send" time for the current turn.
-  }, [
+  const {
+    scrollContainerRef,
+    messagesContentRef,
+    bottomSpacerHeight,
+    isOverflowAnchorDisabled,
+    isPinningInProgress,
+    registerUserMessageRef,
+    onSubmitStart,
+  } = useTopPinnedScroll({
     messages,
     status,
-    isResponseViewportLocked,
-    lockedTurnUserMessageId,
-    responsePlaceholderHeight,
-  ]);
-
-  useLayoutEffect(() => {
-    if (!pendingScrollUserToTopAfterLayoutRef.current) return;
-    if (!lockedTurnUserMessageId) return;
-    if (responsePlaceholderHeight === null) return;
-
-    pendingScrollUserToTopAfterLayoutRef.current = false;
-    const userMessageId = lockedTurnUserMessageId;
-
-    const shouldReduceMotion =
-      typeof window !== "undefined" &&
-      typeof window.matchMedia === "function" &&
-      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-    const behavior: ScrollBehavior = shouldReduceMotion ? "auto" : "smooth";
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        scrollUserMessageToTop(userMessageId, behavior);
-      });
-    });
-  }, [lockedTurnUserMessageId, responsePlaceholderHeight, scrollUserMessageToTop]);
+  });
 
   // 开始编辑
   const handleStartEdit = (messageId: string, currentText: string) => {
@@ -189,14 +108,11 @@ export const ChatExample = ({
       setHasStartedConversation(true);
     }
 
-    pendingScrollToLatestUserMessageRef.current = true;
-    setIsResponseViewportLocked(true);
-    setResponsePlaceholderHeight(null);
-    setLockedTurnUserMessageId(null);
+    onSubmitStart();
     await handleSubmit();
   };
 
-  const shouldRenderSubmittedPlaceholder = isResponseViewportLocked && status === "submitted";
+  const shouldRenderSubmittedPlaceholder = isPinningInProgress && status === "submitted";
 
   return (
     <div className="flex flex-col h-screen bg-[#f9f8f6] font-sans text-slate-800">
@@ -224,9 +140,9 @@ export const ChatExample = ({
       <div
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto"
-        style={isResponseViewportLocked ? { overflowAnchor: "none" } : undefined}
+        style={isOverflowAnchorDisabled ? { overflowAnchor: "none" } : undefined}
       >
-        <div className="max-w-3xl mx-auto px-6 py-8 space-y-10">
+        <div ref={messagesContentRef} className="max-w-3xl mx-auto px-6 py-8 space-y-10">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-[60vh] text-stone-400">
               <div className="w-14 h-14 bg-white rounded-2xl shadow-sm flex items-center justify-center mb-4">
@@ -249,11 +165,7 @@ export const ChatExample = ({
                 key={message.id}
                 ref={(node) => {
                   if (isUser) {
-                    if (node) {
-                      userMessageRefs.current.set(message.id, node);
-                    } else {
-                      userMessageRefs.current.delete(message.id);
-                    }
+                    registerUserMessageRef(message.id, node);
                     return;
                   }
                 }}
@@ -275,15 +187,6 @@ export const ChatExample = ({
                         ? "bg-[#efede6] text-stone-800 px-5 py-3.5 rounded-[24px] rounded-tr-lg"
                         : "w-full text-stone-800" // Assistant: No bubble background by default, raw text flow like ChatGPT
                     }`}
-                    style={
-                      !isUser &&
-                      isResponseViewportLocked &&
-                      pinnedAssistantMessageId === message.id
-                        ? {
-                            minHeight: `${responsePlaceholderHeight ?? 0}px`,
-                          }
-                        : undefined
-                    }
                   >
                     <div className={`${!isUser ? "px-6 py-5 w-full" : ""}`}>
                       {isEditing && isUser ? (
@@ -421,10 +324,7 @@ export const ChatExample = ({
           {shouldRenderSubmittedPlaceholder && (
             <div className="group flex justify-start">
               <div className="flex flex-col flex-1 min-w-0">
-                <div
-                  className="relative text-sm leading-relaxed w-full text-stone-800"
-                  style={{ minHeight: `${responsePlaceholderHeight ?? 0}px` }}
-                >
+                <div className="relative text-sm leading-relaxed w-full text-stone-800">
                   <div className="px-6 py-5 w-full">
                     <div className="h-4 w-14 rounded bg-stone-200/70 animate-pulse" />
                   </div>
@@ -432,6 +332,11 @@ export const ChatExample = ({
               </div>
             </div>
           )}
+          <div
+            aria-hidden
+            className="pointer-events-none"
+            style={{ height: `${Math.max(bottomSpacerHeight, 0)}px` }}
+          />
         </div>
       </div>
 

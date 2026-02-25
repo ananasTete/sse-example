@@ -17,7 +17,7 @@ const generateId = () =>
 const sendEvent = (
   controller: ReadableStreamDefaultController,
   encoder: TextEncoder,
-  data: object | string
+  data: object | string,
 ) => {
   const payload = typeof data === "string" ? data : JSON.stringify(data);
   controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
@@ -118,7 +118,7 @@ const extractCity = (text: string) => {
 
 export async function GET(
   _req: NextRequest,
-  { params }: { params: Promise<{ chatId: string }> }
+  { params }: { params: Promise<{ chatId: string }> },
 ) {
   const { chatId } = await params;
 
@@ -134,7 +134,7 @@ export async function GET(
 
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: Promise<{ chatId: string }> }
+  { params }: { params: Promise<{ chatId: string }> },
 ) {
   const { chatId } = await params;
   const body = (await req.json()) as { title?: string | null };
@@ -152,7 +152,7 @@ export async function PATCH(
 
 export async function DELETE(
   _req: NextRequest,
-  { params }: { params: Promise<{ chatId: string }> }
+  { params }: { params: Promise<{ chatId: string }> },
 ) {
   const { chatId } = await params;
   const deleted = await chatStore.deleteChat(chatId);
@@ -166,7 +166,7 @@ export async function DELETE(
 
 export async function POST(
   req: NextRequest,
-  { params }: { params: Promise<{ chatId: string }> }
+  { params }: { params: Promise<{ chatId: string }> },
 ) {
   const { chatId } = await params;
   const body = (await req.json()) as RequestBody;
@@ -197,7 +197,7 @@ export async function POST(
   let isPersisted = false;
 
   const persistAssistantMessage = async (
-    status: "done" | "aborted" | "error"
+    status: "done" | "aborted" | "error",
   ) => {
     if (isPersisted) return;
     isPersisted = true;
@@ -265,7 +265,13 @@ export async function POST(
               reasoningPart.text += char;
             }
 
-            if (!safeSend({ type: "reasoning-delta", id: reasoningId, delta: char })) {
+            if (
+              !safeSend({
+                type: "reasoning-delta",
+                id: reasoningId,
+                delta: char,
+              })
+            ) {
               await persistAssistantMessage("aborted");
               return;
             }
@@ -393,65 +399,7 @@ export async function POST(
           }
         } else {
           const reasoningText = `让我思考一下这个问题...用户说的是: "${userText}"。我需要理解这个请求并给出合适的回复。`;
-          const responseText = `你好！我收到了你的消息："${userText}"
-
-## 📝 Markdown 渲染演示
-
-这是一个**粗体文本**，这是*斜体文本*，这是~~删除线~~。
-
-### 🚀 代码示例
-
-行内代码：\`const greeting = "Hello World"\`
-
-代码块：
-
-\`\`\`typescript
-interface User {
-  id: number;
-  name: string;
-  email: string;
-}
-
-const fetchUser = async (id: number): Promise<User> => {
-  const response = await fetch(\`/api/users/\${id}\`);
-  return response.json();
-};
-\`\`\`
-
-### 📋 列表
-
-**无序列表：**
-- 第一项内容
-- 第二项内容
-  - 嵌套子项 A
-  - 嵌套子项 B
-- 第三项内容
-
-**有序列表：**
-1. 步骤一：安装依赖
-2. 步骤二：配置环境
-3. 步骤三：启动服务
-
-### 📊 表格
-
-| 功能 | 状态 | 说明 |
-|------|------|------|
-| Markdown 渲染 | ✅ 已完成 | 支持完整语法 |
-| 流式输出 | ✅ 已完成 | 平滑动画效果 |
-| 代码高亮 | ✅ 已完成 | 多语言支持 |
-
-### 💬 引用
-
-> 这是一段引用文本。
-> 可以用来展示重要信息或名人名言。
-
-### 🔗 链接
-
-[访问 GitHub](https://github.com)
-
----
-
-💡 **提示**：你可以问我"Bordeaux 的天气怎么样？"来测试工具调用功能。`;
+          const responseText = `你好！我收到了你的消息："${userText}"`;
 
           assistantParts.push({
             type: "reasoning",
@@ -471,7 +419,13 @@ const fetchUser = async (id: number): Promise<User> => {
               reasoningPart.text += char;
             }
 
-            if (!safeSend({ type: "reasoning-delta", id: reasoningId, delta: char })) {
+            if (
+              !safeSend({
+                type: "reasoning-delta",
+                id: reasoningId,
+                delta: char,
+              })
+            ) {
               await persistAssistantMessage("aborted");
               return;
             }
