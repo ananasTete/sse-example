@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChatExample } from "@/features/ai-sdk/hooks/use-chat";
 import { Message } from "@/features/ai-sdk/hooks/use-chat/types";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { UseChatSidebar } from "./components/use-chat-sidebar";
+import { chatHistoryKeys } from "./services/chat-history";
 
 interface ChatBootstrapResponse {
   chat: {
@@ -15,13 +17,13 @@ interface ChatBootstrapResponse {
 }
 
 export default function UseChatPage() {
+  const queryClient = useQueryClient();
   const chatSelectRequestId = useRef(0);
   const [chatId, setChatId] = useState<string | null>(null);
   const [initialMessages, setInitialMessages] = useState<Message[]>([]);
   const [isChatPersisted, setIsChatPersisted] = useState(false);
   const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [isSwitchingChat, setIsSwitchingChat] = useState(false);
-  const [sidebarRefreshKey, setSidebarRefreshKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -66,7 +68,7 @@ export default function UseChatPage() {
     url.searchParams.set("chatId", chatId);
     window.history.replaceState({}, "", url.toString());
     setIsChatPersisted(true);
-    setSidebarRefreshKey((prev) => prev + 1);
+    void queryClient.invalidateQueries({ queryKey: chatHistoryKeys.all });
   };
 
   const handleCreateNewChat = () => {
@@ -138,7 +140,6 @@ export default function UseChatPage() {
         activeChatId={isChatPersisted ? chatId : null}
         onSelectChat={handleSelectChat}
         onCreateNewChat={handleCreateNewChat}
-        refreshKey={sidebarRefreshKey}
       />
       <SidebarInset className="h-svh">
         {error ? (
