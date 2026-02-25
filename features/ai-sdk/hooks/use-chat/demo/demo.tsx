@@ -1,12 +1,11 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from "react";
 import { useChat } from "../useChat";
+import { Message } from "../types";
 import { ToolCallRenderer } from "./ToolCallRenderer";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import {
   SendHorizontal,
   StopCircle,
-  User,
-  Bot,
   Pencil,
   RefreshCw,
   X,
@@ -15,8 +14,21 @@ import {
   Sparkles,
 } from "lucide-react";
 
-export const ChatExample = () => {
+interface ChatExampleProps {
+  chatId: string;
+  initialMessages?: Message[];
+  onConversationStart?: () => void;
+}
+
+export const ChatExample = ({
+  chatId,
+  initialMessages = [],
+  onConversationStart,
+}: ChatExampleProps) => {
   const [selectedModel, setSelectedModel] = useState("gpt-3.5-turbo");
+  const [hasStartedConversation, setHasStartedConversation] = useState(
+    initialMessages.length > 0
+  );
   const {
     messages,
     input,
@@ -27,19 +39,110 @@ export const ChatExample = () => {
     isLoading,
     stop,
     regenerate,
-  } = useChat({ api: "/api/chats", chatId: "123", model: selectedModel });
+  } = useChat({
+    api: "/api/chats",
+    chatId,
+    model: selectedModel,
+    initialMessages,
+  });
 
   // 编辑状态管理
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
 
   // Auto-scroll logic
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const userMessageRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const pendingScrollToLatestUserMessageRef = useRef(false);
+  const pendingScrollUserToTopAfterLayoutRef = useRef(false);
+  const [isResponseViewportLocked, setIsResponseViewportLocked] = useState(false);
+  const [lockedTurnUserMessageId, setLockedTurnUserMessageId] = useState<string | null>(null);
+  const [responsePlaceholderHeight, setResponsePlaceholderHeight] = useState<number | null>(
+    null
+  );
+  const pinnedAssistantMessageId =
+    isResponseViewportLocked && lockedTurnUserMessageId
+      ? (() => {
+          const userIndex = messages.findIndex(
+            (message) => message.id === lockedTurnUserMessageId
+          );
+          if (userIndex < 0) return null;
+          return (
+            messages.slice(userIndex + 1).find((message) => message.role === "assistant")?.id ??
+            null
+          );
+        })()
+      : null;
+
+  const scrollUserMessageToTop = useCallback(
+    (userMessageId: string, behavior: ScrollBehavior) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const messageElement = userMessageRefs.current.get(userMessageId);
+    if (!messageElement) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const messageRect = messageElement.getBoundingClientRect();
+    const nextScrollTop = container.scrollTop + (messageRect.top - containerRect.top);
+    container.scrollTo({ top: nextScrollTop, behavior });
+    },
+    []
+  );
+
   useEffect(() => {
-    if (status === "streaming" || status === "submitted") {
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (pendingScrollToLatestUserMessageRef.current) {
+      const latestUserMessage = [...messages]
+        .reverse()
+        .find((message) => message.role === "user");
+      if (latestUserMessage) {
+        const container = scrollContainerRef.current;
+        const messageElement = userMessageRefs.current.get(latestUserMessage.id);
+        if (container && messageElement) {
+          const containerHeight = Math.round(container.getBoundingClientRect().height);
+          const userMessageHeight = Math.round(messageElement.getBoundingClientRect().height);
+          const nextMinHeight = Math.max(containerHeight - userMessageHeight, 0);
+          const nextLockedUserId = latestUserMessage.id;
+          requestAnimationFrame(() => {
+            setLockedTurnUserMessageId(nextLockedUserId);
+            setResponsePlaceholderHeight(nextMinHeight);
+            pendingScrollUserToTopAfterLayoutRef.current = true;
+          });
+          pendingScrollToLatestUserMessageRef.current = false;
+          return;
+        }
+      }
     }
-  }, [messages, status]);
+
+    // No-op: placeholder height is calculated only at "send" time for the current turn.
+  }, [
+    messages,
+    status,
+    isResponseViewportLocked,
+    lockedTurnUserMessageId,
+    responsePlaceholderHeight,
+  ]);
+
+  useLayoutEffect(() => {
+    if (!pendingScrollUserToTopAfterLayoutRef.current) return;
+    if (!lockedTurnUserMessageId) return;
+    if (responsePlaceholderHeight === null) return;
+
+    pendingScrollUserToTopAfterLayoutRef.current = false;
+    const userMessageId = lockedTurnUserMessageId;
+
+    const shouldReduceMotion =
+      typeof window !== "undefined" &&
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    const behavior: ScrollBehavior = shouldReduceMotion ? "auto" : "smooth";
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scrollUserMessageToTop(userMessageId, behavior);
+      });
+    });
+  }, [lockedTurnUserMessageId, responsePlaceholderHeight, scrollUserMessageToTop]);
 
   // 开始编辑
   const handleStartEdit = (messageId: string, currentText: string) => {
@@ -74,15 +177,31 @@ export const ChatExample = () => {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      handleSubmit(e as any);
+      void submitCurrentInput();
     }
   };
+
+  const submitCurrentInput = async () => {
+    if (!input.trim()) return;
+
+    if (!hasStartedConversation) {
+      onConversationStart?.();
+      setHasStartedConversation(true);
+    }
+
+    pendingScrollToLatestUserMessageRef.current = true;
+    setIsResponseViewportLocked(true);
+    setResponsePlaceholderHeight(null);
+    setLockedTurnUserMessageId(null);
+    await handleSubmit();
+  };
+
+  const shouldRenderSubmittedPlaceholder = isResponseViewportLocked && status === "submitted";
 
   return (
     <div className="flex flex-col h-screen bg-[#f9f8f6] font-sans text-slate-800">
       {/* Header */}
-      <header className="sticky top-0 z-10 flex items-center justify-center p-4 bg-[#f9f8f6]/80 backdrop-blur-md">
+      <header className="sticky top-0 z-10 flex items-center justify-start p-4 bg-[#f9f8f6]/80 backdrop-blur-md">
         <div className="relative group">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#ebe6e0]/50 hover:bg-[#ebe6e0] transition-colors cursor-pointer text-sm font-medium text-stone-700">
             <span>{selectedModel}</span>
@@ -102,7 +221,11 @@ export const ChatExample = () => {
       </header>
 
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto"
+        style={isResponseViewportLocked ? { overflowAnchor: "none" } : undefined}
+      >
         <div className="max-w-3xl mx-auto px-6 py-8 space-y-10">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-[60vh] text-stone-400">
@@ -124,14 +247,18 @@ export const ChatExample = () => {
             return (
               <div
                 key={message.id}
-                className={`group flex gap-4 ${isUser ? "justify-end" : "justify-start"}`}
+                ref={(node) => {
+                  if (isUser) {
+                    if (node) {
+                      userMessageRefs.current.set(message.id, node);
+                    } else {
+                      userMessageRefs.current.delete(message.id);
+                    }
+                    return;
+                  }
+                }}
+                className={`group flex ${isUser ? "justify-end" : "justify-start"}`}
               >
-                {/* Avatar (AI only) */}
-                {!isUser && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-white border border-stone-200 flex items-center justify-center shadow-sm mt-1">
-                    <Bot className="w-5 h-5 text-emerald-600" />
-                  </div>
-                )}
 
                 {/* Message Content Container */}
                 <div
@@ -141,18 +268,6 @@ export const ChatExample = () => {
                       : "flex-1 min-w-0" // Assistant: Full width of the container, no shrinking
                   }`}
                 >
-                  {/* Name Label */}
-                  <div className="flex items-center gap-2 mb-1 px-1">
-                    <span className="text-xs font-semibold text-stone-400 uppercase tracking-wider">
-                      {isUser ? "You" : "Assistant"}
-                    </span>
-                    {message.role === "assistant" && message.model && (
-                      <span className="text-[10px] text-stone-400 bg-stone-100 px-1.5 py-0.5 rounded-full">
-                        {message.model}
-                      </span>
-                    )}
-                  </div>
-
                   {/* Message Body */}
                   <div
                     className={`relative text-sm leading-relaxed ${
@@ -160,6 +275,15 @@ export const ChatExample = () => {
                         ? "bg-[#efede6] text-stone-800 px-5 py-3.5 rounded-[24px] rounded-tr-lg"
                         : "w-full text-stone-800" // Assistant: No bubble background by default, raw text flow like ChatGPT
                     }`}
+                    style={
+                      !isUser &&
+                      isResponseViewportLocked &&
+                      pinnedAssistantMessageId === message.id
+                        ? {
+                            minHeight: `${responsePlaceholderHeight ?? 0}px`,
+                          }
+                        : undefined
+                    }
                   >
                     <div className={`${!isUser ? "px-6 py-5 w-full" : ""}`}>
                       {isEditing && isUser ? (
@@ -291,17 +415,23 @@ export const ChatExample = () => {
                     )}
                   </div>
                 </div>
-
-                {/* Avatar (User) */}
-                {isUser && (
-                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-stone-200 border border-stone-300 flex items-center justify-center shadow-sm mt-1">
-                    <User className="w-4 h-4 text-stone-500" />
-                  </div>
-                )}
               </div>
             );
           })}
-          <div ref={messagesEndRef} />
+          {shouldRenderSubmittedPlaceholder && (
+            <div className="group flex justify-start">
+              <div className="flex flex-col flex-1 min-w-0">
+                <div
+                  className="relative text-sm leading-relaxed w-full text-stone-800"
+                  style={{ minHeight: `${responsePlaceholderHeight ?? 0}px` }}
+                >
+                  <div className="px-6 py-5 w-full">
+                    <div className="h-4 w-14 rounded bg-stone-200/70 animate-pulse" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -336,8 +466,9 @@ export const ChatExample = () => {
                 </button>
               ) : (
                 <button
-                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                  onClick={(e) => handleSubmit(e as any)}
+                  onClick={() => {
+                    void submitCurrentInput();
+                  }}
                   disabled={!input.trim()}
                   className="p-2 bg-stone-900 text-white rounded-full disabled:bg-stone-200 disabled:text-stone-400 transition-colors"
                 >
