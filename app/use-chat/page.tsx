@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChatExample } from "@/features/ai-sdk/hooks/use-chat";
 import { Message } from "@/features/ai-sdk/hooks/use-chat/types";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { UseChatSidebar } from "./components/use-chat-sidebar";
+import { UseChatConversation } from "./components/conversation/use-chat-conversation";
 import { chatHistoryKeys } from "./services/chat-history";
 
 interface ChatBootstrapResponse {
@@ -152,7 +152,7 @@ export default function UseChatPage() {
             Loading selected chat...
           </div>
         ) : (
-          <ChatExample
+          <UseChatConversation
             key={chatId}
             chatId={chatId}
             initialMessages={initialMessages}

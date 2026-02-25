@@ -1,5 +1,5 @@
-import { ToolCallPart, WeatherData } from "../types";
-import { WeatherCard } from "./WeatherCard";
+import { ToolCallPart, WeatherData } from "@/features/ai-sdk/hooks/use-chat/types";
+import { WeatherCard } from "./weather-card";
 
 interface ToolCallRendererProps {
   part: ToolCallPart;

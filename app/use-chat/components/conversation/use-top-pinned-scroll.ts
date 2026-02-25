@@ -1,5 +1,5 @@
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Message, UseChatStatus } from "../types";
+import { Message, UseChatStatus } from "@/features/ai-sdk/hooks/use-chat/types";
 
 type ScrollPhase = "idle" | "preparing" | "smoothAligning" | "tracking" | "released";
 type ReconcileMode = "locked-live" | "locked-settle" | "released";

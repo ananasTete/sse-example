@@ -1,4 +1,4 @@
-import { WeatherData } from "../types";
+import { WeatherData } from "@/features/ai-sdk/hooks/use-chat/types";
 
 // 天气图标映射
 const getWeatherIcon = (icon: string) => {

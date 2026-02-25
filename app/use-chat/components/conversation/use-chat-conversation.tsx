@@ -1,9 +1,11 @@
+"use client";
+
 import { useState, useRef, useEffect } from "react";
-import { useChat } from "../useChat";
-import { Message } from "../types";
-import { ToolCallRenderer } from "./ToolCallRenderer";
-import { MarkdownRenderer } from "./MarkdownRenderer";
-import { useTopPinnedScroll } from "./useTopPinnedScroll";
+import { useChat } from "@/features/ai-sdk/hooks/use-chat/useChat";
+import { Message } from "@/features/ai-sdk/hooks/use-chat/types";
+import { ToolCallRenderer } from "./tool-call-renderer";
+import { MarkdownRenderer } from "./markdown-renderer";
+import { useTopPinnedScroll } from "./use-top-pinned-scroll";
 import {
   SendHorizontal,
   StopCircle,
@@ -15,17 +17,17 @@ import {
   Sparkles,
 } from "lucide-react";
 
-interface ChatExampleProps {
+interface UseChatConversationProps {
   chatId: string;
   initialMessages?: Message[];
   onConversationStart?: () => void;
 }
 
-export const ChatExample = ({
+export const UseChatConversation = ({
   chatId,
   initialMessages = [],
   onConversationStart,
-}: ChatExampleProps) => {
+}: UseChatConversationProps) => {
   const [selectedModel, setSelectedModel] = useState("gpt-3.5-turbo");
   const [hasStartedConversation, setHasStartedConversation] = useState(
     initialMessages.length > 0
