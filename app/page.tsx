@@ -6,10 +6,10 @@ export default function Page() {
       <h1 className="text-2xl font-bold">SSE 示例导航</h1>
       <div className="flex gap-4">
         <Link
-          href="/use-chat"
+          href="/chat"
           className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded transition-colors"
         >
-          useChat Demo
+          Chat Demo
         </Link>
         <Link
           href="/use-gen"
