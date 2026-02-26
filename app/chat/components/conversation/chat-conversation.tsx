@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { useChat } from "@/features/ai-sdk/hooks/use-chat/useChat";
 import type { Message } from "@/features/ai-sdk/hooks/use-chat/types";
-import { useTopPinnedScroll } from "./use-top-pinned-scroll";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatConversationMessages } from "./chat-conversation-messages";
 import { ChatConversationInput } from "./chat-conversation-input";
@@ -40,18 +39,15 @@ export function ChatConversation({
     initialMessages,
   });
 
-  const {
-    scrollContainerRef,
-    messagesContentRef,
-    bottomSpacerHeight,
-    isOverflowAnchorDisabled,
-    isPinningInProgress,
-    registerUserMessageRef,
-    onSubmitStart,
-  } = useTopPinnedScroll({
-    messages,
-    status,
-  });
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const messagesContentRef = useRef<HTMLDivElement>(null);
+  const bottomSpacerHeight = 0;
+  const isOverflowAnchorDisabled = false;
+  const isPinningInProgress = false;
+  const registerUserMessageRef: (
+    messageId: string,
+    node: HTMLDivElement | null
+  ) => void = () => {};
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -68,7 +64,6 @@ export function ChatConversation({
       setHasStartedConversation(true);
     }
 
-    onSubmitStart();
     await handleSubmit();
   };
 
