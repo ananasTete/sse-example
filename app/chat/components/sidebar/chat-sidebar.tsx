@@ -29,8 +29,7 @@ interface ChatSidebarProps {
 }
 
 const isInteractiveTarget = (target: EventTarget | null) =>
-  target instanceof Element &&
-  target.closest(INTERACTIVE_SELECTOR) !== null;
+  target instanceof Element && target.closest(INTERACTIVE_SELECTOR) !== null;
 
 export function ChatSidebar({
   activeChatId,
@@ -76,10 +75,8 @@ export function ChatSidebar({
         setOpen(true);
       }}
     >
-      <SidebarHeader>
-        <div className="flex min-w-0 flex-1 items-center group-data-[state=collapsed]/sidebar:justify-center">
-          <ChatSidebarLogo isExpandedCueVisible={isPassiveHover} />
-        </div>
+      <SidebarHeader className="justify-between group-data-[state=collapsed]/sidebar:justify-center">
+        <ChatSidebarLogo isExpandedCueVisible={isPassiveHover} />
         <SidebarTrigger
           data-interactive="true"
           className="shrink-0 rounded-md cursor-w-resize group-data-[state=collapsed]/sidebar:hidden"

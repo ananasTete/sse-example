@@ -139,11 +139,10 @@ export function ChatSidebarHistory({
   return (
     <div
       className={cn(
-        "mt-4 grid min-h-0 flex-1 grid-rows-[1fr] overflow-hidden",
-        "translate-y-0 opacity-100",
-        "transition-[opacity,grid-template-rows,transform] duration-200 ease-linear",
-        "group-data-[collapsible=icon]/sidebar:grid-rows-[0fr]",
+        "mt-4 flex min-h-0 flex-1 flex-col overflow-hidden",
+        "opacity-100 transition-opacity duration-200 ease-linear",
         "group-data-[collapsible=icon]/sidebar:opacity-0",
+        "group-data-[collapsible=icon]/sidebar:invisible",
         "group-data-[collapsible=icon]/sidebar:pointer-events-none",
       )}
     >
