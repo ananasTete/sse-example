@@ -5,13 +5,13 @@ import { PanelLeftOpen } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useSidebar } from "@/components/ui/sidebar";
 
-type SidebarLogoProps = {
+type ChatSidebarLogoProps = {
   isExpandedCueVisible?: boolean;
 };
 
-export function SidebarLogo({
+export function ChatSidebarLogo({
   isExpandedCueVisible = false,
-}: SidebarLogoProps) {
+}: ChatSidebarLogoProps) {
   const { state, setOpen } = useSidebar();
   const isCollapsed = state === "collapsed";
 

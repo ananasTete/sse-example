@@ -19,7 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-import { SidebarCollapsibleText } from "./sidebar-collapsible-text";
+import { ChatSidebarCollapsibleText } from "./chat-sidebar-collapsible-text";
 
 const settingsItems = [
   { label: "个人资料", icon: UserRound },
@@ -28,7 +28,7 @@ const settingsItems = [
   { label: "主题", icon: Palette },
 ];
 
-export function SidebarSettingsMenu() {
+export function ChatSidebarSettingsMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -38,7 +38,7 @@ export function SidebarSettingsMenu() {
           className="w-full justify-start gap-2"
         >
           <Settings className="size-4" />
-          <SidebarCollapsibleText>设置</SidebarCollapsibleText>
+          <ChatSidebarCollapsibleText>设置</ChatSidebarCollapsibleText>
         </Button>
       </DropdownMenuTrigger>
 

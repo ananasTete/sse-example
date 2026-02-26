@@ -5,8 +5,8 @@ import { nanoid } from "nanoid";
 import { useQueryClient } from "@tanstack/react-query";
 import { Message } from "@/features/ai-sdk/hooks/use-chat/types";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import { UseChatSidebar } from "./components/use-chat-sidebar";
-import { UseChatConversation } from "./components/conversation/use-chat-conversation";
+import { ChatSidebar } from "./components/sidebar/chat-sidebar";
+import { ChatConversation } from "./components/conversation/chat-conversation";
 import { chatHistoryKeys } from "./services/chat-history";
 
 interface ChatBootstrapResponse {
@@ -52,7 +52,9 @@ export default function UseChatPage() {
         setInitialMessages([]);
         setIsChatPersisted(false);
       } catch (initError) {
-        setError(initError instanceof Error ? initError.message : "Unknown error");
+        setError(
+          initError instanceof Error ? initError.message : "Unknown error",
+        );
       } finally {
         setIsBootstrapping(false);
       }
@@ -110,7 +112,9 @@ export default function UseChatPage() {
       window.history.replaceState({}, "", url.toString());
     } catch (selectError) {
       if (requestId !== chatSelectRequestId.current) return;
-      setError(selectError instanceof Error ? selectError.message : "Unknown error");
+      setError(
+        selectError instanceof Error ? selectError.message : "Unknown error",
+      );
     } finally {
       if (requestId === chatSelectRequestId.current) {
         setIsSwitchingChat(false);
@@ -136,7 +140,7 @@ export default function UseChatPage() {
 
   return (
     <SidebarProvider defaultOpen>
-      <UseChatSidebar
+      <ChatSidebar
         activeChatId={isChatPersisted ? chatId : null}
         onSelectChat={handleSelectChat}
         onCreateNewChat={handleCreateNewChat}
@@ -152,7 +156,7 @@ export default function UseChatPage() {
             Loading selected chat...
           </div>
         ) : (
-          <UseChatConversation
+          <ChatConversation
             key={chatId}
             chatId={chatId}
             initialMessages={initialMessages}
