@@ -199,8 +199,10 @@ export function ChatConversationMessages({
                 </div>
 
                 <div
-                  className={`mt-1 flex items-center gap-2 px-2 opacity-0 transition-opacity group-hover:opacity-100 ${
-                    isUser ? "flex-row-reverse" : ""
+                  className={`mt-1 flex items-center gap-2 px-2 transition-opacity ${
+                    isUser
+                      ? "flex-row-reverse opacity-0 group-hover:opacity-100"
+                      : "opacity-100"
                   }`}
                 >
                   {isUser && !isEditing ? (
