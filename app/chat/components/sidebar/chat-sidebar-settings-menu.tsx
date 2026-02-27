@@ -35,9 +35,9 @@ export function ChatSidebarSettingsMenu() {
         <Button
           data-interactive="true"
           variant="ghost"
-          className="w-full justify-start gap-2"
+          className="w-full justify-start"
         >
-          <Settings className="size-4" />
+          <Settings />
           <ChatSidebarCollapsibleText>设置</ChatSidebarCollapsibleText>
         </Button>
       </DropdownMenuTrigger>

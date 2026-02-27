@@ -14,11 +14,7 @@ export function ChatSidebarCollapsibleText({
 }: React.ComponentProps<"span">) {
   return (
     <>
-      <span
-        aria-hidden
-        className={cn(visualClassName, className)}
-        {...props}
-      >
+      <span aria-hidden className={cn(visualClassName, className)} {...props}>
         {children}
       </span>
       <span className="sr-only">{children}</span>

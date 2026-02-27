@@ -75,11 +75,11 @@ export function ChatSidebar({
         setOpen(true);
       }}
     >
-      <SidebarHeader className="justify-between group-data-[state=collapsed]/sidebar:justify-center">
+      <SidebarHeader className="relative p-2">
         <ChatSidebarLogo isExpandedCueVisible={isPassiveHover} />
         <SidebarTrigger
           data-interactive="true"
-          className="shrink-0 rounded-md cursor-w-resize group-data-[state=collapsed]/sidebar:hidden"
+          className="absolute right-3 shrink-0 rounded-md cursor-w-resize group-data-[state=collapsed]/sidebar:hidden"
         />
       </SidebarHeader>
 
@@ -88,9 +88,9 @@ export function ChatSidebar({
           data-interactive="true"
           variant="ghost"
           onClick={onCreateNewChat}
-          className="w-full justify-start gap-2"
+          className="w-full justify-start"
         >
-          <SquarePen className="size-4" />
+          <SquarePen />
           <ChatSidebarCollapsibleText>新聊天</ChatSidebarCollapsibleText>
         </Button>
 

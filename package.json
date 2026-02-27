@@ -39,6 +39,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "eventsource-parser": "^3.0.6",
+    "framer-motion": "^12.34.3",
     "lucide": "^0.562.0",
     "lucide-react": "^0.544.0",
     "nanoid": "^5.0.0",

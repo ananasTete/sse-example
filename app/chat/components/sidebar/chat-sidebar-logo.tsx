@@ -22,7 +22,7 @@ export function ChatSidebarLogo({
       size={"icon"}
       aria-label="展开侧边栏"
       onClick={() => setOpen(true)}
-      className="size-8"
+      className="size-10"
     >
       {isCollapsed && isExpandedCueVisible ? <PanelLeftOpen /> : <Ghost />}
     </Button>

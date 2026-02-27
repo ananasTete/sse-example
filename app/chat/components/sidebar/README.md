@@ -40,4 +40,4 @@ display: none 这种 DOM 卸载场景下想要动画要使用 framer-motion 库�
 
 触发点击事件时实现展开操作
 
-## 触发折叠为 ICON 模式后，如果 header、content、footer 中使用了 justify-center 并存在类似 ICON + 描述文本的结构，在折叠过程中描述文本没了，ICON 就会立即移动到中间而不是在原来的位置，并且跟随 sidebar 宽度变化而移动，看起来效果不好。
+## sidebar 的宽度是不固定的，是 rem 单位，所以其中的元素注意要考虑 w-full
