@@ -1,13 +1,19 @@
-import { useState, type RefObject } from "react";
-import type { Message } from "@/features/ai-sdk/hooks/use-chat/types";
+import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  getMessageText,
+  type Message,
+} from "@/features/ai-sdk/hooks/use-chat/types";
 import { ToolCallRenderer } from "./tool-call-renderer";
 import { MarkdownRenderer } from "./markdown-renderer";
 import {
   Check,
   ChevronDown,
+  Copy,
   Pencil,
   RefreshCw,
   Sparkles,
+  ThumbsDown,
+  ThumbsUp,
   X,
 } from "lucide-react";
 
@@ -20,9 +26,42 @@ interface ChatConversationMessagesProps {
   scrollContainerRef: RefObject<HTMLDivElement | null>;
   messagesContentRef: RefObject<HTMLDivElement | null>;
   isOverflowAnchorDisabled: boolean;
-  registerUserMessageRef: (messageId: string, node: HTMLDivElement | null) => void;
+  registerUserMessageRef: (
+    messageId: string,
+    node: HTMLDivElement | null,
+  ) => void;
   onRegenerateAssistant: (assistantMessageId: string) => void;
   onRegenerateUser: (userMessageId: string, newContent: string) => void;
+}
+
+const ACTION_BUTTON_STAGGER_MS = 60;
+const COPY_FEEDBACK_DURATION_MS = 1500;
+
+async function copyTextToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Try fallback below.
+  }
+
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "");
+    textarea.style.position = "fixed";
+    textarea.style.top = "-9999px";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.select();
+    const copied = document.execCommand("copy");
+    document.body.removeChild(textarea);
+    return copied;
+  } catch {
+    return false;
+  }
 }
 
 export function ChatConversationMessages({
@@ -40,6 +79,19 @@ export function ChatConversationMessages({
 }: ChatConversationMessagesProps) {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
+  const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
+  const copyResetTimeoutRef = useRef<number | null>(null);
+  const lastMessage = messages[messages.length - 1];
+  const activeAssistantMessageId =
+    isLoading && lastMessage?.role === "assistant" ? lastMessage.id : null;
+
+  useEffect(() => {
+    return () => {
+      if (copyResetTimeoutRef.current !== null) {
+        window.clearTimeout(copyResetTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleStartEdit = (messageId: string, currentText: string) => {
     setEditingMessageId(messageId);
@@ -56,6 +108,23 @@ export function ChatConversationMessages({
     onRegenerateUser(editingMessageId, editingContent);
     setEditingMessageId(null);
     setEditingContent("");
+  };
+
+  const handleCopyAssistant = async (messageId: string, text: string) => {
+    if (!text.trim()) return;
+
+    const copied = await copyTextToClipboard(text);
+    if (!copied) return;
+
+    setCopiedMessageId(messageId);
+
+    if (copyResetTimeoutRef.current !== null) {
+      window.clearTimeout(copyResetTimeoutRef.current);
+    }
+
+    copyResetTimeoutRef.current = window.setTimeout(() => {
+      setCopiedMessageId((current) => (current === messageId ? null : current));
+    }, COPY_FEEDBACK_DURATION_MS);
   };
 
   const renderMessagePart = (part: Message["parts"][number], index: number) => {
@@ -87,8 +156,15 @@ export function ChatConversationMessages({
 
     if (part.type === "image") {
       return (
-        <div key={index} className="overflow-hidden rounded-xl border border-stone-100">
-          <img src={part.imageUrl} alt="AI generated" className="h-auto max-w-full" />
+        <div
+          key={index}
+          className="overflow-hidden rounded-xl border border-stone-100"
+        >
+          <img
+            src={part.imageUrl}
+            alt="AI generated"
+            className="h-auto max-w-full"
+          />
         </div>
       );
     }
@@ -125,21 +201,31 @@ export function ChatConversationMessages({
       }`}
       style={isOverflowAnchorDisabled ? { overflowAnchor: "none" } : undefined}
     >
-      <div ref={messagesContentRef} className="mx-auto max-w-3xl space-y-10 px-6 py-8">
+      <div
+        ref={messagesContentRef}
+        className="mx-auto max-w-3xl space-y-10 px-6 py-8"
+      >
         {messages.length === 0 && !isHeroMode ? (
           <div className="flex h-[60vh] flex-col items-center justify-center text-stone-400">
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-sm">
               <Sparkles className="h-7 w-7 text-stone-300" />
             </div>
-            <p className="text-base font-medium text-stone-500">How can I help you today?</p>
+            <p className="text-base font-medium text-stone-500">
+              How can I help you today?
+            </p>
           </div>
         ) : null}
 
         {messages.map((message) => {
           const messageText =
             message.parts.find((part) => part.type === "text")?.text || "";
+          const assistantCopyText =
+            message.role === "assistant" ? getMessageText(message).trim() : "";
           const isEditing = editingMessageId === message.id;
           const isUser = message.role === "user";
+          const isActiveAssistantMessage =
+            message.id === activeAssistantMessageId;
+          const isCopied = copiedMessageId === message.id;
 
           return (
             <div
@@ -153,9 +239,7 @@ export function ChatConversationMessages({
             >
               <div
                 className={`flex flex-col ${
-                  isUser
-                    ? "max-w-[85%] items-end"
-                    : "min-w-0 flex-1"
+                  isUser ? "max-w-[85%] items-end" : "min-w-0 flex-1"
                 }`}
               >
                 <div
@@ -170,7 +254,9 @@ export function ChatConversationMessages({
                       <div className="flex min-w-[300px] flex-col gap-2">
                         <textarea
                           value={editingContent}
-                          onChange={(event) => setEditingContent(event.target.value)}
+                          onChange={(event) =>
+                            setEditingContent(event.target.value)
+                          }
                           className="w-full resize-none rounded-xl border border-stone-200 bg-white p-3 text-stone-800 focus:outline-none focus:ring-2 focus:ring-stone-400/50"
                           rows={3}
                           autoFocus
@@ -192,7 +278,9 @@ export function ChatConversationMessages({
                       </div>
                     ) : (
                       <div className="space-y-4">
-                        {message.parts.map((part, index) => renderMessagePart(part, index))}
+                        {message.parts.map((part, index) =>
+                          renderMessagePart(part, index),
+                        )}
                       </div>
                     )}
                   </div>
@@ -216,14 +304,66 @@ export function ChatConversationMessages({
                     </button>
                   ) : null}
 
-                  {message.role === "assistant" && !isLoading ? (
-                    <button
-                      onClick={() => onRegenerateAssistant(message.id)}
-                      className="rounded p-1 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600"
-                      title="Regenerate"
-                    >
-                      <RefreshCw className="h-3.5 w-3.5" />
-                    </button>
+                  {message.role === "assistant" && !isActiveAssistantMessage ? (
+                    <>
+                      <button
+                        onClick={() => {
+                          void handleCopyAssistant(
+                            message.id,
+                            assistantCopyText,
+                          );
+                        }}
+                        disabled={!assistantCopyText}
+                        className="animate-in fade-in-0 duration-200 rounded p-1 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-stone-400"
+                        style={{ animationFillMode: "backwards" }}
+                        title={isCopied ? "Copied" : "Copy"}
+                      >
+                        {isCopied ? (
+                          <Check className="h-3.5 w-3.5" />
+                        ) : (
+                          <Copy className="h-3.5 w-3.5" />
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        className="animate-in fade-in-0 duration-200 rounded p-1 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600"
+                        style={{
+                          animationDelay: `${ACTION_BUTTON_STAGGER_MS}ms`,
+                          animationFillMode: "backwards",
+                        }}
+                        title="Like"
+                        aria-label="Like response"
+                      >
+                        <ThumbsUp className="h-3.5 w-3.5" />
+                      </button>
+
+                      <button
+                        type="button"
+                        className="animate-in fade-in-0 duration-200 rounded p-1 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600"
+                        style={{
+                          animationDelay: `${ACTION_BUTTON_STAGGER_MS * 2}ms`,
+                          animationFillMode: "backwards",
+                        }}
+                        title="Dislike"
+                        aria-label="Dislike response"
+                      >
+                        <ThumbsDown className="h-3.5 w-3.5" />
+                      </button>
+
+                      <button
+                        onClick={() => onRegenerateAssistant(message.id)}
+                        disabled={isLoading}
+                        className="animate-in fade-in-0 duration-200 rounded p-1 text-stone-400 transition-colors hover:bg-stone-100 hover:text-stone-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-stone-400"
+                        style={{
+                          animationDelay: `${ACTION_BUTTON_STAGGER_MS * 3}ms`,
+                          animationFillMode: "backwards",
+                        }}
+                        title="Regenerate"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      </button>
+                    </>
                   ) : null}
                 </div>
               </div>
