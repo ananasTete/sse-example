@@ -1,57 +1,36 @@
-// app/api/agent-editor/[chatId]/route.ts
-import { NextRequest } from "next/server";
+import { createSseResponse, sendSseEvent } from "@/src/server/http/sse";
 
-export const runtime = "edge";
-
-// 聊天上下文类型（与前端共享）
 interface ChatContext {
   mode: "fulltext" | "selection";
   content: string;
   selection?: { from: number; to: number; text: string };
 }
 
-// 请求 payload 类型
 interface ChatPayload {
   context: ChatContext;
   userRequest: string;
 }
 
-// 消息 Part 类型
 interface MessagePart {
   type: string;
   text?: string;
 }
 
-// 消息类型
 interface ChatMessage {
   role: "user" | "assistant";
   parts: MessagePart[];
 }
 
-// 请求体类型
 interface RequestBody {
   messages: ChatMessage[];
   model: string;
 }
 
-// 生成随机 ID
 const generateId = () =>
   `${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 15)}`;
 
-// SSE 事件发送辅助函数
-const sendEvent = (
-  controller: ReadableStreamDefaultController,
-  encoder: TextEncoder,
-  data: object | string
-) => {
-  const payload = typeof data === "string" ? data : JSON.stringify(data);
-  controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
-};
-
-// 延迟函数
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-// 解析用户消息中的 payload
 const parsePayload = (text: string): ChatPayload | null => {
   try {
     return JSON.parse(text) as ChatPayload;
@@ -60,9 +39,7 @@ const parsePayload = (text: string): ChatPayload | null => {
   }
 };
 
-// 生成改写建议
-const generateRewriteSuggestions = (originalText: string, request: string) => {
-  // 模拟生成多个改写方案
+const generateRewriteSuggestions = (originalText: string, _request: string) => {
   return [
     {
       label: "更简洁",
@@ -82,9 +59,7 @@ const generateRewriteSuggestions = (originalText: string, request: string) => {
   ];
 };
 
-// 生成编辑建议（全文模式）
-const generateEditSuggestions = (fullText: string, request: string) => {
-  // 模拟生成多处编辑建议
+const generateEditSuggestions = (fullText: string, _request: string) => {
   const sentences = fullText.split(/[。！？\n]/).filter((s) => s.trim());
   const edits = [];
 
@@ -109,29 +84,23 @@ const generateEditSuggestions = (fullText: string, request: string) => {
   return edits;
 };
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ chatId: string }> }
-) {
-  const { chatId } = await params;
-  const body = (await req.json()) as RequestBody;
+export async function agentEditorStreamHandler(request: Request, chatId: string) {
+  const body = (await request.json()) as RequestBody;
   const { messages, model } = body;
 
-  // 解析最后一条消息
   const lastMsg = messages[messages.length - 1];
-  const userText =
-    lastMsg?.parts?.find((p) => p.type === "text")?.text || "";
+  const userText = lastMsg?.parts?.find((p) => p.type === "text")?.text || "";
 
-  // 解析结构化 payload
   const payload = parsePayload(userText);
 
-  // 从 payload 中提取上下文和用户请求
   const context = payload?.context;
   const userRequest = payload?.userRequest || userText;
   const selectionMode = context?.mode === "selection";
   const selectedContent = context?.content || "";
 
-  console.log(`[Agent Editor ${chatId}] Mode: ${context?.mode}, Request: ${userRequest}`);
+  console.log(
+    `[Agent Editor ${chatId}] Mode: ${context?.mode}, Request: ${userRequest}`,
+  );
 
   const messageId = generateId();
   const reasoningId = `rs_${generateId()}`;
@@ -141,29 +110,27 @@ export async function POST(
     async start(controller) {
       const encoder = new TextEncoder();
 
-      // === 开始阶段 ===
-      sendEvent(controller, encoder, {
+      sendSseEvent(controller, encoder, {
         type: "start",
         messageId,
         modelId: model,
       });
       await delay(50);
-      sendEvent(controller, encoder, { type: "start-step" });
+      sendSseEvent(controller, encoder, { type: "start-step" });
       await delay(50);
 
-      // 推理阶段
       const reasoningText = selectionMode
         ? `用户选中了一段文字："${selectedContent.slice(0, 30)}..."，请求是："${userRequest}"。我将生成多个改写方案供用户选择。`
         : `用户请求对全文进行处理："${userRequest}"。我将分析全文并提供修改建议。`;
 
-      sendEvent(controller, encoder, {
+      sendSseEvent(controller, encoder, {
         type: "reasoning-start",
         id: reasoningId,
       });
       await delay(30);
 
       for (const char of reasoningText) {
-        sendEvent(controller, encoder, {
+        sendSseEvent(controller, encoder, {
           type: "reasoning-delta",
           id: reasoningId,
           delta: char,
@@ -171,30 +138,27 @@ export async function POST(
         await delay(15);
       }
 
-      sendEvent(controller, encoder, {
+      sendSseEvent(controller, encoder, {
         type: "reasoning-end",
         id: reasoningId,
       });
       await delay(50);
 
       if (selectionMode) {
-        // === 选中模式：调用 suggest_rewrite 工具 ===
         const toolCallId = `call_${generateId()}`;
         const toolName = "suggest_rewrite";
         const suggestions = generateRewriteSuggestions(selectedContent, userRequest);
 
-        // 工具调用开始
-        sendEvent(controller, encoder, {
+        sendSseEvent(controller, encoder, {
           type: "tool-input-start",
           toolCallId,
           toolName,
         });
         await delay(50);
 
-        // 流式生成工具参数
         const inputJson = JSON.stringify({ suggestions });
         for (const char of inputJson) {
-          sendEvent(controller, encoder, {
+          sendSseEvent(controller, encoder, {
             type: "tool-input-delta",
             toolCallId,
             inputTextDelta: char,
@@ -203,8 +167,7 @@ export async function POST(
         }
         await delay(100);
 
-        // 工具参数完整可用
-        sendEvent(controller, encoder, {
+        sendSseEvent(controller, encoder, {
           type: "tool-input-available",
           toolCallId,
           toolName,
@@ -212,22 +175,20 @@ export async function POST(
         });
         await delay(200);
 
-        // 工具执行结果
-        sendEvent(controller, encoder, {
+        sendSseEvent(controller, encoder, {
           type: "tool-output-available",
           toolCallId,
           output: { success: true, count: suggestions.length },
         });
         await delay(100);
 
-        // 生成文本回复
-        sendEvent(controller, encoder, { type: "text-start", id: textId });
+        sendSseEvent(controller, encoder, { type: "text-start", id: textId });
         await delay(30);
 
         const responseText = `我为你生成了 ${suggestions.length} 个改写方案，请选择一个应用到编辑器中：`;
 
         for (const char of responseText) {
-          sendEvent(controller, encoder, {
+          sendSseEvent(controller, encoder, {
             type: "text-delta",
             id: textId,
             delta: char,
@@ -235,26 +196,23 @@ export async function POST(
           await delay(20);
         }
 
-        sendEvent(controller, encoder, { type: "text-end", id: textId });
+        sendSseEvent(controller, encoder, { type: "text-end", id: textId });
       } else {
-        // === 全文模式：调用 suggest_edit 工具 ===
-        const fullText = selectedContent; // 直接使用结构化的 context.content
+        const fullText = selectedContent;
         const toolCallId = `call_${generateId()}`;
         const toolName = "suggest_edit";
         const edits = generateEditSuggestions(fullText, userRequest);
 
-        // 工具调用开始
-        sendEvent(controller, encoder, {
+        sendSseEvent(controller, encoder, {
           type: "tool-input-start",
           toolCallId,
           toolName,
         });
         await delay(50);
 
-        // 流式生成工具参数（使用 suggestions 数组格式，与 suggest_rewrite 保持一致）
         const inputJson = JSON.stringify({ suggestions: edits });
         for (const char of inputJson) {
-          sendEvent(controller, encoder, {
+          sendSseEvent(controller, encoder, {
             type: "tool-input-delta",
             toolCallId,
             inputTextDelta: char,
@@ -263,8 +221,7 @@ export async function POST(
         }
         await delay(100);
 
-        // 工具参数完整可用
-        sendEvent(controller, encoder, {
+        sendSseEvent(controller, encoder, {
           type: "tool-input-available",
           toolCallId,
           toolName,
@@ -272,24 +229,23 @@ export async function POST(
         });
         await delay(200);
 
-        // 工具执行结果
-        sendEvent(controller, encoder, {
+        sendSseEvent(controller, encoder, {
           type: "tool-output-available",
           toolCallId,
           output: { success: true, count: edits.length },
         });
         await delay(100);
 
-        // 生成文本回复
-        sendEvent(controller, encoder, { type: "text-start", id: textId });
+        sendSseEvent(controller, encoder, { type: "text-start", id: textId });
         await delay(30);
 
-        const responseText = edits.length > 0
-          ? `我分析了全文内容，建议对以下 ${edits.length} 处进行修改：`
-          : `我已阅读全文内容。关于你的请求"${userRequest}"，我的建议是：保持当前内容，它已经很好了。`;
+        const responseText =
+          edits.length > 0
+            ? `我分析了全文内容，建议对以下 ${edits.length} 处进行修改：`
+            : `我已阅读全文内容。关于你的请求"${userRequest}"，我的建议是：保持当前内容，它已经很好了。`;
 
         for (const char of responseText) {
-          sendEvent(controller, encoder, {
+          sendSseEvent(controller, encoder, {
             type: "text-delta",
             id: textId,
             delta: char,
@@ -297,27 +253,20 @@ export async function POST(
           await delay(20);
         }
 
-        sendEvent(controller, encoder, { type: "text-end", id: textId });
+        sendSseEvent(controller, encoder, { type: "text-end", id: textId });
       }
 
       await delay(50);
 
-      // === 结束阶段 ===
-      sendEvent(controller, encoder, { type: "finish-step" });
+      sendSseEvent(controller, encoder, { type: "finish-step" });
       await delay(30);
-      sendEvent(controller, encoder, { type: "finish", finishReason: "stop" });
+      sendSseEvent(controller, encoder, { type: "finish", finishReason: "stop" });
       await delay(30);
-      sendEvent(controller, encoder, "[DONE]");
+      sendSseEvent(controller, encoder, "[DONE]");
 
       controller.close();
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+  return createSseResponse(stream);
 }

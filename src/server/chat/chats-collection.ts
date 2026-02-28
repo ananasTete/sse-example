@@ -1,22 +1,14 @@
-import { NextRequest } from "next/server";
 import { chatStore } from "@/lib/chat-store";
-
-export const runtime = "nodejs";
+import { jsonError, parseJsonSafe } from "@/src/server/http/json";
 
 interface CreateChatBody {
   id?: string;
   title?: string;
 }
 
-export async function POST(req: NextRequest) {
+export async function createChatHandler(request: Request) {
   try {
-    let body: CreateChatBody = {};
-
-    try {
-      body = (await req.json()) as CreateChatBody;
-    } catch {
-      body = {};
-    }
+    const body = await parseJsonSafe<CreateChatBody>(request, {});
 
     const chat = await chatStore.createChat({
       id: body.id,
@@ -26,17 +18,18 @@ export async function POST(req: NextRequest) {
     return Response.json({ chat }, { status: 201 });
   } catch (error) {
     console.error("POST /api/chats failed", error);
-    return Response.json(
-      { error: "Failed to create chat. Please check DATABASE_URL and Prisma migration." },
-      { status: 500 }
+    return jsonError(
+      "Failed to create chat. Please check DATABASE_URL and Prisma migration.",
+      500,
     );
   }
 }
 
-export async function GET(req: NextRequest) {
+export async function listChatsHandler(request: Request) {
   try {
-    const limitParam = req.nextUrl.searchParams.get("limit");
-    const cursor = req.nextUrl.searchParams.get("cursor") ?? undefined;
+    const url = new URL(request.url);
+    const limitParam = url.searchParams.get("limit");
+    const cursor = url.searchParams.get("cursor") ?? undefined;
 
     const parsedLimit = limitParam ? Number(limitParam) : undefined;
     const limit = Number.isFinite(parsedLimit) ? parsedLimit : undefined;
@@ -46,6 +39,6 @@ export async function GET(req: NextRequest) {
     return Response.json(result);
   } catch (error) {
     console.error("GET /api/chats failed", error);
-    return Response.json({ error: "Failed to list chats." }, { status: 500 });
+    return jsonError("Failed to list chats.", 500);
   }
 }

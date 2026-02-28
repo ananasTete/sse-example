@@ -16,6 +16,8 @@
 # next.js
 /.next/
 /out/
+/dist/
+.output/
 
 # idea
 /.idea/
@@ -43,4 +45,3 @@ prisma/**/*.db-journal
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts

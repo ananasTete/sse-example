@@ -1,13 +1,12 @@
-"use client";
-
 import { useEffect, useRef, useState } from "react";
+import { createFileRoute } from "@tanstack/react-router";
 import { nanoid } from "nanoid";
 import { useQueryClient } from "@tanstack/react-query";
 import { Message } from "@/features/ai-sdk/hooks/use-chat/types";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
-import { ChatSidebar } from "./components/sidebar/chat-sidebar";
-import { ChatConversation } from "./components/conversation/chat-conversation";
-import { chatHistoryKeys } from "./services/chat-history";
+import { ChatSidebar } from "@/app/chat/components/sidebar/chat-sidebar";
+import { ChatConversation } from "@/app/chat/components/conversation/chat-conversation";
+import { chatHistoryKeys } from "@/app/chat/services/chat-history";
 
 interface ChatBootstrapResponse {
   chat: {
@@ -16,7 +15,11 @@ interface ChatBootstrapResponse {
   messages?: Message[];
 }
 
-export default function UseChatPage() {
+export const Route = createFileRoute("/chat")({
+  component: ChatPage,
+});
+
+function ChatPage() {
   const queryClient = useQueryClient();
   const chatSelectRequestId = useRef(0);
   const [chatId, setChatId] = useState<string | null>(null);
@@ -52,9 +55,7 @@ export default function UseChatPage() {
         setInitialMessages([]);
         setIsChatPersisted(false);
       } catch (initError) {
-        setError(
-          initError instanceof Error ? initError.message : "Unknown error",
-        );
+        setError(initError instanceof Error ? initError.message : "Unknown error");
       } finally {
         setIsBootstrapping(false);
       }
@@ -112,9 +113,7 @@ export default function UseChatPage() {
       window.history.replaceState({}, "", url.toString());
     } catch (selectError) {
       if (requestId !== chatSelectRequestId.current) return;
-      setError(
-        selectError instanceof Error ? selectError.message : "Unknown error",
-      );
+      setError(selectError instanceof Error ? selectError.message : "Unknown error");
     } finally {
       if (requestId === chatSelectRequestId.current) {
         setIsSwitchingChat(false);

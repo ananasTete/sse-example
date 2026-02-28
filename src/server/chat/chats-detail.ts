@@ -1,29 +1,16 @@
-import { NextRequest } from "next/server";
 import { chatStore } from "@/lib/chat-store";
 import { Message, MessagePart } from "@/features/ai-sdk/hooks/use-chat/types";
-
-export const runtime = "nodejs";
+import { jsonError } from "@/src/server/http/json";
+import { createSseResponse, sendSseEvent } from "@/src/server/http/sse";
 
 interface RequestBody {
   messages: Message[];
   model: string;
 }
 
-// 生成随机 ID
 const generateId = () =>
   `${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 15)}`;
 
-// SSE 事件发送辅助函数
-const sendEvent = (
-  controller: ReadableStreamDefaultController,
-  encoder: TextEncoder,
-  data: object | string,
-) => {
-  const payload = typeof data === "string" ? data : JSON.stringify(data);
-  controller.enqueue(encoder.encode(`data: ${payload}\n\n`));
-};
-
-// 延迟函数
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const normalizePartsForStorage = (parts: MessagePart[]): MessagePart[] =>
@@ -37,7 +24,6 @@ const normalizePartsForStorage = (parts: MessagePart[]): MessagePart[] =>
     return part;
   });
 
-// 模拟天气数据
 const mockWeatherData = {
   location: "Bordeaux",
   temperature: 22,
@@ -83,7 +69,6 @@ const mockWeatherData = {
   ],
 };
 
-// 检查是否是天气查询
 const isWeatherQuery = (text: string) => {
   const lowerText = text.toLowerCase();
   return (
@@ -94,7 +79,6 @@ const isWeatherQuery = (text: string) => {
   );
 };
 
-// 从用户消息中提取城市名（简单实现）
 const extractCity = (text: string) => {
   const cities = [
     "Bordeaux",
@@ -116,15 +100,10 @@ const extractCity = (text: string) => {
   return "Bordeaux";
 };
 
-export async function GET(
-  _req: NextRequest,
-  { params }: { params: Promise<{ chatId: string }> },
-) {
-  const { chatId } = await params;
-
+export async function getChatHandler(chatId: string) {
   const chat = await chatStore.getChat(chatId);
   if (!chat) {
-    return Response.json({ error: "Chat not found" }, { status: 404 });
+    return jsonError("Chat not found", 404);
   }
 
   const messages = await chatStore.listMessages(chatId);
@@ -132,49 +111,37 @@ export async function GET(
   return Response.json({ chat, messages });
 }
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: Promise<{ chatId: string }> },
-) {
-  const { chatId } = await params;
-  const body = (await req.json()) as { title?: string | null };
+export async function patchChatHandler(request: Request, chatId: string) {
+  const body = (await request.json()) as { title?: string | null };
 
   const updated = await chatStore.updateChat(chatId, {
     title: body.title,
   });
 
   if (!updated) {
-    return Response.json({ error: "Chat not found" }, { status: 404 });
+    return jsonError("Chat not found", 404);
   }
 
   return Response.json({ chat: updated });
 }
 
-export async function DELETE(
-  _req: NextRequest,
-  { params }: { params: Promise<{ chatId: string }> },
-) {
-  const { chatId } = await params;
+export async function deleteChatHandler(chatId: string) {
   const deleted = await chatStore.deleteChat(chatId);
 
   if (!deleted) {
-    return Response.json({ error: "Chat not found" }, { status: 404 });
+    return jsonError("Chat not found", 404);
   }
 
   return Response.json({ success: true });
 }
 
-export async function POST(
-  req: NextRequest,
-  { params }: { params: Promise<{ chatId: string }> },
-) {
-  const { chatId } = await params;
-  const body = (await req.json()) as RequestBody;
+export async function chatStreamHandler(request: Request, chatId: string) {
+  const body = (await request.json()) as RequestBody;
   const messages = Array.isArray(body.messages) ? body.messages : [];
   const model = body.model || "mock-model";
 
   if (messages.length === 0) {
-    return Response.json({ error: "messages is required" }, { status: 400 });
+    return jsonError("messages is required", 400);
   }
 
   await chatStore.syncMessages(chatId, messages);
@@ -220,7 +187,7 @@ export async function POST(
       const safeSend = (data: object | string) => {
         if (isCancelled) return false;
         try {
-          sendEvent(controller, encoder, data);
+          sendSseEvent(controller, encoder, data);
           return true;
         } catch {
           isCancelled = true;
@@ -527,11 +494,5 @@ export async function POST(
     },
   });
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+  return createSseResponse(stream);
 }

@@ -48,6 +48,8 @@
 }
 
 :root {
+  --font-geist-sans: "IBM Plex Sans", "Noto Sans", "Helvetica Neue", sans-serif;
+  --font-geist-mono: "IBM Plex Mono", "Noto Sans Mono", monospace;
   --radius: 0.625rem;
   --font-chat: "IBM Plex Sans", "Noto Sans", "Helvetica Neue", sans-serif;
   --font-chat-accent: "IBM Plex Mono", "Noto Sans Mono", monospace;
