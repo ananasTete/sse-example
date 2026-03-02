@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import {
   getMessageText,
   type Message,
@@ -21,15 +22,6 @@ interface ChatConversationMessagesProps {
   messages: Message[];
   isHeroMode: boolean;
   isLoading: boolean;
-  shouldRenderSubmittedPlaceholder: boolean;
-  bottomSpacerHeight: number;
-  scrollContainerRef: RefObject<HTMLDivElement | null>;
-  messagesContentRef: RefObject<HTMLDivElement | null>;
-  isOverflowAnchorDisabled: boolean;
-  registerUserMessageRef: (
-    messageId: string,
-    node: HTMLDivElement | null,
-  ) => void;
   onRegenerateAssistant: (assistantMessageId: string) => void;
   onRegenerateUser: (userMessageId: string, newContent: string) => void;
 }
@@ -68,12 +60,6 @@ export function ChatConversationMessages({
   messages,
   isHeroMode,
   isLoading,
-  shouldRenderSubmittedPlaceholder,
-  bottomSpacerHeight,
-  scrollContainerRef,
-  messagesContentRef,
-  isOverflowAnchorDisabled,
-  registerUserMessageRef,
   onRegenerateAssistant,
   onRegenerateUser,
 }: ChatConversationMessagesProps) {
@@ -192,19 +178,17 @@ export function ChatConversationMessages({
   };
 
   return (
-    <div
-      ref={scrollContainerRef}
-      className={`min-h-0 overflow-y-auto transition-[opacity,transform] duration-300 ease-out ${
+    <motion.div
+      initial={false}
+      animate={
         isHeroMode
-          ? "pointer-events-none -translate-y-2 opacity-0"
-          : "translate-y-0 opacity-100"
-      }`}
-      style={isOverflowAnchorDisabled ? { overflowAnchor: "none" } : undefined}
+          ? { opacity: 0, y: -8, pointerEvents: "none" }
+          : { opacity: 1, y: 0, pointerEvents: "auto" }
+      }
+      transition={{ duration: 0.3, ease: "easeOut" }}
+      className="h-full min-h-0 overflow-y-auto"
     >
-      <div
-        ref={messagesContentRef}
-        className="mx-auto max-w-3xl space-y-10 px-6 py-8"
-      >
+      <div className="mx-auto max-w-3xl space-y-10 px-6 py-8">
         {messages.length === 0 && !isHeroMode ? (
           <div className="flex h-[60vh] flex-col items-center justify-center text-stone-400">
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-sm">
@@ -230,11 +214,6 @@ export function ChatConversationMessages({
           return (
             <div
               key={message.id}
-              ref={(node) => {
-                if (isUser) {
-                  registerUserMessageRef(message.id, node);
-                }
-              }}
               className={`group flex ${isUser ? "justify-end" : "justify-start"}`}
             >
               <div
@@ -370,25 +349,7 @@ export function ChatConversationMessages({
             </div>
           );
         })}
-
-        {shouldRenderSubmittedPlaceholder ? (
-          <div className="group flex justify-start">
-            <div className="min-w-0 flex-1 flex-col">
-              <div className="relative w-full text-sm leading-relaxed text-stone-800">
-                <div className="w-full px-6 py-5">
-                  <div className="h-4 w-14 animate-pulse rounded bg-stone-200/70" />
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
-        <div
-          aria-hidden
-          className="pointer-events-none"
-          style={{ height: `${Math.max(bottomSpacerHeight, 0)}px` }}
-        />
       </div>
-    </div>
+    </motion.div>
   );
 }

@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useEffect, useState, type KeyboardEvent } from "react";
 import { useChat } from "@/features/ai-sdk/hooks/use-chat/useChat";
 import type { Message } from "@/features/ai-sdk/hooks/use-chat/types";
+import { consumeBootstrapPromptToken } from "@/features/chat/services/bootstrap-prompt-consumer";
+import type { ChatBootstrapPrompt } from "@/features/chat/services/chat-navigation-state";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatConversationMessages } from "./chat-conversation-messages";
 import { ChatConversationInput } from "./chat-conversation-input";
@@ -10,28 +12,30 @@ import { ChatConversationInput } from "./chat-conversation-input";
 interface ChatConversationProps {
   chatId: string;
   initialMessages?: Message[];
+  bootstrapPrompt?: ChatBootstrapPrompt | null;
   onConversationStart?: () => void;
 }
 
 export function ChatConversation({
   chatId,
   initialMessages = [],
+  bootstrapPrompt = null,
   onConversationStart,
 }: ChatConversationProps) {
   const [selectedModel, setSelectedModel] = useState("gpt-3.5-turbo");
   const [hasStartedConversation, setHasStartedConversation] = useState(
-    initialMessages.length > 0
+    initialMessages.length > 0,
   );
   const {
     messages,
     input,
     handleInputChange,
     handleSubmit,
-    status,
     error,
     isLoading,
     stop,
     regenerate,
+    sendMessage,
   } = useChat({
     api: "/api/chats",
     chatId,
@@ -39,29 +43,28 @@ export function ChatConversation({
     initialMessages,
   });
 
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const messagesContentRef = useRef<HTMLDivElement>(null);
-  const bottomSpacerHeight = 0;
-  const isOverflowAnchorDisabled = false;
-  const isPinningInProgress = false;
-  const registerUserMessageRef: (
-    messageId: string,
-    node: HTMLDivElement | null
-  ) => void = () => {};
-
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
-    if (!textareaRef.current) return;
-    textareaRef.current.style.height = "auto";
-    textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
-  }, [input]);
+    if (!bootstrapPrompt) return;
+
+    const promptText = bootstrapPrompt.text.trim();
+    if (!promptText) return;
+
+    if (!consumeBootstrapPromptToken(bootstrapPrompt.token)) return;
+
+    if (!hasStartedConversation) {
+      setHasStartedConversation(true);
+      onConversationStart?.();
+    }
+
+    void sendMessage(promptText);
+  }, [bootstrapPrompt, hasStartedConversation, onConversationStart, sendMessage]);
 
   const submitCurrentInput = async () => {
     if (!input.trim()) return;
 
     if (!hasStartedConversation) {
-      onConversationStart?.();
       setHasStartedConversation(true);
+      onConversationStart?.();
     }
 
     await handleSubmit();
@@ -74,40 +77,18 @@ export function ChatConversation({
     }
   };
 
-  const shouldRenderSubmittedPlaceholder =
-    isPinningInProgress && status === "submitted";
-  const isHeroMode =
-    !hasStartedConversation &&
-    messages.length === 0 &&
-    status !== "submitted" &&
-    status !== "streaming";
-
   return (
-    <div className="flex h-screen flex-col bg-[#f9f8f6] font-sans text-slate-800">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#f9f8f6] font-sans text-slate-800">
       <ChatConversationHeader
         selectedModel={selectedModel}
         isLoading={isLoading}
         onModelChange={setSelectedModel}
       />
-
-      <div
-        className="grid min-h-0 flex-1 transition-[grid-template-rows] duration-300 ease-out"
-        style={{
-          gridTemplateRows: isHeroMode
-            ? "minmax(0, 1fr) auto minmax(0, 1fr)"
-            : "minmax(0, 1fr) auto 0fr",
-        }}
-      >
+      <div className="min-h-0 flex-1 overflow-hidden">
         <ChatConversationMessages
           messages={messages}
-          isHeroMode={isHeroMode}
+          isHeroMode={false}
           isLoading={isLoading}
-          shouldRenderSubmittedPlaceholder={shouldRenderSubmittedPlaceholder}
-          bottomSpacerHeight={bottomSpacerHeight}
-          scrollContainerRef={scrollContainerRef}
-          messagesContentRef={messagesContentRef}
-          isOverflowAnchorDisabled={isOverflowAnchorDisabled}
-          registerUserMessageRef={registerUserMessageRef}
           onRegenerateAssistant={(assistantMessageId) => {
             void regenerate({ assistantMessageId });
           }}
@@ -115,13 +96,13 @@ export function ChatConversation({
             void regenerate({ userMessageId, newContent });
           }}
         />
-
+      </div>
+      <div className="z-10 shrink-0">
         <ChatConversationInput
           input={input}
-          isHeroMode={isHeroMode}
+          isHeroMode={false}
           isLoading={isLoading}
           error={error}
-          textareaRef={textareaRef}
           onInputChange={handleInputChange}
           onKeyDown={handleKeyDown}
           onSubmit={() => {
@@ -129,8 +110,6 @@ export function ChatConversation({
           }}
           onStop={stop}
         />
-
-        <div aria-hidden className="pointer-events-none" />
       </div>
     </div>
   );

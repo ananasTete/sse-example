@@ -10,6 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useDelayedVisibility } from "@/hooks/use-delayed-visibility";
 import { cn } from "@/lib/utils";
 
 import { ChatHistoryItem } from "../../services/chat-history";
@@ -112,6 +113,14 @@ export function ChatSidebarHistory({
   const scrollAreaRef = useRef<HTMLDivElement | null>(null);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const hasItems = items.length > 0;
+  const showInitialSkeleton = useDelayedVisibility(isInitialLoading && !hasItems, {
+    delayMs: 160,
+    minVisibleMs: 320,
+  });
+  const showLoadMoreSkeleton = useDelayedVisibility(isLoadingMore, {
+    delayMs: 140,
+    minVisibleMs: 280,
+  });
 
   useEffect(() => {
     if (!hasMore || isInitialLoading || isLoadingMore) return;
@@ -165,7 +174,7 @@ export function ChatSidebarHistory({
               ))
             : null}
 
-          {isInitialLoading && !hasItems ? (
+          {showInitialSkeleton && !hasItems ? (
             <HistorySkeleton count={INITIAL_SKELETON_COUNT} />
           ) : null}
 
@@ -192,7 +201,7 @@ export function ChatSidebarHistory({
             </div>
           ) : null}
 
-          {isLoadingMore ? (
+          {showLoadMoreSkeleton ? (
             <HistorySkeleton count={LOAD_MORE_SKELETON_COUNT} />
           ) : null}
 
