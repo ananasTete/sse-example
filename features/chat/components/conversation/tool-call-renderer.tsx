@@ -1,12 +1,47 @@
-import { ToolCallPart, WeatherData } from "@/features/ai-sdk/hooks/use-chat/types";
-import { WeatherCard } from "./weather-card";
+import type { ToolCallPartV2 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
+import { WeatherCard, type WeatherData } from "./weather-card";
 
 interface ToolCallRendererProps {
-  part: ToolCallPart;
+  part: ToolCallPartV2;
 }
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const isWeatherData = (value: unknown): value is WeatherData => {
+  if (!isRecord(value) || !isRecord(value.condition)) return false;
+  if (!Array.isArray(value.dailyForecast)) return false;
+
+  const hasValidDailyForecast = value.dailyForecast.every((item) => {
+    if (!isRecord(item) || !isRecord(item.condition)) return false;
+    return (
+      typeof item.day === "string" &&
+      typeof item.high === "number" &&
+      typeof item.low === "number" &&
+      typeof item.condition.text === "string" &&
+      typeof item.condition.icon === "string"
+    );
+  });
+
+  return (
+    hasValidDailyForecast &&
+    typeof value.location === "string" &&
+    typeof value.temperature === "number" &&
+    typeof value.temperatureHigh === "number" &&
+    typeof value.temperatureLow === "number" &&
+    typeof value.condition.text === "string" &&
+    typeof value.condition.icon === "string" &&
+    typeof value.humidity === "number" &&
+    typeof value.windSpeed === "number"
+  );
+};
 
 export function ToolCallRenderer({ part }: ToolCallRendererProps) {
   const { toolName, state, inputText, input, output } = part;
+  const weatherOutput =
+    toolName === "weather" && isWeatherData(output) ? output : null;
+  const shouldRenderRawOutput =
+    Boolean(output) && (toolName !== "weather" || weatherOutput === null);
 
   // 根据工具名称和状态渲染不同的 UI
   return (
@@ -47,12 +82,10 @@ export function ToolCallRenderer({ part }: ToolCallRendererProps) {
         {state === "output-available" && (
           <div className="space-y-3">
             {/* 根据工具类型渲染特定 UI */}
-            {toolName === "weather" && !!output && (
-              <WeatherCard data={output as WeatherData} />
-            )}
+            {weatherOutput ? <WeatherCard data={weatherOutput} /> : null}
 
             {/* 非天气工具显示原始 JSON */}
-            {toolName !== "weather" && !!output && (
+            {shouldRenderRawOutput && (
               <div className="font-mono text-sm text-slate-600 bg-white p-3 rounded-lg border border-slate-200">
                 <div className="text-xs text-slate-400 mb-1">执行结果</div>
                 <pre className="whitespace-pre-wrap max-h-40 overflow-auto">
@@ -67,7 +100,7 @@ export function ToolCallRenderer({ part }: ToolCallRendererProps) {
   );
 }
 
-function StatusBadge({ state }: { state: ToolCallPart["state"] }) {
+function StatusBadge({ state }: { state: ToolCallPartV2["state"] }) {
   const config = {
     "streaming-input": {
       text: "生成参数中",

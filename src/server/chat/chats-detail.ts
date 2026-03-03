@@ -4,7 +4,11 @@ import {
 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
 import { jsonError } from "@/src/server/http/json";
 import { createSseResponse, sendSseEvent } from "@/src/server/http/sse";
-import { parseStreamChatRequest, toChatMessageV2 } from "./contracts";
+import {
+  parsePatchChatRequest,
+  parseStreamChatRequest,
+  toChatMessageV2,
+} from "./contracts";
 import {
   resolveRequestUserId,
   toFlatChatDetailResponse,
@@ -127,17 +131,29 @@ export async function patchChatHandler(request: Request, chatId: string) {
     return jsonError("Chat not found", 404);
   }
 
-  const body = (await request.json()) as {
-    title?: string | null;
-    current_leaf_message_id?: string | null;
-  };
+  let payload: unknown;
+  try {
+    payload = await request.json();
+  } catch {
+    return jsonError("Invalid patch body", 400);
+  }
+
+  let body: ReturnType<typeof parsePatchChatRequest>;
+  try {
+    body = parsePatchChatRequest(payload);
+  } catch (error) {
+    return jsonError(
+      error instanceof Error ? error.message : "Invalid patch body",
+      400,
+    );
+  }
 
   let updated;
   try {
     updated = await chatStore.updateChat(chatId, {
       title: body.title,
       cursorMessageId: body.current_leaf_message_id,
-    });
+    }, userId);
   } catch (error) {
     return jsonError(
       error instanceof Error ? error.message : "Invalid patch body",
@@ -234,7 +250,7 @@ export async function chatStreamHandler(request: Request, chatId: string) {
       visible: true,
     });
 
-    await chatStore.updateChat(chatId, { cursorMessageId: messageId });
+    await chatStore.updateChat(chatId, { cursorMessageId: messageId }, userId);
   };
 
   const stream = new ReadableStream({

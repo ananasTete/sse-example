@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ConversationStateV2 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
 import {
@@ -40,6 +40,9 @@ export function ChatDetailConversationPage({
   chatId,
 }: ChatDetailConversationPageProps) {
   const queryClient = useQueryClient();
+  const [conversationResetVersionByChatId, setConversationResetVersionByChatId] = useState<
+    Record<string, number>
+  >({});
   const bootstrappedChatIdRef = useRef<string | null>(null);
   const bootstrappedAutoStartRef = useRef<ReturnType<typeof takePendingChatAutoStart>>(null);
 
@@ -50,25 +53,27 @@ export function ChatDetailConversationPage({
   }
 
   const bootstrappedAutoStart = bootstrappedAutoStartRef.current;
-  const shouldFetchChatDetail = !bootstrappedAutoStart;
 
   const chatDetailQuery = useQuery({
     ...chatDetailQueryOptions(chatId),
-    enabled: shouldFetchChatDetail,
     retry: false,
   });
 
   const isNotFoundError =
     chatDetailQuery.error instanceof ChatDetailError &&
     chatDetailQuery.error.status === 404;
+  const shouldSuppressQueryError =
+    Boolean(bootstrappedAutoStart) &&
+    !chatDetailQuery.data &&
+    chatDetailQuery.isFetching;
 
   const showConversationError =
-    shouldFetchChatDetail &&
     Boolean(chatDetailQuery.error) &&
-    !chatDetailQuery.data;
+    !chatDetailQuery.data &&
+    !shouldSuppressQueryError;
 
   const isLoadingHistory =
-    shouldFetchChatDetail &&
+    !bootstrappedAutoStart &&
     chatDetailQuery.isFetching &&
     !chatDetailQuery.data;
 
@@ -77,7 +82,13 @@ export function ChatDetailConversationPage({
       if (!isAbort && !isDisconnect && !isError) return;
 
       try {
-        await queryClient.fetchQuery(chatDetailQueryOptions(chatId));
+        const refreshed = await queryClient.fetchQuery(chatDetailQueryOptions(chatId));
+        if (refreshed?.conversation) {
+          setConversationResetVersionByChatId((current) => ({
+            ...current,
+            [chatId]: (current[chatId] ?? 0) + 1,
+          }));
+        }
       } catch (streamRefreshError) {
         console.warn(
           "Failed to refresh chat detail after abnormal stream finish",
@@ -88,12 +99,13 @@ export function ChatDetailConversationPage({
     [chatId, queryClient],
   );
 
-  const initialConversation = bootstrappedAutoStart
-    ? createEmptyConversation(chatId)
-    : chatDetailQuery.data?.conversation ?? createEmptyConversation(chatId);
+  const initialConversation =
+    chatDetailQuery.data?.conversation ?? createEmptyConversation(chatId);
+  const conversationResetVersion = conversationResetVersionByChatId[chatId] ?? 0;
+  const shouldApplyAutoStart = conversationResetVersion === 0;
 
-  const autoStartModel = bootstrappedAutoStart?.model;
-  const autoStartPrompt = bootstrappedAutoStart?.prompt;
+  const autoStartModel = shouldApplyAutoStart ? bootstrappedAutoStart?.model : undefined;
+  const autoStartPrompt = shouldApplyAutoStart ? bootstrappedAutoStart?.prompt : undefined;
 
   if (isLoadingHistory) {
     return (
@@ -131,7 +143,7 @@ export function ChatDetailConversationPage({
   return (
     <div className="h-full min-h-0 overflow-hidden">
       <ChatConversation
-        key={chatId}
+        key={`${chatId}:${conversationResetVersion}`}
         chatId={chatId}
         initialConversation={initialConversation}
         autoStartModel={autoStartModel}

@@ -1,27 +1,41 @@
 import { chatStore } from "@/lib/chat-store";
-import { MessagePartV2 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
 import { jsonError } from "@/src/server/http/json";
-
-interface PatchMessageBody {
-  parts?: MessagePartV2[];
-  model?: string | null;
-  status?: "done" | "streaming" | "aborted" | "error";
-  visible?: boolean;
-}
+import { resolveRequestUserId } from "./chat-service";
+import { parsePatchMessageRequest } from "./contracts";
 
 export async function patchMessageHandler(
   request: Request,
   chatId: string,
   messageId: string,
 ) {
-  const body = (await request.json()) as PatchMessageBody;
+  const userId = resolveRequestUserId(request);
+  let payload: unknown;
+  try {
+    payload = await request.json();
+  } catch {
+    return jsonError("Invalid patch body", 400);
+  }
+  let body: ReturnType<typeof parsePatchMessageRequest>;
+  try {
+    body = parsePatchMessageRequest(payload);
+  } catch (error) {
+    return jsonError(
+      error instanceof Error ? error.message : "Invalid patch body",
+      400,
+    );
+  }
 
-  const updated = await chatStore.updateMessage(chatId, messageId, {
-    parts: body.parts,
-    model: body.model,
-    status: body.status,
-    visible: body.visible,
-  });
+  const updated = await chatStore.updateMessage(
+    chatId,
+    messageId,
+    {
+      parts: body.parts,
+      model: body.model,
+      status: body.status,
+      visible: body.visible,
+    },
+    userId,
+  );
 
   if (!updated) {
     return jsonError("Message not found", 404);
@@ -30,8 +44,13 @@ export async function patchMessageHandler(
   return Response.json({ message: updated });
 }
 
-export async function deleteMessageHandler(chatId: string, messageId: string) {
-  const result = await chatStore.hideMessageSubtree(chatId, messageId);
+export async function deleteMessageHandler(
+  request: Request,
+  chatId: string,
+  messageId: string,
+) {
+  const userId = resolveRequestUserId(request);
+  const result = await chatStore.hideMessageSubtree(chatId, messageId, userId);
 
   if (!result) {
     return jsonError("Message not found", 404);

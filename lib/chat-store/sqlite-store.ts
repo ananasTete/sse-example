@@ -329,9 +329,13 @@ export class SqliteChatStore implements ChatStore {
     };
   }
 
-  async updateChat(chatId: string, input: UpdateChatInput) {
+  async updateChat(chatId: string, input: UpdateChatInput, userId?: string) {
     const existing = await prisma.chat.findFirst({
-      where: { id: chatId, deletedAt: null },
+      where: {
+        id: chatId,
+        deletedAt: null,
+        ...(userId ? { userId } : {}),
+      },
       select: { id: true },
     });
 
@@ -598,12 +602,20 @@ export class SqliteChatStore implements ChatStore {
     return toMessage(created);
   }
 
-  async updateMessage(chatId: string, messageId: string, input: UpdateMessageInput) {
+  async updateMessage(
+    chatId: string,
+    messageId: string,
+    input: UpdateMessageInput,
+    userId?: string,
+  ) {
     const existing = await prisma.message.findFirst({
       where: {
         id: messageId,
         chatId,
-        chat: { deletedAt: null },
+        chat: {
+          deletedAt: null,
+          ...(userId ? { userId } : {}),
+        },
       },
       select: { id: true },
     });
@@ -634,10 +646,15 @@ export class SqliteChatStore implements ChatStore {
   async hideMessageSubtree(
     chatId: string,
     messageId: string,
+    userId?: string,
   ): Promise<HideMessageSubtreeResult | null> {
     return prisma.$transaction(async (tx) => {
       const chat = await tx.chat.findFirst({
-        where: { id: chatId, deletedAt: null },
+        where: {
+          id: chatId,
+          deletedAt: null,
+          ...(userId ? { userId } : {}),
+        },
         select: { id: true, cursorMessageId: true },
       });
 

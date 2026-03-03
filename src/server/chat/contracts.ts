@@ -34,6 +34,20 @@ export interface StreamChatRequestBody {
   message: ApiUserMessageV2;
 }
 
+export interface PatchChatRequestBody {
+  title?: string | null;
+  current_leaf_message_id?: string | null;
+}
+
+export type PatchMessageStatus = "done" | "streaming" | "aborted" | "error";
+
+export interface PatchMessageRequestBody {
+  parts?: MessagePartV2[];
+  model?: string | null;
+  status?: PatchMessageStatus;
+  visible?: boolean;
+}
+
 const isRecord = (value: unknown): value is JsonObject =>
   typeof value === "object" && value !== null;
 
@@ -47,17 +61,17 @@ const assertString = (value: unknown, field: string): string => {
   return value;
 };
 
-const parseParts = (parts: unknown): ApiMessagePartV2[] => {
+const parseParts = (parts: unknown, field: string): ApiMessagePartV2[] => {
   if (!Array.isArray(parts)) {
-    throw new Error("message.parts must be an array");
+    throw new Error(`${field} must be an array`);
   }
 
   return parts.map((part, index) => {
     if (!isRecord(part)) {
-      throw new Error(`message.parts[${index}] must be an object`);
+      throw new Error(`${field}[${index}] must be an object`);
     }
     if (typeof part.type !== "string" || !part.type) {
-      throw new Error(`message.parts[${index}].type is required`);
+      throw new Error(`${field}[${index}].type is required`);
     }
 
     return part as ApiMessagePartV2;
@@ -77,7 +91,7 @@ const parseUserMessage = (value: unknown, fieldPrefix: string): ApiUserMessageV2
     id: assertString(value.id, `${fieldPrefix}.id`),
     chatId: toStringOrUndefined(value.chatId),
     role: "user",
-    parts: parseParts(value.parts),
+    parts: parseParts(value.parts, `${fieldPrefix}.parts`),
     createdAt: assertString(value.createdAt, `${fieldPrefix}.createdAt`),
     model: toStringOrUndefined(value.model),
   };
@@ -116,6 +130,76 @@ export const parseStreamChatRequest = (
     parentId: assertString(body.parentId, "parentId"),
     message: parseUserMessage(body.message, "message"),
   };
+};
+
+export const parsePatchChatRequest = (body: unknown): PatchChatRequestBody => {
+  if (!isRecord(body)) {
+    throw new Error("request body must be an object");
+  }
+
+  const result: PatchChatRequestBody = {};
+
+  if (body.title !== undefined) {
+    if (typeof body.title !== "string" && body.title !== null) {
+      throw new Error("title must be a string or null");
+    }
+    result.title = body.title;
+  }
+
+  if (body.current_leaf_message_id !== undefined) {
+    if (
+      typeof body.current_leaf_message_id !== "string" &&
+      body.current_leaf_message_id !== null
+    ) {
+      throw new Error("current_leaf_message_id must be a string or null");
+    }
+    result.current_leaf_message_id = body.current_leaf_message_id;
+  }
+
+  return result;
+};
+
+const isPatchMessageStatus = (value: unknown): value is PatchMessageStatus =>
+  value === "done" ||
+  value === "streaming" ||
+  value === "aborted" ||
+  value === "error";
+
+export const parsePatchMessageRequest = (
+  body: unknown,
+): PatchMessageRequestBody => {
+  if (!isRecord(body)) {
+    throw new Error("request body must be an object");
+  }
+
+  const result: PatchMessageRequestBody = {};
+
+  if (body.parts !== undefined) {
+    result.parts = parseParts(body.parts, "parts") as MessagePartV2[];
+  }
+
+  if (body.model !== undefined) {
+    if (typeof body.model !== "string" && body.model !== null) {
+      throw new Error("model must be a string or null");
+    }
+    result.model = body.model;
+  }
+
+  if (body.status !== undefined) {
+    if (!isPatchMessageStatus(body.status)) {
+      throw new Error("status is invalid");
+    }
+    result.status = body.status;
+  }
+
+  if (body.visible !== undefined) {
+    if (typeof body.visible !== "boolean") {
+      throw new Error("visible must be a boolean");
+    }
+    result.visible = body.visible;
+  }
+
+  return result;
 };
 
 export const toChatMessageV2 = (

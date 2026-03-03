@@ -73,7 +73,11 @@ export interface ChatStore {
   }): Promise<ChatEntity>;
   getChat(chatId: string, userId?: string): Promise<ChatEntity | null>;
   listChats(params?: ListChatsParams): Promise<ListChatsResult>;
-  updateChat(chatId: string, input: UpdateChatInput): Promise<ChatEntity | null>;
+  updateChat(
+    chatId: string,
+    input: UpdateChatInput,
+    userId?: string,
+  ): Promise<ChatEntity | null>;
   deleteChat(chatId: string): Promise<boolean>;
   getConversation(chatId: string, userId?: string): Promise<ConversationStateV2 | null>;
   listMessages(chatId: string, userId?: string): Promise<ChatMessageV2[]>;
@@ -87,9 +91,11 @@ export interface ChatStore {
     chatId: string,
     messageId: string,
     input: UpdateMessageInput,
+    userId?: string,
   ): Promise<ChatMessageV2 | null>;
   hideMessageSubtree(
     chatId: string,
     messageId: string,
+    userId?: string,
   ): Promise<HideMessageSubtreeResult | null>;
 }

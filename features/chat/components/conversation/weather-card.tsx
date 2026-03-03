@@ -1,4 +1,25 @@
-import { WeatherData } from "@/features/ai-sdk/hooks/use-chat/types";
+export interface WeatherCondition {
+  text: string;
+  icon: string;
+}
+
+export interface DailyForecast {
+  day: string;
+  high: number;
+  low: number;
+  condition: WeatherCondition;
+}
+
+export interface WeatherData {
+  location: string;
+  temperature: number;
+  temperatureHigh: number;
+  temperatureLow: number;
+  condition: WeatherCondition;
+  humidity: number;
+  windSpeed: number;
+  dailyForecast: DailyForecast[];
+}
 
 // 天气图标映射
 const getWeatherIcon = (icon: string) => {

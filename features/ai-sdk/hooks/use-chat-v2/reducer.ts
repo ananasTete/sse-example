@@ -299,12 +299,11 @@ export function chatReducerV2(state: ChatStateV2, action: ChatActionV2): ChatSta
         conversation: updateNode(state.conversation, nodeId, (node) => {
           if (!node.message) return node;
 
-          const { id: _ignoredId, ...rest } = updates;
           return {
             ...node,
             message: {
               ...node.message,
-              ...rest,
+              ...updates,
               id: node.id,
             },
           };

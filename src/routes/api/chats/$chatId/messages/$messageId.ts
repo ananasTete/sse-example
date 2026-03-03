@@ -10,8 +10,8 @@ export const Route = createFileRoute("/api/chats/$chatId/messages/$messageId")(
       handlers: {
         PATCH: ({ request, params }) =>
           patchMessageHandler(request, params.chatId, params.messageId),
-        DELETE: ({ params }) =>
-          deleteMessageHandler(params.chatId, params.messageId),
+        DELETE: ({ request, params }) =>
+          deleteMessageHandler(request, params.chatId, params.messageId),
       },
     },
   },

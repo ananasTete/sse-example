@@ -247,13 +247,9 @@ export function useChatV2({
           break;
         }
 
+        let readResult: ReadableStreamReadResult<Uint8Array>;
         try {
-          const { done, value } = await reader.read();
-          if (done) break;
-
-          parser.feed(decoder.decode(value, { stream: true }));
-          const serverError = getServerError();
-          if (serverError) throw serverError;
+          readResult = await reader.read();
         } catch (readError) {
           if (abortController.signal.aborted) {
             isAbort = true;
@@ -263,6 +259,15 @@ export function useChatV2({
           isDisconnect = true;
           console.warn("Connection disconnected:", readError);
           break;
+        }
+
+        const { done, value } = readResult;
+        if (done) break;
+
+        parser.feed(decoder.decode(value, { stream: true }));
+        const serverError = getServerError();
+        if (serverError) {
+          throw serverError;
         }
       }
 
@@ -307,6 +312,14 @@ export function useChatV2({
         return;
       }
 
+      const currentAssistantId = streamingAssistantNodeIdRef.current ?? assistantNodeId;
+      dispatch({
+        type: "ABORT_STREAMING",
+        payload: {
+          assistantNodeId: currentAssistantId,
+        },
+      });
+
       const errorObj = err instanceof Error ? err : new Error(String(err));
       dispatch({ type: "SET_ERROR", payload: errorObj });
       onError?.(errorObj);
@@ -317,7 +330,6 @@ export function useChatV2({
           latestConversation,
           latestConversation.cursorId,
         );
-        const currentAssistantId = streamingAssistantNodeIdRef.current ?? assistantNodeId;
         const fallbackMessage = latestConversation.mapping[currentAssistantId]?.message ?? {
           id: currentAssistantId,
           chatId,
