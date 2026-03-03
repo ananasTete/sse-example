@@ -489,6 +489,10 @@ export async function chatStreamHandler(request: Request, chatId: string) {
         }
         await delay(30);
 
+        // Persist the final assistant message before emitting finish/[DONE],
+        // so follow-up detail fetches can observe a fully consistent chat state.
+        await persistAssistantMessage("done");
+
         if (!safeSend({ type: "finish", finishReason: "stop" })) {
           await persistAssistantMessage("aborted");
           return;
@@ -501,7 +505,6 @@ export async function chatStreamHandler(request: Request, chatId: string) {
         }
 
         controller.close();
-        await persistAssistantMessage("done");
       } catch (err) {
         console.error(`[Chat ${chatId}] stream error`, err);
 
