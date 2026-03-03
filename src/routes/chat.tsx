@@ -1,12 +1,7 @@
-import { useCallback } from "react";
-import {
-  Outlet,
-  createFileRoute,
-  useNavigate,
-  useParams,
-} from "@tanstack/react-router";
+import { Outlet, createFileRoute, useNavigate, useParams } from "@tanstack/react-router";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { ChatSidebar } from "@/features/chat/components/sidebar/chat-sidebar";
+import { stopActiveChatStream } from "@/features/chat/services/chat-stream-controller";
 
 export const Route = createFileRoute("/chat")({
   component: ChatLayoutRoute,
@@ -14,44 +9,25 @@ export const Route = createFileRoute("/chat")({
 
 function ChatLayoutRoute() {
   const navigate = useNavigate();
-  const detailParams = useParams({
-    from: "/chat/$chatId",
-    shouldThrow: false,
-  });
-  const activeChatId = detailParams?.chatId ?? null;
-
-  const onSelectChat = useCallback(
-    (selectedChatId: string) => {
-      if (!selectedChatId) return;
-      if (selectedChatId === activeChatId) return;
-
-      void navigate({
-        to: "/chat/$chatId",
-        params: { chatId: selectedChatId },
-      });
-    },
-    [activeChatId, navigate],
-  );
-
-  const onCreateNewChat = useCallback(() => {
-    if (!activeChatId) return;
-
-    void navigate({
-      to: "/chat",
-    });
-  }, [activeChatId, navigate]);
+  const params = useParams({ from: "/chat/$chatId", shouldThrow: false });
+  const activeChatId = params?.chatId ?? null;
 
   return (
     <SidebarProvider defaultOpen>
       <ChatSidebar
         activeChatId={activeChatId}
-        onSelectChat={onSelectChat}
-        onCreateNewChat={onCreateNewChat}
+        onSelectChat={(id) => {
+          if (!id || id === activeChatId) return;
+          stopActiveChatStream();
+          void navigate({ to: "/chat/$chatId", params: { chatId: id } });
+        }}
+        onCreateNewChat={() => {
+          stopActiveChatStream();
+          void navigate({ to: "/chat" });
+        }}
       />
       <SidebarInset className="h-svh min-h-0 overflow-hidden">
-        <div className="h-full min-h-0">
-          <Outlet />
-        </div>
+        <Outlet />
       </SidebarInset>
     </SidebarProvider>
   );

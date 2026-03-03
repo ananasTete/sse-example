@@ -1,12 +1,14 @@
 import { chatStore } from "@/lib/chat-store";
-import { Message, MessagePart } from "@/features/ai-sdk/hooks/use-chat/types";
+import { MessagePart } from "@/features/ai-sdk/hooks/use-chat/types";
 import { jsonError } from "@/src/server/http/json";
 import { createSseResponse, sendSseEvent } from "@/src/server/http/sse";
-
-interface RequestBody {
-  messages: Message[];
-  model: string;
-}
+import { parseStreamChatRequest } from "./contracts";
+import {
+  resolveRequestUserId,
+  toFlatChatDetailResponse,
+  toFlatChatResponse,
+  toStoreMessage,
+} from "./chat-service";
 
 const generateId = () =>
   `${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 15)}`;
@@ -100,18 +102,25 @@ const extractCity = (text: string) => {
   return "Bordeaux";
 };
 
-export async function getChatHandler(chatId: string) {
-  const chat = await chatStore.getChat(chatId);
+export async function getChatHandler(request: Request, chatId: string) {
+  const userId = resolveRequestUserId(request);
+  const chat = await chatStore.getChat(chatId, userId);
   if (!chat) {
     return jsonError("Chat not found", 404);
   }
 
-  const messages = await chatStore.listMessages(chatId);
+  const messages = await chatStore.listMessages(chatId, userId);
 
-  return Response.json({ chat, messages });
+  return Response.json(toFlatChatDetailResponse(chat, messages));
 }
 
 export async function patchChatHandler(request: Request, chatId: string) {
+  const userId = resolveRequestUserId(request);
+  const existing = await chatStore.getChat(chatId, userId);
+  if (!existing) {
+    return jsonError("Chat not found", 404);
+  }
+
   const body = (await request.json()) as { title?: string | null };
 
   const updated = await chatStore.updateChat(chatId, {
@@ -122,10 +131,16 @@ export async function patchChatHandler(request: Request, chatId: string) {
     return jsonError("Chat not found", 404);
   }
 
-  return Response.json({ chat: updated });
+  return Response.json(toFlatChatResponse(updated));
 }
 
-export async function deleteChatHandler(chatId: string) {
+export async function deleteChatHandler(request: Request, chatId: string) {
+  const userId = resolveRequestUserId(request);
+  const existing = await chatStore.getChat(chatId, userId);
+  if (!existing) {
+    return jsonError("Chat not found", 404);
+  }
+
   const deleted = await chatStore.deleteChat(chatId);
 
   if (!deleted) {
@@ -136,19 +151,40 @@ export async function deleteChatHandler(chatId: string) {
 }
 
 export async function chatStreamHandler(request: Request, chatId: string) {
-  const body = (await request.json()) as RequestBody;
-  const messages = Array.isArray(body.messages) ? body.messages : [];
-  const model = body.model || "mock-model";
+  const userId = resolveRequestUserId(request);
 
-  if (messages.length === 0) {
-    return jsonError("messages is required", 400);
+  let body: ReturnType<typeof parseStreamChatRequest>;
+  try {
+    body = parseStreamChatRequest(await request.json());
+  } catch (error) {
+    return jsonError(
+      error instanceof Error ? error.message : "Invalid request body",
+      400,
+    );
   }
 
-  await chatStore.syncMessages(chatId, messages);
+  if (body.id && body.id !== chatId) {
+    return jsonError("chat id mismatch", 400);
+  }
 
-  const lastMsg = messages[messages.length - 1];
+  const chat = await chatStore.getChat(chatId, userId);
+  if (!chat) {
+    return jsonError("Chat not found", 404);
+  }
+
+  const messages = body.messages.map((message) => toStoreMessage(chatId, message));
+  const model = body.model || "openai/gpt-5-nano";
+  const lastUserMessage = [...messages].reverse().find(
+    (message) => message.role === "user",
+  );
+  if (!lastUserMessage) {
+    return jsonError("at least one user message is required", 400);
+  }
+
+  await chatStore.appendUserMessageIfMissing(chatId, lastUserMessage);
+
   const userText =
-    lastMsg?.parts?.find((part) => part.type === "text")?.text ?? "";
+    lastUserMessage.parts?.find((part) => part.type === "text")?.text ?? "";
 
   console.log(`[Chat ${chatId}] User said: ${userText}`);
 

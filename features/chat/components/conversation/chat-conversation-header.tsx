@@ -7,6 +7,7 @@ interface ChatConversationHeaderProps {
 }
 
 const MODEL_OPTIONS = [
+  { value: "openai/gpt-5-nano", label: "GPT-5 Nano" },
   { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
   { value: "gpt-4", label: "GPT-4" },
   { value: "claude-3-opus", label: "Claude 3 Opus" },

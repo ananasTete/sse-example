@@ -4,6 +4,7 @@ export type MessageStatus = "done" | "streaming" | "aborted" | "error";
 
 export interface ChatEntity {
   id: string;
+  userId: string;
   title: string | null;
   createdAt: string;
   updatedAt: string;
@@ -19,6 +20,7 @@ export interface ChatSummary extends ChatEntity {
 export interface ListChatsParams {
   limit?: number;
   cursor?: string;
+  userId?: string;
 }
 
 export interface ListChatsResult {
@@ -48,13 +50,20 @@ export interface UpdateMessageInput {
 }
 
 export interface ChatStore {
-  createChat(input?: { id?: string; title?: string }): Promise<ChatEntity>;
-  getChat(chatId: string): Promise<ChatEntity | null>;
+  createChat(input?: { id?: string; title?: string; userId?: string }): Promise<ChatEntity>;
+  createChatWithFirstMessage(input: {
+    chatId: string;
+    userId: string;
+    title?: string;
+    message: Message;
+  }): Promise<ChatEntity>;
+  getChat(chatId: string, userId?: string): Promise<ChatEntity | null>;
   listChats(params?: ListChatsParams): Promise<ListChatsResult>;
   updateChat(chatId: string, input: UpdateChatInput): Promise<ChatEntity | null>;
   deleteChat(chatId: string): Promise<boolean>;
-  listMessages(chatId: string): Promise<Message[]>;
+  listMessages(chatId: string, userId?: string): Promise<Message[]>;
   syncMessages(chatId: string, messages: Message[]): Promise<void>;
+  appendUserMessageIfMissing(chatId: string, message: Message): Promise<void>;
   createMessage(input: CreateMessageInput): Promise<Message>;
   updateMessage(
     chatId: string,

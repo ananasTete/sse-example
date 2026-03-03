@@ -11,6 +11,7 @@ export interface ChatState {
 
 export type ChatAction =
   | { type: "SET_INPUT"; payload: string }
+  | { type: "SET_MESSAGES"; payload: Message[] }
   | { type: "SUBMIT_MESSAGE"; payload: { userMessage: Message; baseMessages: Message[] } }
   | { type: "ADD_AI_MESSAGE"; payload: Message }
   | { type: "SET_STREAMING" }
@@ -27,6 +28,14 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case "SET_INPUT":
       return { ...state, input: action.payload };
+
+    case "SET_MESSAGES":
+      return {
+        ...state,
+        messages: action.payload,
+        status: "submitted",
+        error: null,
+      };
 
     case "SUBMIT_MESSAGE":
       return {

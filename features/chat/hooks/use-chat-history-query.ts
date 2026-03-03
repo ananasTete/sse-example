@@ -36,7 +36,10 @@ export function useChatHistoryQuery({
         }
       }
     }
-    return Array.from(uniqueItems.values());
+    const sorted = Array.from(uniqueItems.values()).sort(
+      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+    );
+    return sorted;
   }, [query.data]);
 
   return {

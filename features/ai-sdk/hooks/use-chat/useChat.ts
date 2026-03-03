@@ -73,6 +73,11 @@ export function useChat({
     dispatch({ type: "SET_INPUT", payload: value });
   };
 
+  const setMessages = (nextMessages: Message[]) => {
+    dispatch({ type: "SET_MESSAGES", payload: nextMessages });
+    dispatch({ type: "SET_READY" });
+  };
+
   // 停止当前的流式请求
   const stop = () => {
     if (abortControllerRef.current) {
@@ -85,13 +90,10 @@ export function useChat({
   /**
    * 核心发送逻辑
    */
-  const submitCore = async (
-    messageText: string,
-    baseMessages: Message[] = messages,
-    requestTrigger: "submit-message" | "regenerate-message" = trigger
+  const runStreamRequest = async (
+    requestMessages: Message[],
+    requestTrigger: "submit-message" | "regenerate-message",
   ) => {
-    if (!messageText.trim()) return;
-
     // 如果有正在进行的请求，先取消
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -100,19 +102,6 @@ export function useChat({
     // 创建新的 AbortController
     const abortController = new AbortController();
     abortControllerRef.current = abortController;
-
-    // 准备用户消息对象
-    const userMessage: Message = {
-      id: generateId(),
-      chatId,
-      role: "user",
-      createdAt: new Date().toISOString(),
-      parts: [{ type: "text", text: messageText, state: "done" }],
-    };
-
-    // 乐观更新：把用户消息显示在界面上
-    const newMessages = [...baseMessages, userMessage];
-    dispatch({ type: "SUBMIT_MESSAGE", payload: { userMessage, baseMessages } });
 
     try {
       const response = await fetch(`${api}/${chatId}`, {
@@ -123,7 +112,7 @@ export function useChat({
         },
         body: JSON.stringify({
           id: chatId,
-          messages: newMessages,
+          messages: requestMessages,
           model,
           trigger: requestTrigger,
         }),
@@ -179,7 +168,10 @@ export function useChat({
       }
 
       const finalAiMessageId = getAiMessageId();
-      dispatch({ type: "FINALIZE_STREAMING", payload: { messageId: finalAiMessageId } });
+      dispatch({
+        type: "FINALIZE_STREAMING",
+        payload: { messageId: finalAiMessageId },
+      });
 
       // 使用 queueMicrotask 确保在 state 更新后调用回调
       queueMicrotask(() => {
@@ -223,10 +215,42 @@ export function useChat({
         isDisconnect: false,
         isError: true,
       });
-
-      return;
+    } finally {
+      abortControllerRef.current = null;
     }
-    abortControllerRef.current = null;
+  };
+
+  const submitCore = async (
+    messageText: string,
+    baseMessages: Message[] = messages,
+    requestTrigger: "submit-message" | "regenerate-message" = trigger
+  ) => {
+    if (!messageText.trim()) return;
+
+    // 准备用户消息对象
+    const userMessage: Message = {
+      id: generateId(),
+      chatId,
+      role: "user",
+      createdAt: new Date().toISOString(),
+      parts: [{ type: "text", text: messageText, state: "done" }],
+    };
+
+    // 乐观更新：把用户消息显示在界面上
+    const newMessages = [...baseMessages, userMessage];
+    dispatch({ type: "SUBMIT_MESSAGE", payload: { userMessage, baseMessages } });
+    await runStreamRequest(newMessages, requestTrigger);
+  };
+
+  const streamFromMessages = async (options: {
+    messages: Message[];
+    trigger?: "submit-message" | "regenerate-message";
+  }) => {
+    const requestMessages = options.messages;
+    if (requestMessages.length === 0) return;
+
+    dispatch({ type: "SET_MESSAGES", payload: requestMessages });
+    await runStreamRequest(options.messages, options.trigger ?? trigger);
   };
 
   /**
@@ -330,8 +354,10 @@ export function useChat({
     isLoading: status === "submitted" || status === "streaming",
     handleInputChange,
     setInput,
+    setMessages,
     handleSubmit,
     sendMessage,
+    streamFromMessages,
     regenerate,
     updateMessageParts,
     stop,

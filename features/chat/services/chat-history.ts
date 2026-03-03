@@ -5,6 +5,8 @@ const CHAT_HISTORY_KEY = "chat-history";
 export interface ChatHistoryItem {
   id: string;
   title: string;
+  userId: string;
+  createdAt: string;
   updatedAt: string;
   lastMessagePreview: string | null;
   messageCount: number;

@@ -67,12 +67,14 @@ const toMessage = (record: {
 
 const toChatEntity = (record: {
   id: string;
+  userId: string;
   title: string | null;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
 }): ChatEntity => ({
   id: record.id,
+  userId: record.userId,
   title: record.title,
   createdAt: toIsoString(record.createdAt),
   updatedAt: toIsoString(record.updatedAt),
@@ -80,10 +82,11 @@ const toChatEntity = (record: {
 });
 
 export class SqliteChatStore implements ChatStore {
-  async createChat(input?: { id?: string; title?: string }) {
+  async createChat(input?: { id?: string; title?: string; userId?: string }) {
     const created = await prisma.chat.create({
       data: {
         id: input?.id ?? nanoid(),
+        userId: input?.userId ?? "local-user",
         title: input?.title ?? null,
       },
     });
@@ -91,9 +94,47 @@ export class SqliteChatStore implements ChatStore {
     return toChatEntity(created);
   }
 
-  async getChat(chatId: string) {
+  async createChatWithFirstMessage(input: {
+    chatId: string;
+    userId: string;
+    title?: string;
+    message: Message;
+  }) {
+    const created = await prisma.$transaction(async (tx) => {
+      const chat = await tx.chat.create({
+        data: {
+          id: input.chatId,
+          userId: input.userId,
+          title: input.title ?? null,
+        },
+      });
+
+      await tx.message.create({
+        data: {
+          id: input.message.id,
+          chatId: input.chatId,
+          role: input.message.role,
+          partsJson: toInputJson(input.message.parts),
+          model: input.message.model ?? null,
+          status: "done",
+          seq: 1,
+          createdAt: parseCreatedAt(input.message.createdAt),
+        },
+      });
+
+      return chat;
+    });
+
+    return toChatEntity(created);
+  }
+
+  async getChat(chatId: string, userId?: string) {
     const chat = await prisma.chat.findFirst({
-      where: { id: chatId, deletedAt: null },
+      where: {
+        id: chatId,
+        deletedAt: null,
+        ...(userId ? { userId } : {}),
+      },
     });
 
     return chat ? toChatEntity(chat) : null;
@@ -105,16 +146,24 @@ export class SqliteChatStore implements ChatStore {
       MAX_LIST_LIMIT
     );
 
-    let where: Prisma.ChatWhereInput = { deletedAt: null };
+    let where: Prisma.ChatWhereInput = {
+      deletedAt: null,
+      ...(params?.userId ? { userId: params.userId } : {}),
+    };
     if (params?.cursor) {
       const cursorChat = await prisma.chat.findFirst({
-        where: { id: params.cursor, deletedAt: null },
+        where: {
+          id: params.cursor,
+          deletedAt: null,
+          ...(params?.userId ? { userId: params.userId } : {}),
+        },
         select: { id: true, updatedAt: true },
       });
 
       if (cursorChat) {
         where = {
           deletedAt: null,
+          ...(params?.userId ? { userId: params.userId } : {}),
           OR: [
             { updatedAt: { lt: cursorChat.updatedAt } },
             {
@@ -206,12 +255,13 @@ export class SqliteChatStore implements ChatStore {
     return result.count > 0;
   }
 
-  async listMessages(chatId: string) {
+  async listMessages(chatId: string, userId?: string) {
     const messages = await prisma.message.findMany({
       where: {
         chatId,
         chat: {
           deletedAt: null,
+          ...(userId ? { userId } : {}),
         },
       },
       orderBy: [{ seq: "asc" }, { createdAt: "asc" }],
@@ -233,7 +283,7 @@ export class SqliteChatStore implements ChatStore {
       await tx.chat.upsert({
         where: { id: chatId },
         update: { deletedAt: null },
-        create: { id: chatId },
+        create: { id: chatId, userId: "local-user" },
       });
 
       await tx.message.deleteMany({ where: { chatId } });
@@ -256,12 +306,42 @@ export class SqliteChatStore implements ChatStore {
     });
   }
 
+  async appendUserMessageIfMissing(chatId: string, message: Message) {
+    if (message.role !== "user") return;
+
+    const existing = await prisma.message.findFirst({
+      where: { chatId, id: message.id },
+      select: { id: true },
+    });
+
+    if (existing) return;
+
+    const latest = await prisma.message.findFirst({
+      where: { chatId },
+      orderBy: { seq: "desc" },
+      select: { seq: true },
+    });
+
+    await prisma.message.create({
+      data: {
+        id: message.id,
+        chatId,
+        role: message.role,
+        partsJson: toInputJson(message.parts),
+        model: message.model ?? null,
+        status: "done",
+        seq: (latest?.seq ?? 0) + 1,
+        createdAt: parseCreatedAt(message.createdAt),
+      },
+    });
+  }
+
   async createMessage(input: CreateMessageInput) {
     const created = await prisma.$transaction(async (tx) => {
       await tx.chat.upsert({
         where: { id: input.chatId },
         update: { deletedAt: null },
-        create: { id: input.chatId },
+        create: { id: input.chatId, userId: "local-user" },
       });
 
       const latest = await tx.message.findFirst({

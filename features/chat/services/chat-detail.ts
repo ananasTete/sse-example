@@ -3,11 +3,28 @@ import type { Message } from "@/features/ai-sdk/hooks/use-chat/types";
 
 const CHAT_DETAIL_KEY = "chat-detail";
 
-export interface ChatDetailResponse {
-  chat: {
-    id: string;
+export interface CreateChatPayload {
+  id: string;
+  message: {
+    id?: string;
+    role: "user";
+    parts: Array<{
+      type: "text";
+      text: string;
+    }>;
+    createdAt?: string;
   };
-  messages?: Message[];
+}
+
+export interface ChatBaseResponse {
+  id: string;
+  title: string;
+  userId: string;
+  createdAt: string;
+}
+
+export interface ChatDetailResponse extends ChatBaseResponse {
+  messages: Message[];
 }
 
 export class ChatDetailError extends Error {
@@ -24,6 +41,22 @@ export const chatDetailKeys = {
   all: [CHAT_DETAIL_KEY] as const,
   detail: (chatId: string) => [CHAT_DETAIL_KEY, chatId] as const,
 };
+
+export async function createChat(payload: CreateChatPayload): Promise<ChatBaseResponse> {
+  const response = await fetch("/api/chats", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new ChatDetailError(response.status, "Failed to create chat");
+  }
+
+  return (await response.json()) as ChatBaseResponse;
+}
 
 export async function fetchChatDetail(chatId: string): Promise<ChatDetailResponse> {
   const response = await fetch(`/api/chats/${chatId}`);

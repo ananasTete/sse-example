@@ -9,9 +9,10 @@ import {
 export const Route = createFileRoute("/api/chats/$chatId")({
   server: {
     handlers: {
-      GET: ({ params }) => getChatHandler(params.chatId),
+      GET: ({ request, params }) => getChatHandler(request, params.chatId),
       PATCH: ({ request, params }) => patchChatHandler(request, params.chatId),
-      DELETE: ({ params }) => deleteChatHandler(params.chatId),
+      DELETE: ({ request, params }) =>
+        deleteChatHandler(request, params.chatId),
       POST: ({ request, params }) => chatStreamHandler(request, params.chatId),
     },
   },
