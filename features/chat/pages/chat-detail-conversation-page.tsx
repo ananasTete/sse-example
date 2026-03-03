@@ -1,5 +1,6 @@
 import { useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ConversationStateV2 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
 import {
   ChatConversation,
   type ChatStreamFinishedPayload,
@@ -9,14 +10,12 @@ import {
   chatDetailQueryOptions,
   ChatDetailError,
 } from "@/features/chat/services/chat-detail";
-import type { ConversationStateV2 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
 import {
-  peekPendingChatAutoStart,
+  takePendingChatAutoStart,
 } from "../services/chat-session-auto-start";
-import { useChatSessionOrchestrator } from "../hooks/use-chat-session-orchestrator";
 
-interface ChatConversationPageProps {
-  chatId?: string;
+interface ChatDetailConversationPageProps {
+  chatId: string;
 }
 
 const createEmptyConversation = (chatId: string): ConversationStateV2 => {
@@ -37,30 +36,24 @@ const createEmptyConversation = (chatId: string): ConversationStateV2 => {
   };
 };
 
-export function ChatConversationPage({ chatId }: ChatConversationPageProps) {
+export function ChatDetailConversationPage({
+  chatId,
+}: ChatDetailConversationPageProps) {
   const queryClient = useQueryClient();
   const bootstrappedChatIdRef = useRef<string | null>(null);
-  const bootstrappedAutoStartRef = useRef<ReturnType<typeof peekPendingChatAutoStart>>(null);
-  const {
-    status,
-    error,
-    createAndStartConversation,
-    consumeAutoStart,
-    markStreaming,
-  } = useChatSessionOrchestrator();
+  const bootstrappedAutoStartRef = useRef<ReturnType<typeof takePendingChatAutoStart>>(null);
 
-  if ((chatId ?? null) !== bootstrappedChatIdRef.current) {
-    bootstrappedChatIdRef.current = chatId ?? null;
-    bootstrappedAutoStartRef.current = chatId
-      ? peekPendingChatAutoStart(chatId)
-      : null;
+  if (chatId !== bootstrappedChatIdRef.current) {
+    bootstrappedChatIdRef.current = chatId;
+    // Consume once to guarantee "at most once" auto-start per pending entry.
+    bootstrappedAutoStartRef.current = takePendingChatAutoStart(chatId);
   }
 
   const bootstrappedAutoStart = bootstrappedAutoStartRef.current;
-  const shouldFetchChatDetail = Boolean(chatId) && !bootstrappedAutoStart;
+  const shouldFetchChatDetail = !bootstrappedAutoStart;
 
   const chatDetailQuery = useQuery({
-    ...(chatId ? chatDetailQueryOptions(chatId) : chatDetailQueryOptions("")),
+    ...chatDetailQueryOptions(chatId),
     enabled: shouldFetchChatDetail,
     retry: false,
   });
@@ -80,13 +73,7 @@ export function ChatConversationPage({ chatId }: ChatConversationPageProps) {
     !chatDetailQuery.data;
 
   const handleStreamFinished = useCallback(
-    async ({
-      isAbort,
-      isDisconnect,
-      isError,
-    }: ChatStreamFinishedPayload) => {
-      if (!chatId) return;
-      consumeAutoStart(chatId);
+    async ({ isAbort, isDisconnect, isError }: ChatStreamFinishedPayload) => {
       if (!isAbort && !isDisconnect && !isError) return;
 
       try {
@@ -98,14 +85,12 @@ export function ChatConversationPage({ chatId }: ChatConversationPageProps) {
         );
       }
     },
-    [chatId, consumeAutoStart, queryClient],
+    [chatId, queryClient],
   );
 
-  const initialConversation = chatId
-    ? (bootstrappedAutoStart
-      ? createEmptyConversation(chatId)
-      : chatDetailQuery.data?.conversation ?? createEmptyConversation(chatId))
-    : undefined;
+  const initialConversation = bootstrappedAutoStart
+    ? createEmptyConversation(chatId)
+    : chatDetailQuery.data?.conversation ?? createEmptyConversation(chatId);
 
   const autoStartModel = bootstrappedAutoStart?.model;
   const autoStartPrompt = bootstrappedAutoStart?.prompt;
@@ -146,15 +131,11 @@ export function ChatConversationPage({ chatId }: ChatConversationPageProps) {
   return (
     <div className="h-full min-h-0 overflow-hidden">
       <ChatConversation
-        key={chatId ?? "new-chat"}
+        key={chatId}
         chatId={chatId}
         initialConversation={initialConversation}
         autoStartModel={autoStartModel}
         autoStartPrompt={autoStartPrompt}
-        isCreatingChat={status === "creating" || status === "hydrating"}
-        creationError={error}
-        onCreateChat={createAndStartConversation}
-        onStreamStateChange={markStreaming}
         onStreamFinished={handleStreamFinished}
       />
     </div>

@@ -10,12 +10,6 @@ export function setPendingChatAutoStart(value: PendingChatAutoStart): void {
   pendingAutoStartByChatId.set(value.chatId, value);
 }
 
-export function peekPendingChatAutoStart(
-  chatId: string,
-): PendingChatAutoStart | null {
-  return pendingAutoStartByChatId.get(chatId) ?? null;
-}
-
 export function takePendingChatAutoStart(
   chatId: string,
 ): PendingChatAutoStart | null {

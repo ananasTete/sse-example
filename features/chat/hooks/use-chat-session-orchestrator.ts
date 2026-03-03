@@ -7,13 +7,11 @@ import {
   setPendingChatAutoStart,
   takePendingChatAutoStart,
 } from "../services/chat-session-auto-start";
-import type { PendingChatAutoStart } from "../services/chat-session-auto-start";
 
 export type ChatSessionStatus =
   | "idle"
   | "creating"
   | "hydrating"
-  | "streaming"
   | "error";
 
 const createChatId = () => {
@@ -72,6 +70,7 @@ export function useChatSessionOrchestrator() {
 
         setStatus("idle");
       } catch (unknownError) {
+        takePendingChatAutoStart(chatId);
         const nextError =
           unknownError instanceof Error
             ? unknownError
@@ -83,24 +82,9 @@ export function useChatSessionOrchestrator() {
     [navigate, queryClient],
   );
 
-  const consumeAutoStart = useCallback(
-    (chatId: string): PendingChatAutoStart | null => takePendingChatAutoStart(chatId),
-    [],
-  );
-
-  const markStreaming = useCallback((streaming: boolean) => {
-    setStatus((previousStatus) => {
-      if (streaming) return "streaming";
-      if (previousStatus === "streaming") return "idle";
-      return previousStatus;
-    });
-  }, []);
-
   return {
     status,
     error,
     createAndStartConversation,
-    consumeAutoStart,
-    markStreaming,
   };
 }
