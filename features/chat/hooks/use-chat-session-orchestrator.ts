@@ -1,7 +1,6 @@
 import { useCallback, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import type { Message } from "@/features/ai-sdk/hooks/use-chat/types";
 import { createChat } from "../services/chat-detail";
 import { chatHistoryKeys } from "../services/chat-history";
 import {
@@ -24,13 +23,6 @@ const createChatId = () => {
   return `chat_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 };
 
-const createMessageId = () => {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
-};
-
 export function useChatSessionOrchestrator() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -45,23 +37,10 @@ export function useChatSessionOrchestrator() {
       setError(null);
       setStatus("creating");
       const chatId = createChatId();
-      const bootstrapUserMessage: Message = {
-        id: createMessageId(),
-        chatId,
-        role: "user",
-        parts: [{ type: "text", text, state: "done" }],
-        createdAt: new Date().toISOString(),
-      };
 
       try {
         await createChat({
           id: chatId,
-          message: {
-            id: bootstrapUserMessage.id,
-            role: "user",
-            parts: [{ type: "text", text }],
-            createdAt: bootstrapUserMessage.createdAt,
-          },
         });
 
         setStatus("hydrating");
@@ -80,7 +59,7 @@ export function useChatSessionOrchestrator() {
         setPendingChatAutoStart({
           chatId,
           model,
-          seedMessages: [bootstrapUserMessage],
+          prompt: text,
         });
 
         const navigatePromise = navigate({

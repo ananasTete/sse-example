@@ -203,7 +203,6 @@ export function useChatV2({
 
     try {
       const payload: StreamChatV2RequestBody = {
-        id: chatId,
         model,
         trigger: requestTrigger,
         parentId,

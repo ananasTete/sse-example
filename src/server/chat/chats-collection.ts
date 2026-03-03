@@ -1,5 +1,4 @@
 import { chatStore } from "@/lib/chat-store";
-import { MessagePart } from "@/features/ai-sdk/hooks/use-chat/types";
 import { jsonError, parseJsonSafe } from "@/src/server/http/json";
 import { parseCreateChatRequest } from "./contracts";
 import {
@@ -22,19 +21,12 @@ export async function createChatHandler(request: Request) {
     }
 
     const userId = resolveRequestUserId(request);
-    const messageId = body.message.id ?? crypto.randomUUID();
-    const createdAt = body.message.createdAt ?? new Date().toISOString();
 
-    const chat = await chatStore.createChatWithFirstMessage({
-      chatId: body.id,
+    const chat = await chatStore.createChat({
+      id: body.id,
+      title: body.title,
       userId,
-      message: {
-        id: messageId,
-        chatId: body.id,
-        role: "user",
-        parts: body.message.parts as MessagePart[],
-        createdAt,
-      },
+      cursorMessageId: null,
     });
 
     return Response.json(toFlatChatResponse(chat), { status: 201 });

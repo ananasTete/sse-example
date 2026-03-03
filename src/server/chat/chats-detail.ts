@@ -1,13 +1,14 @@
 import { chatStore } from "@/lib/chat-store";
-import { MessagePart } from "@/features/ai-sdk/hooks/use-chat/types";
+import {
+  MessagePartV2,
+} from "@/features/ai-sdk/hooks/use-chat-v2/types";
 import { jsonError } from "@/src/server/http/json";
 import { createSseResponse, sendSseEvent } from "@/src/server/http/sse";
-import { parseStreamChatRequest } from "./contracts";
+import { parseStreamChatRequest, toChatMessageV2 } from "./contracts";
 import {
   resolveRequestUserId,
   toFlatChatDetailResponse,
   toFlatChatResponse,
-  toStoreMessage,
 } from "./chat-service";
 
 const generateId = () =>
@@ -15,7 +16,9 @@ const generateId = () =>
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const normalizePartsForStorage = (parts: MessagePart[]): MessagePart[] =>
+const getConversationRootId = (chatId: string) => `chat-root:${chatId}`;
+
+const normalizePartsForStorage = (parts: MessagePartV2[]): MessagePartV2[] =>
   parts.map((part) => {
     if (part.type === "text" || part.type === "reasoning") {
       return {
@@ -109,9 +112,12 @@ export async function getChatHandler(request: Request, chatId: string) {
     return jsonError("Chat not found", 404);
   }
 
-  const messages = await chatStore.listMessages(chatId, userId);
+  const conversation = await chatStore.getConversation(chatId, userId);
+  if (!conversation) {
+    return jsonError("Chat not found", 404);
+  }
 
-  return Response.json(toFlatChatDetailResponse(chat, messages));
+  return Response.json(toFlatChatDetailResponse(chat, conversation));
 }
 
 export async function patchChatHandler(request: Request, chatId: string) {
@@ -121,11 +127,23 @@ export async function patchChatHandler(request: Request, chatId: string) {
     return jsonError("Chat not found", 404);
   }
 
-  const body = (await request.json()) as { title?: string | null };
+  const body = (await request.json()) as {
+    title?: string | null;
+    current_leaf_message_id?: string | null;
+  };
 
-  const updated = await chatStore.updateChat(chatId, {
-    title: body.title,
-  });
+  let updated;
+  try {
+    updated = await chatStore.updateChat(chatId, {
+      title: body.title,
+      cursorMessageId: body.current_leaf_message_id,
+    });
+  } catch (error) {
+    return jsonError(
+      error instanceof Error ? error.message : "Invalid patch body",
+      400,
+    );
+  }
 
   if (!updated) {
     return jsonError("Chat not found", 404);
@@ -163,28 +181,27 @@ export async function chatStreamHandler(request: Request, chatId: string) {
     );
   }
 
-  if (body.id && body.id !== chatId) {
-    return jsonError("chat id mismatch", 400);
-  }
-
   const chat = await chatStore.getChat(chatId, userId);
   if (!chat) {
     return jsonError("Chat not found", 404);
   }
 
-  const messages = body.messages.map((message) => toStoreMessage(chatId, message));
-  const model = body.model || "openai/gpt-5-nano";
-  const lastUserMessage = [...messages].reverse().find(
-    (message) => message.role === "user",
-  );
-  if (!lastUserMessage) {
-    return jsonError("at least one user message is required", 400);
+  const rootId = getConversationRootId(chatId);
+  const normalizedParentId = body.parentId === rootId ? null : body.parentId;
+
+  const userMessage = toChatMessageV2(chatId, body.message);
+  try {
+    await chatStore.appendUserNodeIfMissing(chatId, normalizedParentId, userMessage);
+  } catch (error) {
+    return jsonError(
+      error instanceof Error ? error.message : "Invalid parentId",
+      400,
+    );
   }
 
-  await chatStore.appendUserMessageIfMissing(chatId, lastUserMessage);
-
+  const model = body.model || "openai/gpt-5-nano";
   const userText =
-    lastUserMessage.parts?.find((part) => part.type === "text")?.text ?? "";
+    userMessage.parts.find((part) => part.type === "text")?.text ?? "";
 
   console.log(`[Chat ${chatId}] User said: ${userText}`);
 
@@ -195,7 +212,7 @@ export async function chatStreamHandler(request: Request, chatId: string) {
   const shouldUseWeatherTool = isWeatherQuery(userText);
   const city = extractCity(userText);
 
-  const assistantParts: MessagePart[] = [];
+  const assistantParts: MessagePartV2[] = [];
   let isCancelled = false;
   let isPersisted = false;
 
@@ -208,12 +225,16 @@ export async function chatStreamHandler(request: Request, chatId: string) {
     await chatStore.createMessage({
       id: messageId,
       chatId,
+      parentId: userMessage.id,
       role: "assistant",
       model,
       status,
       parts: normalizePartsForStorage(assistantParts),
       createdAt: new Date().toISOString(),
+      visible: true,
     });
+
+    await chatStore.updateChat(chatId, { cursorMessageId: messageId });
   };
 
   const stream = new ReadableStream({
@@ -489,8 +510,6 @@ export async function chatStreamHandler(request: Request, chatId: string) {
         }
         await delay(30);
 
-        // Persist the final assistant message before emitting finish/[DONE],
-        // so follow-up detail fetches can observe a fully consistent chat state.
         await persistAssistantMessage("done");
 
         if (!safeSend({ type: "finish", finishReason: "stop" })) {

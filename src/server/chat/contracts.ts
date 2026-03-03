@@ -1,36 +1,37 @@
+import {
+  ChatMessageV2,
+  MessagePartV2,
+  RequestTrigger,
+} from "@/features/ai-sdk/hooks/use-chat-v2/types";
+
 interface JsonObject {
   [key: string]: unknown;
 }
 
-export interface ApiMessagePart {
+export interface ApiMessagePartV2 {
   type: string;
   [key: string]: unknown;
 }
 
-export interface ApiMessage {
+export interface ApiUserMessageV2 {
   id: string;
   chatId?: string;
-  role: "user" | "assistant";
-  parts: ApiMessagePart[];
+  role: "user";
+  parts: ApiMessagePartV2[];
   createdAt: string;
   model?: string;
 }
 
 export interface CreateChatRequestBody {
   id: string;
-  message: {
-    id?: string;
-    role: "user";
-    parts: ApiMessagePart[];
-    createdAt?: string;
-  };
+  title?: string;
 }
 
 export interface StreamChatRequestBody {
-  id?: string;
   model: string;
-  messages: ApiMessage[];
-  trigger: "submit-message" | "regenerate-message";
+  trigger: RequestTrigger;
+  parentId: string;
+  message: ApiUserMessageV2;
 }
 
 const isRecord = (value: unknown): value is JsonObject =>
@@ -46,7 +47,7 @@ const assertString = (value: unknown, field: string): string => {
   return value;
 };
 
-const parseParts = (parts: unknown): ApiMessagePart[] => {
+const parseParts = (parts: unknown): ApiMessagePartV2[] => {
   if (!Array.isArray(parts)) {
     throw new Error("message.parts must be an array");
   }
@@ -58,24 +59,24 @@ const parseParts = (parts: unknown): ApiMessagePart[] => {
     if (typeof part.type !== "string" || !part.type) {
       throw new Error(`message.parts[${index}].type is required`);
     }
-    return part as ApiMessagePart;
+
+    return part as ApiMessagePartV2;
   });
 };
 
-const parseMessage = (value: unknown, fieldPrefix: string): ApiMessage => {
+const parseUserMessage = (value: unknown, fieldPrefix: string): ApiUserMessageV2 => {
   if (!isRecord(value)) {
     throw new Error(`${fieldPrefix} must be an object`);
   }
 
-  const role = value.role;
-  if (role !== "user" && role !== "assistant") {
-    throw new Error(`${fieldPrefix}.role must be user or assistant`);
+  if (value.role !== "user") {
+    throw new Error(`${fieldPrefix}.role must be user`);
   }
 
   return {
     id: assertString(value.id, `${fieldPrefix}.id`),
     chatId: toStringOrUndefined(value.chatId),
-    role,
+    role: "user",
     parts: parseParts(value.parts),
     createdAt: assertString(value.createdAt, `${fieldPrefix}.createdAt`),
     model: toStringOrUndefined(value.model),
@@ -89,24 +90,9 @@ export const parseCreateChatRequest = (
     throw new Error("request body must be an object");
   }
 
-  const messageValue = body.message;
-  if (!isRecord(messageValue)) {
-    throw new Error("message is required");
-  }
-
-  const role = messageValue.role;
-  if (role !== "user") {
-    throw new Error("message.role must be user");
-  }
-
   return {
     id: assertString(body.id, "id"),
-    message: {
-      id: toStringOrUndefined(messageValue.id),
-      role,
-      parts: parseParts(messageValue.parts),
-      createdAt: toStringOrUndefined(messageValue.createdAt),
-    },
+    title: toStringOrUndefined(body.title),
   };
 };
 
@@ -119,21 +105,29 @@ export const parseStreamChatRequest = (
 
   const model = assertString(body.model, "model");
   const triggerValue = body.trigger;
-  const trigger =
+  const trigger: RequestTrigger =
     triggerValue === "regenerate-message"
       ? "regenerate-message"
       : "submit-message";
 
-  if (!Array.isArray(body.messages) || body.messages.length === 0) {
-    throw new Error("messages is required");
-  }
-
   return {
-    id: toStringOrUndefined(body.id),
     model,
     trigger,
-    messages: body.messages.map((message, index) =>
-      parseMessage(message, `messages[${index}]`),
-    ),
+    parentId: assertString(body.parentId, "parentId"),
+    message: parseUserMessage(body.message, "message"),
+  };
+};
+
+export const toChatMessageV2 = (
+  chatId: string,
+  message: ApiUserMessageV2,
+): ChatMessageV2 => {
+  return {
+    id: message.id,
+    chatId,
+    role: "user",
+    parts: message.parts as MessagePartV2[],
+    createdAt: message.createdAt,
+    model: message.model,
   };
 };

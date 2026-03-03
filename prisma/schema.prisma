@@ -8,13 +8,14 @@ datasource db {
 }
 
 model Chat {
-  id        String    @id
-  userId    String    @default("local-user")
-  title     String?
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
-  messages  Message[]
+  id              String    @id
+  userId          String    @default("local-user")
+  title           String?
+  cursorMessageId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+  messages        Message[]
 
   @@index([userId, updatedAt])
 }
@@ -22,15 +23,18 @@ model Chat {
 model Message {
   id        String   @id
   chatId    String
+  parentId  String?
   role      String
   partsJson Json
   model     String?
   status    String
   seq       Int
+  visible   Boolean  @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   chat      Chat     @relation(fields: [chatId], references: [id], onDelete: Cascade)
 
   @@index([chatId, seq])
+  @@index([chatId, parentId, createdAt])
   @@unique([chatId, seq])
 }

@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   getMessageText,
-  type Message,
-} from "@/features/ai-sdk/hooks/use-chat/types";
+  type ChatMessageV2,
+} from "@/features/ai-sdk/hooks/use-chat-v2/types";
 import { ToolCallRenderer } from "./tool-call-renderer";
 import { MarkdownRenderer } from "./markdown-renderer";
 import {
@@ -19,11 +19,16 @@ import {
 } from "lucide-react";
 
 interface ChatConversationMessagesProps {
-  messages: Message[];
+  messages: ChatMessageV2[];
   isHeroMode: boolean;
   isLoading: boolean;
   onRegenerateAssistant: (assistantMessageId: string) => void;
   onRegenerateUser: (userMessageId: string, newContent: string) => void;
+  assistantVariantIndicators?: Record<string, { index: number; total: number }>;
+  onSwitchAssistantVariant?: (
+    assistantMessageId: string,
+    direction: "prev" | "next",
+  ) => void;
 }
 
 const ACTION_BUTTON_STAGGER_MS = 60;
@@ -62,6 +67,8 @@ export function ChatConversationMessages({
   isLoading,
   onRegenerateAssistant,
   onRegenerateUser,
+  assistantVariantIndicators = {},
+  onSwitchAssistantVariant,
 }: ChatConversationMessagesProps) {
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [editingContent, setEditingContent] = useState("");
@@ -113,7 +120,7 @@ export function ChatConversationMessages({
     }, COPY_FEEDBACK_DURATION_MS);
   };
 
-  const renderMessagePart = (part: Message["parts"][number], index: number) => {
+  const renderMessagePart = (part: ChatMessageV2["parts"][number], index: number) => {
     if (part.type === "step-start") return null;
 
     if (part.type === "reasoning") {
@@ -210,6 +217,7 @@ export function ChatConversationMessages({
           const isActiveAssistantMessage =
             message.id === activeAssistantMessageId;
           const isCopied = copiedMessageId === message.id;
+          const assistantVariantIndicator = assistantVariantIndicators[message.id];
 
           return (
             <div
@@ -285,6 +293,37 @@ export function ChatConversationMessages({
 
                   {message.role === "assistant" && !isActiveAssistantMessage ? (
                     <>
+                      {assistantVariantIndicator ? (
+                        <div className="inline-flex items-center gap-1 rounded-md bg-stone-100/70 px-1 py-0.5 text-xs text-stone-500">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onSwitchAssistantVariant?.(message.id, "prev")
+                            }
+                            disabled={isLoading}
+                            className="rounded p-0.5 transition-colors hover:bg-stone-200 hover:text-stone-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            title="Previous response"
+                          >
+                            {"<"}
+                          </button>
+                          <span className="min-w-[2.5rem] text-center font-medium">
+                            {assistantVariantIndicator.index}/
+                            {assistantVariantIndicator.total}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onSwitchAssistantVariant?.(message.id, "next")
+                            }
+                            disabled={isLoading}
+                            className="rounded p-0.5 transition-colors hover:bg-stone-200 hover:text-stone-700 disabled:cursor-not-allowed disabled:opacity-40"
+                            title="Next response"
+                          >
+                            {">"}
+                          </button>
+                        </div>
+                      ) : null}
+
                       <button
                         onClick={() => {
                           void handleCopyAssistant(

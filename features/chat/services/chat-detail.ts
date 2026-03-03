@@ -1,19 +1,11 @@
 import { queryOptions } from "@tanstack/react-query";
-import type { Message } from "@/features/ai-sdk/hooks/use-chat/types";
+import type { ConversationStateV2 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
 
 const CHAT_DETAIL_KEY = "chat-detail";
 
 export interface CreateChatPayload {
   id: string;
-  message: {
-    id?: string;
-    role: "user";
-    parts: Array<{
-      type: "text";
-      text: string;
-    }>;
-    createdAt?: string;
-  };
+  title?: string;
 }
 
 export interface ChatBaseResponse {
@@ -24,7 +16,17 @@ export interface ChatBaseResponse {
 }
 
 export interface ChatDetailResponse extends ChatBaseResponse {
-  messages: Message[];
+  conversation: ConversationStateV2;
+}
+
+interface ApiConversationStateV2 {
+  rootId: string;
+  current_leaf_message_id: string;
+  mapping: ConversationStateV2["mapping"];
+}
+
+interface ApiChatDetailResponse extends ChatBaseResponse {
+  conversation: ApiConversationStateV2;
 }
 
 export class ChatDetailError extends Error {
@@ -64,7 +66,40 @@ export async function fetchChatDetail(chatId: string): Promise<ChatDetailRespons
     throw new ChatDetailError(response.status);
   }
 
-  return (await response.json()) as ChatDetailResponse;
+  const data = (await response.json()) as ApiChatDetailResponse;
+
+  return {
+    ...data,
+    conversation: {
+      rootId: data.conversation.rootId,
+      cursorId: data.conversation.current_leaf_message_id,
+      mapping: data.conversation.mapping,
+    },
+  };
+}
+
+export async function updateCurrentLeafMessage(
+  chatId: string,
+  currentLeafMessageId: string,
+): Promise<ChatBaseResponse> {
+  const response = await fetch(`/api/chats/${chatId}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      current_leaf_message_id: currentLeafMessageId,
+    }),
+  });
+
+  if (!response.ok) {
+    throw new ChatDetailError(
+      response.status,
+      "Failed to persist current leaf message id",
+    );
+  }
+
+  return (await response.json()) as ChatBaseResponse;
 }
 
 export const chatDetailQueryOptions = (chatId: string) =>

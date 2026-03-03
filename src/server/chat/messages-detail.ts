@@ -1,11 +1,12 @@
 import { chatStore } from "@/lib/chat-store";
-import { MessagePart } from "@/features/ai-sdk/hooks/use-chat/types";
+import { MessagePartV2 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
 import { jsonError } from "@/src/server/http/json";
 
 interface PatchMessageBody {
-  parts?: MessagePart[];
+  parts?: MessagePartV2[];
   model?: string | null;
   status?: "done" | "streaming" | "aborted" | "error";
+  visible?: boolean;
 }
 
 export async function patchMessageHandler(
@@ -19,6 +20,7 @@ export async function patchMessageHandler(
     parts: body.parts,
     model: body.model,
     status: body.status,
+    visible: body.visible,
   });
 
   if (!updated) {
@@ -29,11 +31,15 @@ export async function patchMessageHandler(
 }
 
 export async function deleteMessageHandler(chatId: string, messageId: string) {
-  const deleted = await chatStore.deleteMessage(chatId, messageId);
+  const result = await chatStore.hideMessageSubtree(chatId, messageId);
 
-  if (!deleted) {
+  if (!result) {
     return jsonError("Message not found", 404);
   }
 
-  return Response.json({ success: true });
+  return Response.json({
+    success: true,
+    hiddenMessageIds: result.hiddenMessageIds,
+    cursorMessageId: result.cursorMessageId,
+  });
 }

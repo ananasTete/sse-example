@@ -33,7 +33,6 @@ interface ConversationNode {
 
 ```json
 {
-  "id": "chat-id",
   "model": "openai/gpt-5-nano",
   "trigger": "submit-message",
   "parentId": "node-id",

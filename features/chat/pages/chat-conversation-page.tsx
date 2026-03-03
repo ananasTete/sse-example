@@ -9,6 +9,7 @@ import {
   chatDetailQueryOptions,
   ChatDetailError,
 } from "@/features/chat/services/chat-detail";
+import type { ConversationStateV2 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
 import {
   peekPendingChatAutoStart,
 } from "../services/chat-session-auto-start";
@@ -17,6 +18,24 @@ import { useChatSessionOrchestrator } from "../hooks/use-chat-session-orchestrat
 interface ChatConversationPageProps {
   chatId?: string;
 }
+
+const createEmptyConversation = (chatId: string): ConversationStateV2 => {
+  const rootId = `chat-root:${chatId}`;
+  return {
+    rootId,
+    cursorId: rootId,
+    mapping: {
+      [rootId]: {
+        id: rootId,
+        parentId: null,
+        childIds: [],
+        role: "root",
+        message: null,
+        visible: false,
+      },
+    },
+  };
+};
 
 export function ChatConversationPage({ chatId }: ChatConversationPageProps) {
   const queryClient = useQueryClient();
@@ -29,6 +48,7 @@ export function ChatConversationPage({ chatId }: ChatConversationPageProps) {
     consumeAutoStart,
     markStreaming,
   } = useChatSessionOrchestrator();
+
   if ((chatId ?? null) !== bootstrappedChatIdRef.current) {
     bootstrappedChatIdRef.current = chatId ?? null;
     bootstrappedAutoStartRef.current = chatId
@@ -53,6 +73,7 @@ export function ChatConversationPage({ chatId }: ChatConversationPageProps) {
     shouldFetchChatDetail &&
     Boolean(chatDetailQuery.error) &&
     !chatDetailQuery.data;
+
   const isLoadingHistory =
     shouldFetchChatDetail &&
     chatDetailQuery.isFetching &&
@@ -79,10 +100,15 @@ export function ChatConversationPage({ chatId }: ChatConversationPageProps) {
     },
     [chatId, consumeAutoStart, queryClient],
   );
-  const initialMessages =
-    bootstrappedAutoStart?.seedMessages ?? chatDetailQuery.data?.messages ?? [];
-  const autoStartModel =
-    bootstrappedAutoStart?.model;
+
+  const initialConversation = chatId
+    ? (bootstrappedAutoStart
+      ? createEmptyConversation(chatId)
+      : chatDetailQuery.data?.conversation ?? createEmptyConversation(chatId))
+    : undefined;
+
+  const autoStartModel = bootstrappedAutoStart?.model;
+  const autoStartPrompt = bootstrappedAutoStart?.prompt;
 
   if (isLoadingHistory) {
     return (
@@ -122,8 +148,9 @@ export function ChatConversationPage({ chatId }: ChatConversationPageProps) {
       <ChatConversation
         key={chatId ?? "new-chat"}
         chatId={chatId}
-        initialMessages={initialMessages}
+        initialConversation={initialConversation}
         autoStartModel={autoStartModel}
+        autoStartPrompt={autoStartPrompt}
         isCreatingChat={status === "creating" || status === "hydrating"}
         creationError={error}
         onCreateChat={createAndStartConversation}

@@ -1,6 +1,8 @@
-import type { Message, MessagePart } from "@/features/ai-sdk/hooks/use-chat/types";
+import type {
+  ConversationNode,
+  ConversationStateV2,
+} from "@/features/ai-sdk/hooks/use-chat-v2/types";
 import type { ChatEntity, ListChatsResult } from "@/lib/chat-store";
-import type { ApiMessage } from "./contracts";
 
 export const DEFAULT_USER_ID = "local-user";
 
@@ -11,8 +13,14 @@ interface FlatChatResponse {
   createdAt: string;
 }
 
+interface ApiConversationStateV2 {
+  rootId: string;
+  current_leaf_message_id: string;
+  mapping: Record<string, ConversationNode>;
+}
+
 export interface FlatChatDetailResponse extends FlatChatResponse {
-  messages: Message[];
+  conversation: ApiConversationStateV2;
 }
 
 export interface FlatChatHistoryResponse {
@@ -45,11 +53,15 @@ export function toFlatChatResponse(chat: ChatEntity): FlatChatResponse {
 
 export function toFlatChatDetailResponse(
   chat: ChatEntity,
-  messages: Message[],
+  conversation: ConversationStateV2,
 ): FlatChatDetailResponse {
   return {
     ...toFlatChatResponse(chat),
-    messages,
+    conversation: {
+      rootId: conversation.rootId,
+      current_leaf_message_id: conversation.cursorId,
+      mapping: conversation.mapping,
+    },
   };
 }
 
@@ -68,16 +80,5 @@ export function toFlatHistoryResponse(
     })),
     nextCursor: result.nextCursor,
     hasMore: result.hasMore,
-  };
-}
-
-export function toStoreMessage(chatId: string, message: ApiMessage): Message {
-  return {
-    id: message.id,
-    chatId,
-    role: message.role,
-    parts: message.parts as MessagePart[],
-    createdAt: message.createdAt,
-    model: message.model,
   };
 }

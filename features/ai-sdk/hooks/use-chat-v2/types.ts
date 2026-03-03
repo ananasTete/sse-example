@@ -57,7 +57,6 @@ export type UseChatV2Status = "submitted" | "streaming" | "ready" | "error";
 export type RequestTrigger = "submit-message" | "regenerate-message";
 
 export interface StreamChatV2RequestBody {
-  id: string;
   model: string;
   trigger: RequestTrigger;
   parentId: string;

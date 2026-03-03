@@ -1,9 +1,7 @@
-import type { Message } from "@/features/ai-sdk/hooks/use-chat/types";
-
 export interface PendingChatAutoStart {
   chatId: string;
   model: string;
-  seedMessages: Message[];
+  prompt: string;
 }
 
 const pendingAutoStartByChatId = new Map<string, PendingChatAutoStart>();
