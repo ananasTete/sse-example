@@ -8,6 +8,13 @@ import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatConversationMessages } from "./chat-conversation-messages";
 import { ChatConversationInput } from "./chat-conversation-input";
 
+export interface ChatStreamFinishedPayload {
+  messages: Message[];
+  isAbort: boolean;
+  isDisconnect: boolean;
+  isError: boolean;
+}
+
 interface ChatConversationProps {
   chatId?: string;
   initialMessages?: Message[];
@@ -16,7 +23,7 @@ interface ChatConversationProps {
   creationError?: Error | null;
   onCreateChat?: (text: string, model: string) => Promise<void>;
   onStreamStateChange?: (streaming: boolean) => void;
-  onStreamFinished?: (messages: Message[]) => Promise<void> | void;
+  onStreamFinished?: (payload: ChatStreamFinishedPayload) => Promise<void> | void;
 }
 
 const DEFAULT_MODEL = "openai/gpt-5-nano";
@@ -48,7 +55,7 @@ interface BoundChatConversationProps {
   initialMessages?: Message[];
   autoStartModel?: string;
   onStreamStateChange?: (streaming: boolean) => void;
-  onStreamFinished?: (messages: Message[]) => Promise<void> | void;
+  onStreamFinished?: (payload: ChatStreamFinishedPayload) => Promise<void> | void;
 }
 
 function BoundChatConversation({
@@ -76,9 +83,13 @@ function BoundChatConversation({
     chatId,
     model: selectedModel,
     initialMessages,
-    onFinish: ({ isError, messages: completedMessages }) => {
-      if (isError) return;
-      void onStreamFinished?.(completedMessages);
+    onFinish: ({ isAbort, isDisconnect, isError, messages: completedMessages }) => {
+      void onStreamFinished?.({
+        messages: completedMessages,
+        isAbort,
+        isDisconnect,
+        isError,
+      });
     },
   });
 
@@ -100,12 +111,18 @@ function BoundChatConversation({
     if (initialMessages.length === 0) return;
     if (initialMessages.some((message) => message.role === "assistant")) return;
 
-    hasAutoStartedRef.current = true;
+    const startTimer = window.setTimeout(() => {
+      if (hasAutoStartedRef.current) return;
+      hasAutoStartedRef.current = true;
+      void streamFromMessages({
+        messages: initialMessages,
+        trigger: "submit-message",
+      });
+    }, 0);
 
-    void streamFromMessages({
-      messages: initialMessages,
-      trigger: "submit-message",
-    });
+    return () => {
+      window.clearTimeout(startTimer);
+    };
   }, [autoStartModel, initialMessages, selectedModel, streamFromMessages]);
 
   const submitCurrentInput = async () => {

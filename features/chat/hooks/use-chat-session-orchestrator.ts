@@ -2,10 +2,7 @@ import { useCallback, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Message } from "@/features/ai-sdk/hooks/use-chat/types";
-import {
-  chatDetailQueryOptions,
-  createChat,
-} from "../services/chat-detail";
+import { createChat } from "../services/chat-detail";
 import { chatHistoryKeys } from "../services/chat-history";
 import {
   setPendingChatAutoStart,
@@ -68,7 +65,7 @@ export function useChatSessionOrchestrator() {
         });
 
         setStatus("hydrating");
-        void queryClient
+        const historyRefreshPromise = queryClient
           .refetchQueries({
             queryKey: chatHistoryKeys.all,
             type: "all",
@@ -79,24 +76,20 @@ export function useChatSessionOrchestrator() {
               historyRefreshError,
             );
           });
-        void queryClient
-          .prefetchQuery(chatDetailQueryOptions(chatId))
-          .catch((detailPrefetchError) => {
-            console.warn(
-              "Failed to prefetch chat detail after chat creation",
-              detailPrefetchError,
-            );
-          });
 
         setPendingChatAutoStart({
           chatId,
           model,
+          seedMessages: [bootstrapUserMessage],
         });
 
-        await navigate({
+        const navigatePromise = navigate({
           to: "/chat/$chatId",
           params: { chatId },
         });
+        await navigatePromise;
+
+        void historyRefreshPromise;
 
         setStatus("idle");
       } catch (unknownError) {

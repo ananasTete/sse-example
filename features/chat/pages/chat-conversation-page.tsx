@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Message } from "@/features/ai-sdk/hooks/use-chat/types";
-import { ChatConversation } from "@/features/chat/components/conversation/chat-conversation";
+import {
+  ChatConversation,
+  type ChatStreamFinishedPayload,
+} from "@/features/chat/components/conversation/chat-conversation";
 import { ChatConversationSkeleton } from "@/features/chat/components/conversation/chat-conversation-skeleton";
 import {
-  chatDetailKeys,
   chatDetailQueryOptions,
-  type ChatDetailResponse,
   ChatDetailError,
 } from "@/features/chat/services/chat-detail";
-import { type PendingChatAutoStart } from "../services/chat-session-auto-start";
+import {
+  peekPendingChatAutoStart,
+} from "../services/chat-session-auto-start";
 import { useChatSessionOrchestrator } from "../hooks/use-chat-session-orchestrator";
 
 interface ChatConversationPageProps {
@@ -18,9 +20,8 @@ interface ChatConversationPageProps {
 
 export function ChatConversationPage({ chatId }: ChatConversationPageProps) {
   const queryClient = useQueryClient();
-  const [pendingAutoStart, setPendingAutoStart] =
-    useState<PendingChatAutoStart | null>(null);
-  const consumedAutoStartChatIdRef = useRef<string | null>(null);
+  const bootstrappedChatIdRef = useRef<string | null>(null);
+  const bootstrappedAutoStartRef = useRef<ReturnType<typeof peekPendingChatAutoStart>>(null);
   const {
     status,
     error,
@@ -28,25 +29,19 @@ export function ChatConversationPage({ chatId }: ChatConversationPageProps) {
     consumeAutoStart,
     markStreaming,
   } = useChatSessionOrchestrator();
+  if ((chatId ?? null) !== bootstrappedChatIdRef.current) {
+    bootstrappedChatIdRef.current = chatId ?? null;
+    bootstrappedAutoStartRef.current = chatId
+      ? peekPendingChatAutoStart(chatId)
+      : null;
+  }
 
-  useEffect(() => {
-    if (!chatId) {
-      consumedAutoStartChatIdRef.current = null;
-      setPendingAutoStart(null);
-      return;
-    }
-
-    if (consumedAutoStartChatIdRef.current === chatId) {
-      return;
-    }
-
-    consumedAutoStartChatIdRef.current = chatId;
-    setPendingAutoStart(consumeAutoStart(chatId));
-  }, [chatId, consumeAutoStart]);
+  const bootstrappedAutoStart = bootstrappedAutoStartRef.current;
+  const shouldFetchChatDetail = Boolean(chatId) && !bootstrappedAutoStart;
 
   const chatDetailQuery = useQuery({
     ...(chatId ? chatDetailQueryOptions(chatId) : chatDetailQueryOptions("")),
-    enabled: Boolean(chatId),
+    enabled: shouldFetchChatDetail,
     retry: false,
   });
 
@@ -55,40 +50,39 @@ export function ChatConversationPage({ chatId }: ChatConversationPageProps) {
     chatDetailQuery.error.status === 404;
 
   const showConversationError =
-    Boolean(chatId) &&
+    shouldFetchChatDetail &&
     Boolean(chatDetailQuery.error) &&
     !chatDetailQuery.data;
   const isLoadingHistory =
-    Boolean(chatId) &&
+    shouldFetchChatDetail &&
     chatDetailQuery.isFetching &&
     !chatDetailQuery.data;
 
   const handleStreamFinished = useCallback(
-    async (messages: Message[]) => {
+    async ({
+      isAbort,
+      isDisconnect,
+      isError,
+    }: ChatStreamFinishedPayload) => {
       if (!chatId) return;
-
-      queryClient.setQueryData<ChatDetailResponse | undefined>(
-        chatDetailKeys.detail(chatId),
-        (previous) =>
-          previous
-            ? {
-                ...previous,
-                messages,
-              }
-            : previous,
-      );
+      consumeAutoStart(chatId);
+      if (!isAbort && !isDisconnect && !isError) return;
 
       try {
-        await queryClient.invalidateQueries({
-          queryKey: chatDetailKeys.detail(chatId),
-          refetchType: "active",
-        });
+        await queryClient.fetchQuery(chatDetailQueryOptions(chatId));
       } catch (streamRefreshError) {
-        console.warn("Failed to refresh chat detail after stream finish", streamRefreshError);
+        console.warn(
+          "Failed to refresh chat detail after abnormal stream finish",
+          streamRefreshError,
+        );
       }
     },
-    [chatId, queryClient],
+    [chatId, consumeAutoStart, queryClient],
   );
+  const initialMessages =
+    bootstrappedAutoStart?.seedMessages ?? chatDetailQuery.data?.messages ?? [];
+  const autoStartModel =
+    bootstrappedAutoStart?.model;
 
   if (isLoadingHistory) {
     return (
@@ -128,12 +122,8 @@ export function ChatConversationPage({ chatId }: ChatConversationPageProps) {
       <ChatConversation
         key={chatId ?? "new-chat"}
         chatId={chatId}
-        initialMessages={chatDetailQuery.data?.messages ?? []}
-        autoStartModel={
-          chatId && pendingAutoStart?.chatId === chatId
-            ? pendingAutoStart.model
-            : undefined
-        }
+        initialMessages={initialMessages}
+        autoStartModel={autoStartModel}
         isCreatingChat={status === "creating" || status === "hydrating"}
         creationError={error}
         onCreateChat={createAndStartConversation}
