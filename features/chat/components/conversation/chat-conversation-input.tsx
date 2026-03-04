@@ -1,10 +1,18 @@
-import { useEffect, useRef, type ChangeEvent, type KeyboardEvent } from "react";
 import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type KeyboardEvent,
+} from "react";
+import {
+  Check,
   Globe,
   Paperclip,
   Plus,
   SendHorizontal,
   StopCircle,
+  X,
 } from "lucide-react";
 
 import {
@@ -36,6 +44,7 @@ export function ChatConversationInput({
   onStop,
 }: ChatConversationInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [isWebSearchEnabled, setIsWebSearchEnabled] = useState(false);
 
   // 配置自适应高度
   useEffect(() => {
@@ -72,31 +81,64 @@ export function ChatConversationInput({
             disabled={isLoading}
           />
           <div className="flex items-center justify-between px-3 pb-3 pt-2.5">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
+            <div className="flex items-center gap-1.5">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="打开附件与工具菜单"
+                    className="inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-200"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  sideOffset={8}
+                  className="w-44"
+                >
+                  <DropdownMenuItem>
+                    <Paperclip className="h-4 w-4" />
+                    添加照片和文件
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setIsWebSearchEnabled((prev) => !prev);
+                    }}
+                    className={
+                      isWebSearchEnabled
+                        ? "text-blue-600 focus:text-blue-600"
+                        : "text-stone-700"
+                    }
+                  >
+                    <Globe
+                      className={`h-4 w-4 ${
+                        isWebSearchEnabled ? "text-blue-600" : "text-stone-500"
+                      }`}
+                    />
+                    <span>网页搜索</span>
+                    {isWebSearchEnabled ? (
+                      <Check className="ml-auto h-4 w-4 text-blue-600" />
+                    ) : null}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {isWebSearchEnabled ? (
                 <button
                   type="button"
-                  aria-label="打开附件与工具菜单"
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-full text-stone-500 transition-colors hover:bg-stone-100 hover:text-stone-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-stone-200"
+                  onClick={() => setIsWebSearchEnabled(false)}
+                  aria-label="关闭网页搜索"
+                  className="group inline-flex h-9 items-center gap-1 rounded-full px-2.5 text-xs font-medium text-blue-600 transition-colors hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
                 >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="start"
-                sideOffset={8}
-                className="w-44"
-              >
-                <DropdownMenuItem>
-                  <Paperclip className="h-4 w-4" />
-                  添加照片和文件
-                </DropdownMenuItem>
-                <DropdownMenuItem>
-                  <Globe className="h-4 w-4" />
+                  <span className="relative h-3.5 w-3.5">
+                    <Globe className="absolute inset-0 h-3.5 w-3.5 transition-opacity duration-150 group-hover:opacity-0" />
+                    <X className="absolute inset-0 h-3.5 w-3.5 opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
+                  </span>
                   网页搜索
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+                </button>
+              ) : null}
+            </div>
 
             {isLoading ? (
               <button
