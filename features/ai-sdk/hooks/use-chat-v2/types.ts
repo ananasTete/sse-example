@@ -312,3 +312,32 @@ export function findLatestAssistantNode(
 
   return null;
 }
+
+export interface UseChatV2Options {
+  api: string;
+  chatId: string;
+  model: string;
+  headers?: Record<string, string>;
+  trigger?: RequestTrigger;
+  settings?: StreamChatSettingsV2;
+  initialConversation: ConversationStateV2;
+  initialActiveRun?: ActiveChatRunV2;
+  onFinish?: OnFinishCallbackV2;
+  onError?: OnErrorCallbackV2;
+  onData?: OnDataCallbackV2;
+}
+
+export interface SendMessageOptions {
+  parentId?: string;
+  trigger?: RequestTrigger;
+}
+
+export interface RegenerateOptions {
+  assistantMessageId?: string;
+}
+
+export interface RunStreamFinishFlags {
+  isAbort: boolean;
+  isDisconnect: boolean;
+  isError: boolean;
+}

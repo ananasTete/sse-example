@@ -9,11 +9,10 @@ export interface ApplyAssistantEventInput {
   event: RecordValue;
   assistantNodeId: string;
   renameAssistantNode: (fromId: string, toId: string, model?: string) => void;
-  updateAssistantMessage: (
-    nodeId: string,
-    updates: { model: string },
+  updateAssistantMessage: (nodeId: string, updates: { model: string }) => void;
+  updateAssistantParts: (
+    updater: (parts: MessagePartV2[]) => MessagePartV2[],
   ) => void;
-  updateAssistantParts: (updater: (parts: MessagePartV2[]) => MessagePartV2[]) => void;
   setServerError: (error: Error) => void;
 }
 
@@ -34,7 +33,8 @@ export const applyAssistantEvent = ({
     case "start": {
       const nextId =
         typeof event.messageId === "string" ? event.messageId : undefined;
-      const modelId = typeof event.modelId === "string" ? event.modelId : undefined;
+      const modelId =
+        typeof event.modelId === "string" ? event.modelId : undefined;
 
       if (nextId && nextId !== assistantNodeId) {
         renameAssistantNode(assistantNodeId, nextId, modelId);
@@ -133,7 +133,9 @@ export const applyAssistantEvent = ({
       if (event.delta) {
         const deltaText = String(event.delta);
         updateAssistantParts((parts) => {
-          const lastTextIndex = parts.findLastIndex((part) => part.type === "text");
+          const lastTextIndex = parts.findLastIndex(
+            (part) => part.type === "text",
+          );
 
           if (lastTextIndex === -1) {
             parts.push({
@@ -145,7 +147,8 @@ export const applyAssistantEvent = ({
           }
 
           const existingPart = parts[lastTextIndex];
-          const existingText = existingPart.type === "text" ? existingPart.text : "";
+          const existingText =
+            existingPart.type === "text" ? existingPart.text : "";
 
           parts[lastTextIndex] = {
             type: "text",
@@ -160,14 +163,17 @@ export const applyAssistantEvent = ({
 
     case "text-end":
       updateAssistantParts((parts) => {
-        const lastTextIndex = parts.findLastIndex((part) => part.type === "text");
+        const lastTextIndex = parts.findLastIndex(
+          (part) => part.type === "text",
+        );
 
         if (lastTextIndex === -1) {
           return parts;
         }
 
         const existingPart = parts[lastTextIndex];
-        const existingText = existingPart.type === "text" ? existingPart.text : "";
+        const existingText =
+          existingPart.type === "text" ? existingPart.text : "";
 
         parts[lastTextIndex] = {
           type: "text",
@@ -213,8 +219,8 @@ export const applyAssistantEvent = ({
         ...parts,
         {
           type: "tool-call",
-          toolCallId: event.toolCallId,
-          toolName: event.toolName,
+          toolCallId: String(event.toolCallId),
+          toolName: String(event.toolName),
           state: "streaming-input",
           inputText: "",
         },

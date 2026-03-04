@@ -1,9 +1,11 @@
 import { createParser, EventSourceParser } from "eventsource-parser";
-import type { Dispatch } from "react";
-import { ChatActionV2 } from "./reducer";
-import { MessagePartV2, OnDataCallbackV2 } from "./types";
-import { applyAssistantEvent } from "./sse-parser/apply-assistant-event";
-import { isRecord, normalizeTransportPayload } from "./sse-parser/transport";
+import { MessagePartV2, OnDataCallbackV2 } from "../hooks/use-chat-v2/types";
+import { applyAssistantEvent } from "../hooks/use-chat-v2/sse-parser/apply-assistant-event";
+import {
+  isRecord,
+  normalizeTransportPayload,
+} from "../hooks/use-chat-v2/sse-parser/transport";
+import type { ChatEngineState } from "./chat-engine-state";
 
 const TRANSPORT_ERROR_MESSAGE = "Stream transport error";
 
@@ -28,7 +30,7 @@ export interface SseFrameMetaV2 {
 
 export interface ParserContextV2 {
   assistantNodeId: string;
-  dispatch: Dispatch<ChatActionV2>;
+  engineState: ChatEngineState;
   onData?: OnDataCallbackV2;
   onSseFrame?: (meta: SseFrameMetaV2) => boolean | void;
 }
@@ -39,21 +41,17 @@ export interface ParserResultV2 {
   getAssistantNodeId: () => string;
 }
 
-export function createSSEParserV2(context: ParserContextV2): ParserResultV2 {
-  const { dispatch, onData, onSseFrame } = context;
+export function createEngineSSEParser(
+  context: ParserContextV2,
+): ParserResultV2 {
+  const { engineState, onData, onSseFrame } = context;
   let assistantNodeId = context.assistantNodeId;
   let serverError: Error | null = null;
 
   const updateAssistantParts = (
     updater: (parts: MessagePartV2[]) => MessagePartV2[],
   ) => {
-    dispatch({
-      type: "UPDATE_ASSISTANT_PARTS",
-      payload: {
-        nodeId: assistantNodeId,
-        updater,
-      },
-    });
+    engineState.updateAssistantParts(assistantNodeId, updater);
   };
 
   const parser = createParser({
@@ -83,23 +81,12 @@ export function createSSEParserV2(context: ParserContextV2): ParserResultV2 {
           event: normalized,
           assistantNodeId,
           renameAssistantNode: (fromId, toId, model) => {
-            dispatch({
-              type: "RENAME_ASSISTANT_NODE",
-              payload: {
-                fromId,
-                toId,
-                ...(model ? { model } : {}),
-              },
-            });
+            engineState.renameAssistantNode(fromId, toId, model);
           },
           updateAssistantMessage: (nodeId, updates) => {
-            dispatch({
-              type: "UPDATE_ASSISTANT_MESSAGE",
-              payload: {
-                nodeId,
-                updates,
-              },
-            });
+            if (updates.model) {
+              engineState.updateAssistantMessage(nodeId, updates);
+            }
           },
           updateAssistantParts,
           setServerError: (error) => {
