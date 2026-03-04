@@ -4,11 +4,14 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "predev": "node scripts/prisma-sync.mjs",
     "dev": "vite dev --port 3000",
+    "prebuild": "node scripts/prisma-sync.mjs",
     "build": "vite build",
     "start": "vite preview --port 3000",
     "lint": "eslint",
     "postinstall": "prisma generate",
+    "prisma:sync": "node scripts/prisma-sync.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "DATABASE_URL=\"file:$(pwd)/prisma/dev.db\" prisma migrate dev",
     "prisma:migrate:deploy": "DATABASE_URL=\"file:$(pwd)/prisma/dev.db\" prisma migrate deploy"
