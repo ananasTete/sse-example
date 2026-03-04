@@ -108,6 +108,7 @@ export function ChatDetailConversationPage({
     conversationResetVersionByChatId[chatId] ?? 0; // 每次异常重置后 +1，驱动 key 变化
   const initialEnabledWebSearch =
     chatDetailQuery.data?.settings.enabled_web_search ?? false;
+  const initialActiveRun = chatDetailQuery.data?.activeRun ?? null;
 
   if (isLoadingHistory) {
     return (
@@ -150,6 +151,7 @@ export function ChatDetailConversationPage({
         chatId={chatId}
         initialConversation={initialConversation}
         initialEnabledWebSearch={initialEnabledWebSearch}
+        initialActiveRun={initialActiveRun}
         onBeforeSend={onBeforeSend}
         onStreamFinished={handleStreamFinished}
       />

@@ -6,6 +6,7 @@ import {
 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
 
 export type MessageStatus = "done" | "streaming" | "aborted" | "error";
+export type ChatRunStatus = "running" | "done" | "aborted" | "error";
 
 export interface ChatSettings {
   enabledWebSearch: boolean;
@@ -20,6 +21,29 @@ export interface ChatEntity {
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
+}
+
+export interface ChatRunEntity {
+  id: string;
+  chatId: string;
+  userId: string;
+  assistantMessageId: string;
+  parentMessageId: string | null;
+  resumeToken: string;
+  status: ChatRunStatus;
+  lastEventSeq: number;
+  createdAt: string;
+  updatedAt: string;
+  finishedAt: string | null;
+}
+
+export interface ChatRunEventEntity {
+  id: string;
+  runId: string;
+  seq: number;
+  event: string;
+  payload: unknown;
+  createdAt: string;
 }
 
 export interface ChatSummary extends ChatEntity {
@@ -65,6 +89,16 @@ export interface UpdateMessageInput {
   visible?: boolean;
 }
 
+export interface CreateChatRunInput {
+  id: string;
+  chatId: string;
+  userId: string;
+  assistantMessageId: string;
+  parentMessageId?: string | null;
+  resumeToken: string;
+  status?: ChatRunStatus;
+}
+
 export interface HideMessageSubtreeResult {
   hiddenMessageIds: string[];
   cursorMessageId: string | null;
@@ -105,4 +139,26 @@ export interface ChatStore {
     messageId: string,
     userId?: string,
   ): Promise<HideMessageSubtreeResult | null>;
+  createChatRun(input: CreateChatRunInput): Promise<ChatRunEntity>;
+  getChatRun(runId: string, userId?: string): Promise<ChatRunEntity | null>;
+  getActiveChatRun(chatId: string, userId?: string): Promise<ChatRunEntity | null>;
+  completeChatRun(
+    runId: string,
+    status: Exclude<ChatRunStatus, "running">,
+    userId?: string,
+  ): Promise<ChatRunEntity | null>;
+  appendChatRunEvent(
+    runId: string,
+    event: string,
+    payload: unknown,
+    userId?: string,
+  ): Promise<ChatRunEventEntity | null>;
+  listChatRunEvents(
+    runId: string,
+    options?: {
+      afterSeq?: number;
+      limit?: number;
+      userId?: string;
+    },
+  ): Promise<ChatRunEventEntity[]>;
 }

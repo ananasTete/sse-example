@@ -15,7 +15,10 @@ import type {
   StreamChatSettingsV2,
 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
 import { registerActiveChatStreamController } from "@/features/chat/services/chat-stream-controller";
-import { updateCurrentLeafMessage } from "@/features/chat/services/chat-detail";
+import {
+  updateCurrentLeafMessage,
+  type ChatActiveRunResponse,
+} from "@/features/chat/services/chat-detail";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatConversationInput } from "./chat-conversation-input";
 import { ChatConversationMessages } from "./chat-conversation-messages";
@@ -33,6 +36,7 @@ interface BoundChatConversationProps {
   chatId: string;
   initialConversation: ConversationStateV2;
   initialEnabledWebSearch?: boolean;
+  initialActiveRun?: ChatActiveRunResponse | null;
   onBeforeSend?: (input: {
     model: string;
     enabledWebSearch: boolean;
@@ -130,6 +134,7 @@ export function BoundChatConversation({
   chatId,
   initialConversation,
   initialEnabledWebSearch,
+  initialActiveRun,
   onBeforeSend,
   onStreamStateChange,
   onStreamFinished,
@@ -164,6 +169,7 @@ export function BoundChatConversation({
     model: selectedModel,
     settings: streamSettings,
     initialConversation,
+    initialActiveRun: initialActiveRun ?? undefined,
     onFinish: ({
       isAbort,
       isDisconnect,

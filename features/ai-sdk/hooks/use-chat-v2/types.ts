@@ -68,6 +68,14 @@ export interface StreamChatV2RequestBody {
   settings?: StreamChatSettingsV2;
 }
 
+export interface ActiveChatRunV2 {
+  id: string;
+  assistantMessageId: string;
+  status: "running" | "done" | "aborted" | "error";
+  resumeToken: string;
+  lastSeq: number;
+}
+
 export interface OnFinishV2Params {
   message: ChatMessageV2;
   messages: ChatMessageV2[];

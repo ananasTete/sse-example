@@ -68,6 +68,7 @@ function ChatLayoutRoute() {
       queryClient.setQueryData(chatDetailKeys.detail(chatId), {
         ...createdChat,
         conversation: createEmptyConversation(chatId),
+        activeRun: null,
       });
 
       const historyRefreshPromise = queryClient

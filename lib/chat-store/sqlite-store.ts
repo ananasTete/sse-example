@@ -11,9 +11,13 @@ import {
 import { prisma } from "@/lib/prisma";
 import {
   ChatEntity,
+  ChatRunEntity,
+  ChatRunEventEntity,
+  ChatRunStatus,
   ChatSettings,
   ChatStore,
   CreateMessageInput,
+  CreateChatRunInput,
   HideMessageSubtreeResult,
   ListChatsParams,
   ListChatsResult,
@@ -125,6 +129,48 @@ const toChatEntity = (record: {
   createdAt: toIsoString(record.createdAt),
   updatedAt: toIsoString(record.updatedAt),
   deletedAt: record.deletedAt ? toIsoString(record.deletedAt) : null,
+});
+
+const toChatRunEntity = (record: {
+  id: string;
+  chatId: string;
+  userId: string;
+  assistantMessageId: string;
+  parentMessageId: string | null;
+  resumeToken: string;
+  status: string;
+  lastEventSeq: number;
+  createdAt: Date;
+  updatedAt: Date;
+  finishedAt: Date | null;
+}): ChatRunEntity => ({
+  id: record.id,
+  chatId: record.chatId,
+  userId: record.userId,
+  assistantMessageId: record.assistantMessageId,
+  parentMessageId: record.parentMessageId,
+  resumeToken: record.resumeToken,
+  status: (record.status as ChatRunStatus) ?? "running",
+  lastEventSeq: record.lastEventSeq,
+  createdAt: toIsoString(record.createdAt),
+  updatedAt: toIsoString(record.updatedAt),
+  finishedAt: record.finishedAt ? toIsoString(record.finishedAt) : null,
+});
+
+const toChatRunEventEntity = (record: {
+  id: string;
+  runId: string;
+  seq: number;
+  event: string;
+  payloadJson: unknown;
+  createdAt: Date;
+}): ChatRunEventEntity => ({
+  id: record.id,
+  runId: record.runId,
+  seq: record.seq,
+  event: record.event,
+  payload: record.payloadJson,
+  createdAt: toIsoString(record.createdAt),
 });
 
 const getConversationRootId = (chatId: string) => `chat-root:${chatId}`;
@@ -779,5 +825,162 @@ export class SqliteChatStore implements ChatStore {
         cursorMessageId: nextCursor,
       };
     });
+  }
+
+  async createChatRun(input: CreateChatRunInput): Promise<ChatRunEntity> {
+    const created = await prisma.chatRun.create({
+      data: {
+        id: input.id,
+        chatId: input.chatId,
+        userId: input.userId,
+        assistantMessageId: input.assistantMessageId,
+        parentMessageId: input.parentMessageId ?? null,
+        resumeToken: input.resumeToken,
+        status: input.status ?? "running",
+      },
+    });
+
+    return toChatRunEntity(created);
+  }
+
+  async getChatRun(runId: string, userId?: string): Promise<ChatRunEntity | null> {
+    const run = await prisma.chatRun.findFirst({
+      where: {
+        id: runId,
+        ...(userId ? { userId } : {}),
+        chat: {
+          deletedAt: null,
+        },
+      },
+    });
+
+    return run ? toChatRunEntity(run) : null;
+  }
+
+  async getActiveChatRun(
+    chatId: string,
+    userId?: string,
+  ): Promise<ChatRunEntity | null> {
+    const run = await prisma.chatRun.findFirst({
+      where: {
+        chatId,
+        status: "running",
+        ...(userId ? { userId } : {}),
+        chat: {
+          deletedAt: null,
+        },
+      },
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
+
+    return run ? toChatRunEntity(run) : null;
+  }
+
+  async completeChatRun(
+    runId: string,
+    status: Exclude<ChatRunStatus, "running">,
+    userId?: string,
+  ): Promise<ChatRunEntity | null> {
+    const existing = await prisma.chatRun.findFirst({
+      where: {
+        id: runId,
+        ...(userId ? { userId } : {}),
+        chat: {
+          deletedAt: null,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!existing) return null;
+
+    const updated = await prisma.chatRun.update({
+      where: { id: runId },
+      data: {
+        status,
+        finishedAt: new Date(),
+      },
+    });
+
+    return toChatRunEntity(updated);
+  }
+
+  async appendChatRunEvent(
+    runId: string,
+    event: string,
+    payload: unknown,
+    userId?: string,
+  ): Promise<ChatRunEventEntity | null> {
+    return prisma.$transaction(async (tx) => {
+      const run = await tx.chatRun.findFirst({
+        where: {
+          id: runId,
+          ...(userId ? { userId } : {}),
+          chat: {
+            deletedAt: null,
+          },
+        },
+        select: {
+          id: true,
+          lastEventSeq: true,
+        },
+      });
+
+      if (!run) return null;
+
+      const seq = run.lastEventSeq + 1;
+      const created = await tx.chatRunEvent.create({
+        data: {
+          id: nanoid(),
+          runId,
+          seq,
+          event,
+          payloadJson: payload as Prisma.InputJsonValue,
+        },
+      });
+
+      await tx.chatRun.update({
+        where: { id: runId },
+        data: { lastEventSeq: seq },
+      });
+
+      return toChatRunEventEntity(created);
+    });
+  }
+
+  async listChatRunEvents(
+    runId: string,
+    options?: { afterSeq?: number; limit?: number; userId?: string },
+  ): Promise<ChatRunEventEntity[]> {
+    const afterSeq = options?.afterSeq ?? 0;
+    const limit = Math.min(Math.max(options?.limit ?? 200, 1), 1000);
+
+    const run = await prisma.chatRun.findFirst({
+      where: {
+        id: runId,
+        ...(options?.userId ? { userId: options.userId } : {}),
+        chat: {
+          deletedAt: null,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!run) return [];
+
+    const events = await prisma.chatRunEvent.findMany({
+      where: {
+        runId,
+        seq: { gt: afterSeq },
+      },
+      orderBy: [{ seq: "asc" }],
+      take: limit,
+    });
+
+    return events.map(toChatRunEventEntity);
   }
 }

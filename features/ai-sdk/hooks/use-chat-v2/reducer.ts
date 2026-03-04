@@ -15,6 +15,12 @@ export interface ChatStateV2 {
 
 export type ChatActionV2 =
   | { type: "SET_INPUT"; payload: string }
+  | {
+      type: "REPLACE_CONVERSATION";
+      payload: {
+        conversation: ConversationStateV2;
+      };
+    }
   | { type: "SET_CURSOR"; payload: { nodeId: string } }
   | { type: "SET_SUBMITTED" }
   | { type: "SET_STREAMING" }
@@ -118,6 +124,13 @@ const updateNode = (
 
 export function chatReducerV2(state: ChatStateV2, action: ChatActionV2): ChatStateV2 {
   switch (action.type) {
+    case "REPLACE_CONVERSATION":
+      return {
+        ...state,
+        conversation: action.payload.conversation,
+        status: "ready",
+      };
+
     case "SET_INPUT":
       return {
         ...state,

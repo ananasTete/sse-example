@@ -121,7 +121,9 @@ export async function getChatHandler(request: Request, chatId: string) {
     return jsonError("Chat not found", 404);
   }
 
-  return Response.json(toFlatChatDetailResponse(chat, conversation));
+  const activeRun = await chatStore.getActiveChatRun(chatId, userId);
+
+  return Response.json(toFlatChatDetailResponse(chat, conversation, activeRun));
 }
 
 export async function patchChatHandler(request: Request, chatId: string) {

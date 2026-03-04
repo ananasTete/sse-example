@@ -2,7 +2,7 @@ import type {
   ConversationNode,
   ConversationStateV2,
 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
-import type { ChatEntity, ListChatsResult } from "@/lib/chat-store";
+import type { ChatEntity, ChatRunEntity, ListChatsResult } from "@/lib/chat-store";
 
 export const DEFAULT_USER_ID = "local-user";
 
@@ -24,6 +24,14 @@ interface ApiConversationStateV2 {
 
 export interface FlatChatDetailResponse extends FlatChatResponse {
   conversation: ApiConversationStateV2;
+  active_run?: {
+    id: string;
+    assistant_message_id: string;
+    status: string;
+    resume_token: string;
+    last_seq: number;
+    created_at: string;
+  };
 }
 
 export interface FlatChatHistoryResponse {
@@ -60,6 +68,7 @@ export function toFlatChatResponse(chat: ChatEntity): FlatChatResponse {
 export function toFlatChatDetailResponse(
   chat: ChatEntity,
   conversation: ConversationStateV2,
+  activeRun?: ChatRunEntity | null,
 ): FlatChatDetailResponse {
   return {
     ...toFlatChatResponse(chat),
@@ -68,6 +77,18 @@ export function toFlatChatDetailResponse(
       current_leaf_message_id: conversation.cursorId,
       mapping: conversation.mapping,
     },
+    ...(activeRun
+      ? {
+          active_run: {
+            id: activeRun.id,
+            assistant_message_id: activeRun.assistantMessageId,
+            status: activeRun.status,
+            resume_token: activeRun.resumeToken,
+            last_seq: activeRun.lastEventSeq,
+            created_at: activeRun.createdAt,
+          },
+        }
+      : {}),
   };
 }
 

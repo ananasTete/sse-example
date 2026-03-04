@@ -23,6 +23,16 @@ export interface ChatBaseResponse {
 
 export interface ChatDetailResponse extends ChatBaseResponse {
   conversation: ConversationStateV2;
+  activeRun: ChatActiveRunResponse | null;
+}
+
+export interface ChatActiveRunResponse {
+  id: string;
+  assistantMessageId: string;
+  status: "running" | "done" | "aborted" | "error";
+  resumeToken: string;
+  lastSeq: number;
+  createdAt: string;
 }
 
 interface ApiConversationStateV2 {
@@ -33,6 +43,14 @@ interface ApiConversationStateV2 {
 
 interface ApiChatDetailResponse extends ChatBaseResponse {
   conversation: ApiConversationStateV2;
+  active_run?: {
+    id: string;
+    assistant_message_id: string;
+    status: "running" | "done" | "aborted" | "error";
+    resume_token: string;
+    last_seq: number;
+    created_at: string;
+  };
 }
 
 export class ChatDetailError extends Error {
@@ -81,6 +99,16 @@ export async function fetchChatDetail(chatId: string): Promise<ChatDetailRespons
       cursorId: data.conversation.current_leaf_message_id,
       mapping: data.conversation.mapping,
     },
+    activeRun: data.active_run
+      ? {
+          id: data.active_run.id,
+          assistantMessageId: data.active_run.assistant_message_id,
+          status: data.active_run.status,
+          resumeToken: data.active_run.resume_token,
+          lastSeq: data.active_run.last_seq,
+          createdAt: data.active_run.created_at,
+        }
+      : null,
   };
 }
 

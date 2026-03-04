@@ -20,7 +20,10 @@ import { Route as ApiChatRouteImport } from './routes/api/chat'
 import { Route as ApiChatsIndexRouteImport } from './routes/api/chats/index'
 import { Route as ApiChatsChatIdRouteImport } from './routes/api/chats/$chatId'
 import { Route as ApiAgentEditorChatIdRouteImport } from './routes/api/agent-editor/$chatId'
+import { Route as ApiChatsChatIdRunsIndexRouteImport } from './routes/api/chats/$chatId/runs/index'
 import { Route as ApiChatsChatIdMessagesMessageIdRouteImport } from './routes/api/chats/$chatId/messages/$messageId'
+import { Route as ApiChatsChatIdRunsRunIdStreamRouteImport } from './routes/api/chats/$chatId/runs/$runId/stream'
+import { Route as ApiChatsChatIdRunsRunIdCancelRouteImport } from './routes/api/chats/$chatId/runs/$runId/cancel'
 
 const UseGenRoute = UseGenRouteImport.update({
   id: '/use-gen',
@@ -77,10 +80,27 @@ const ApiAgentEditorChatIdRoute = ApiAgentEditorChatIdRouteImport.update({
   path: '/api/agent-editor/$chatId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiChatsChatIdRunsIndexRoute = ApiChatsChatIdRunsIndexRouteImport.update({
+  id: '/runs/',
+  path: '/runs/',
+  getParentRoute: () => ApiChatsChatIdRoute,
+} as any)
 const ApiChatsChatIdMessagesMessageIdRoute =
   ApiChatsChatIdMessagesMessageIdRouteImport.update({
     id: '/messages/$messageId',
     path: '/messages/$messageId',
+    getParentRoute: () => ApiChatsChatIdRoute,
+  } as any)
+const ApiChatsChatIdRunsRunIdStreamRoute =
+  ApiChatsChatIdRunsRunIdStreamRouteImport.update({
+    id: '/runs/$runId/stream',
+    path: '/runs/$runId/stream',
+    getParentRoute: () => ApiChatsChatIdRoute,
+  } as any)
+const ApiChatsChatIdRunsRunIdCancelRoute =
+  ApiChatsChatIdRunsRunIdCancelRouteImport.update({
+    id: '/runs/$runId/cancel',
+    path: '/runs/$runId/cancel',
     getParentRoute: () => ApiChatsChatIdRoute,
   } as any)
 
@@ -97,6 +117,9 @@ export interface FileRoutesByFullPath {
   '/api/chats/$chatId': typeof ApiChatsChatIdRouteWithChildren
   '/api/chats/': typeof ApiChatsIndexRoute
   '/api/chats/$chatId/messages/$messageId': typeof ApiChatsChatIdMessagesMessageIdRoute
+  '/api/chats/$chatId/runs/': typeof ApiChatsChatIdRunsIndexRoute
+  '/api/chats/$chatId/runs/$runId/cancel': typeof ApiChatsChatIdRunsRunIdCancelRoute
+  '/api/chats/$chatId/runs/$runId/stream': typeof ApiChatsChatIdRunsRunIdStreamRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -110,6 +133,9 @@ export interface FileRoutesByTo {
   '/api/chats/$chatId': typeof ApiChatsChatIdRouteWithChildren
   '/api/chats': typeof ApiChatsIndexRoute
   '/api/chats/$chatId/messages/$messageId': typeof ApiChatsChatIdMessagesMessageIdRoute
+  '/api/chats/$chatId/runs': typeof ApiChatsChatIdRunsIndexRoute
+  '/api/chats/$chatId/runs/$runId/cancel': typeof ApiChatsChatIdRunsRunIdCancelRoute
+  '/api/chats/$chatId/runs/$runId/stream': typeof ApiChatsChatIdRunsRunIdStreamRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -125,6 +151,9 @@ export interface FileRoutesById {
   '/api/chats/$chatId': typeof ApiChatsChatIdRouteWithChildren
   '/api/chats/': typeof ApiChatsIndexRoute
   '/api/chats/$chatId/messages/$messageId': typeof ApiChatsChatIdMessagesMessageIdRoute
+  '/api/chats/$chatId/runs/': typeof ApiChatsChatIdRunsIndexRoute
+  '/api/chats/$chatId/runs/$runId/cancel': typeof ApiChatsChatIdRunsRunIdCancelRoute
+  '/api/chats/$chatId/runs/$runId/stream': typeof ApiChatsChatIdRunsRunIdStreamRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -141,6 +170,9 @@ export interface FileRouteTypes {
     | '/api/chats/$chatId'
     | '/api/chats/'
     | '/api/chats/$chatId/messages/$messageId'
+    | '/api/chats/$chatId/runs/'
+    | '/api/chats/$chatId/runs/$runId/cancel'
+    | '/api/chats/$chatId/runs/$runId/stream'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -154,6 +186,9 @@ export interface FileRouteTypes {
     | '/api/chats/$chatId'
     | '/api/chats'
     | '/api/chats/$chatId/messages/$messageId'
+    | '/api/chats/$chatId/runs'
+    | '/api/chats/$chatId/runs/$runId/cancel'
+    | '/api/chats/$chatId/runs/$runId/stream'
   id:
     | '__root__'
     | '/'
@@ -168,6 +203,9 @@ export interface FileRouteTypes {
     | '/api/chats/$chatId'
     | '/api/chats/'
     | '/api/chats/$chatId/messages/$messageId'
+    | '/api/chats/$chatId/runs/'
+    | '/api/chats/$chatId/runs/$runId/cancel'
+    | '/api/chats/$chatId/runs/$runId/stream'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -261,11 +299,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAgentEditorChatIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/chats/$chatId/runs/': {
+      id: '/api/chats/$chatId/runs/'
+      path: '/runs'
+      fullPath: '/api/chats/$chatId/runs/'
+      preLoaderRoute: typeof ApiChatsChatIdRunsIndexRouteImport
+      parentRoute: typeof ApiChatsChatIdRoute
+    }
     '/api/chats/$chatId/messages/$messageId': {
       id: '/api/chats/$chatId/messages/$messageId'
       path: '/messages/$messageId'
       fullPath: '/api/chats/$chatId/messages/$messageId'
       preLoaderRoute: typeof ApiChatsChatIdMessagesMessageIdRouteImport
+      parentRoute: typeof ApiChatsChatIdRoute
+    }
+    '/api/chats/$chatId/runs/$runId/stream': {
+      id: '/api/chats/$chatId/runs/$runId/stream'
+      path: '/runs/$runId/stream'
+      fullPath: '/api/chats/$chatId/runs/$runId/stream'
+      preLoaderRoute: typeof ApiChatsChatIdRunsRunIdStreamRouteImport
+      parentRoute: typeof ApiChatsChatIdRoute
+    }
+    '/api/chats/$chatId/runs/$runId/cancel': {
+      id: '/api/chats/$chatId/runs/$runId/cancel'
+      path: '/runs/$runId/cancel'
+      fullPath: '/api/chats/$chatId/runs/$runId/cancel'
+      preLoaderRoute: typeof ApiChatsChatIdRunsRunIdCancelRouteImport
       parentRoute: typeof ApiChatsChatIdRoute
     }
   }
@@ -285,10 +344,16 @@ const ChatRouteWithChildren = ChatRoute._addFileChildren(ChatRouteChildren)
 
 interface ApiChatsChatIdRouteChildren {
   ApiChatsChatIdMessagesMessageIdRoute: typeof ApiChatsChatIdMessagesMessageIdRoute
+  ApiChatsChatIdRunsIndexRoute: typeof ApiChatsChatIdRunsIndexRoute
+  ApiChatsChatIdRunsRunIdCancelRoute: typeof ApiChatsChatIdRunsRunIdCancelRoute
+  ApiChatsChatIdRunsRunIdStreamRoute: typeof ApiChatsChatIdRunsRunIdStreamRoute
 }
 
 const ApiChatsChatIdRouteChildren: ApiChatsChatIdRouteChildren = {
   ApiChatsChatIdMessagesMessageIdRoute: ApiChatsChatIdMessagesMessageIdRoute,
+  ApiChatsChatIdRunsIndexRoute: ApiChatsChatIdRunsIndexRoute,
+  ApiChatsChatIdRunsRunIdCancelRoute: ApiChatsChatIdRunsRunIdCancelRoute,
+  ApiChatsChatIdRunsRunIdStreamRoute: ApiChatsChatIdRunsRunIdStreamRoute,
 }
 
 const ApiChatsChatIdRouteWithChildren = ApiChatsChatIdRoute._addFileChildren(

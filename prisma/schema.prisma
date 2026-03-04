@@ -17,6 +17,7 @@ model Chat {
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?
   messages        Message[]
+  runs            ChatRun[]
 
   @@index([userId, updatedAt])
 }
@@ -38,4 +39,36 @@ model Message {
   @@index([chatId, seq])
   @@index([chatId, parentId, createdAt])
   @@unique([chatId, seq])
+}
+
+model ChatRun {
+  id                 String        @id
+  chatId             String
+  userId             String
+  assistantMessageId String
+  parentMessageId    String?
+  resumeToken        String
+  status             String
+  lastEventSeq       Int           @default(0)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  finishedAt         DateTime?
+  chat               Chat          @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  events             ChatRunEvent[]
+
+  @@index([chatId, status, createdAt])
+  @@index([userId, status, createdAt])
+}
+
+model ChatRunEvent {
+  id          String   @id
+  runId       String
+  seq         Int
+  event       String
+  payloadJson Json
+  createdAt   DateTime @default(now())
+  run         ChatRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, createdAt])
+  @@unique([runId, seq])
 }
