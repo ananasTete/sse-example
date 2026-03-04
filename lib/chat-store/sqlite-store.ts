@@ -21,6 +21,7 @@ import {
   HideMessageSubtreeResult,
   ListChatsParams,
   ListChatsResult,
+  UpdateChatRunProgressInput,
   UpdateChatInput,
   UpdateMessageInput,
 } from "./types";
@@ -140,6 +141,9 @@ const toChatRunEntity = (record: {
   resumeToken: string;
   status: string;
   lastEventSeq: number;
+  lastPersistedSeq: number;
+  lastError: string | null;
+  lastHeartbeatAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   finishedAt: Date | null;
@@ -152,6 +156,9 @@ const toChatRunEntity = (record: {
   resumeToken: record.resumeToken,
   status: (record.status as ChatRunStatus) ?? "running",
   lastEventSeq: record.lastEventSeq,
+  lastPersistedSeq: record.lastPersistedSeq,
+  lastError: record.lastError,
+  lastHeartbeatAt: record.lastHeartbeatAt ? toIsoString(record.lastHeartbeatAt) : null,
   createdAt: toIsoString(record.createdAt),
   updatedAt: toIsoString(record.updatedAt),
   finishedAt: record.finishedAt ? toIsoString(record.finishedAt) : null,
@@ -901,6 +908,51 @@ export class SqliteChatStore implements ChatStore {
       data: {
         status,
         finishedAt: new Date(),
+      },
+    });
+
+    return toChatRunEntity(updated);
+  }
+
+  async updateChatRunProgress(
+    runId: string,
+    input: UpdateChatRunProgressInput,
+    userId?: string,
+  ): Promise<ChatRunEntity | null> {
+    const existing = await prisma.chatRun.findFirst({
+      where: {
+        id: runId,
+        ...(userId ? { userId } : {}),
+        chat: {
+          deletedAt: null,
+        },
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (!existing) return null;
+
+    const nextPersistedSeq =
+      input.lastPersistedSeq !== undefined
+        ? Math.max(Math.floor(input.lastPersistedSeq), 0)
+        : undefined;
+
+    const updated = await prisma.chatRun.update({
+      where: { id: runId },
+      data: {
+        ...(nextPersistedSeq !== undefined
+          ? { lastPersistedSeq: nextPersistedSeq }
+          : {}),
+        ...(input.lastError !== undefined ? { lastError: input.lastError } : {}),
+        ...(input.lastHeartbeatAt !== undefined
+          ? {
+              lastHeartbeatAt: input.lastHeartbeatAt
+                ? parseCreatedAt(input.lastHeartbeatAt)
+                : null,
+            }
+          : {}),
       },
     });
 

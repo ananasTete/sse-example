@@ -9,6 +9,8 @@ import { resolveRequestUserId } from "./chat-service";
 const DEFAULT_MODEL = "openai/gpt-5-nano";
 const POLL_INTERVAL_MS = 180;
 const RUN_STALL_TIMEOUT_MS = 5_000;
+const RUN_PERSIST_INTERVAL_MS = 280;
+const STREAM_HEARTBEAT_INTERVAL_MS = 2_000;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const generateId = () =>
@@ -411,7 +413,13 @@ const recoverStalledRun = async (
     userId,
   );
 
-  await appendRunDeltaEvent(latestRun.id, userId, {
+  const errorSeq = await appendRunDeltaEvent(latestRun.id, userId, {
+    type: "error",
+    message: errorMessage,
+    recoverable: false,
+  });
+
+  const finishSeq = await appendRunDeltaEvent(latestRun.id, userId, {
     type: "finish",
     finishReason: "error",
     error: {
@@ -419,12 +427,27 @@ const recoverStalledRun = async (
     },
   });
 
-  await appendRunMetaEvent(latestRun.id, userId, "message_stream_complete", {
-    type: "message_stream_complete",
-    conversation_id: latestRun.chatId,
-    run_id: latestRun.id,
-    status: "error",
-  });
+  const completedSeq = await appendRunMetaEvent(
+    latestRun.id,
+    userId,
+    "message_stream_complete",
+    {
+      type: "message_stream_complete",
+      conversation_id: latestRun.chatId,
+      run_id: latestRun.id,
+      status: "error",
+    },
+  );
+
+  await chatStore.updateChatRunProgress(
+    latestRun.id,
+    {
+      lastPersistedSeq: Math.max(errorSeq, finishSeq, completedSeq),
+      lastError: errorMessage,
+      lastHeartbeatAt: new Date().toISOString(),
+    },
+    userId,
+  );
 
   await chatStore.completeChatRun(latestRun.id, "error", userId);
 };
@@ -453,7 +476,7 @@ const appendRunDeltaEvent = async (
   userId: string,
   payload: Record<string, unknown>,
 ) => {
-  await chatStore.appendChatRunEvent(
+  const appended = await chatStore.appendChatRunEvent(
     runId,
     "delta",
     {
@@ -462,6 +485,12 @@ const appendRunDeltaEvent = async (
     },
     userId,
   );
+
+  if (!appended) {
+    throw new Error(`Run ${runId} not found while appending delta event`);
+  }
+
+  return appended.seq;
 };
 
 const appendRunMetaEvent = async (
@@ -470,7 +499,95 @@ const appendRunMetaEvent = async (
   event: string,
   payload: Record<string, unknown>,
 ) => {
-  await chatStore.appendChatRunEvent(runId, event, payload, userId);
+  const appended = await chatStore.appendChatRunEvent(runId, event, payload, userId);
+
+  if (!appended) {
+    throw new Error(`Run ${runId} not found while appending ${event}`);
+  }
+
+  return appended.seq;
+};
+
+interface RunProgressTracker {
+  markEvent: (seq: number) => void;
+  syncHeartbeat: () => Promise<void>;
+  maybePersist: () => Promise<void>;
+  forcePersist: () => Promise<void>;
+  getLatestSeq: () => number;
+}
+
+const createRunProgressTracker = (
+  input: RunExecutionInput,
+  assistantParts: MessagePartV2[],
+): RunProgressTracker => {
+  let latestEventSeq = 0;
+  let lastPersistedSeq = 0;
+  let lastPersistedAt = 0;
+  let lastHeartbeatAt = 0;
+
+  const persistInternal = async (force: boolean) => {
+    if (!force && latestEventSeq <= lastPersistedSeq) {
+      return;
+    }
+
+    const now = Date.now();
+    if (!force && now - lastPersistedAt < RUN_PERSIST_INTERVAL_MS) {
+      return;
+    }
+
+    await chatStore.updateMessage(
+      input.chatId,
+      input.assistantMessageId,
+      {
+        parts: assistantParts,
+        model: input.model,
+        status: "streaming",
+        visible: true,
+      },
+      input.userId,
+    );
+
+    await chatStore.updateChatRunProgress(
+      input.runId,
+      {
+        lastPersistedSeq: latestEventSeq,
+        lastHeartbeatAt: new Date(now).toISOString(),
+      },
+      input.userId,
+    );
+
+    lastPersistedSeq = latestEventSeq;
+    lastPersistedAt = now;
+    lastHeartbeatAt = now;
+  };
+
+  return {
+    markEvent: (seq) => {
+      latestEventSeq = Math.max(latestEventSeq, Math.floor(seq));
+    },
+    syncHeartbeat: async () => {
+      const now = Date.now();
+      if (now - lastHeartbeatAt < RUN_PERSIST_INTERVAL_MS) return;
+
+      await chatStore.updateChatRunProgress(
+        input.runId,
+        {
+          lastPersistedSeq: lastPersistedSeq,
+          lastHeartbeatAt: new Date(now).toISOString(),
+        },
+        input.userId,
+      );
+
+      lastHeartbeatAt = now;
+    },
+    maybePersist: async () => {
+      await persistInternal(false);
+    },
+    forcePersist: async () => {
+      await persistInternal(true);
+    },
+    getLatestSeq: () => latestEventSeq,
+  };
 };
 
 const finalizeRun = async (
@@ -479,6 +596,7 @@ const finalizeRun = async (
   status: "done" | "aborted" | "error",
   finishReason: "stop" | "abort" | "error",
   errorMessage?: string,
+  lastKnownSeq?: number,
 ) => {
   await chatStore.updateMessage(
     input.chatId,
@@ -500,7 +618,7 @@ const finalizeRun = async (
     input.userId,
   );
 
-  await appendRunDeltaEvent(input.runId, input.userId, {
+  const finishSeq = await appendRunDeltaEvent(input.runId, input.userId, {
     type: "finish",
     finishReason,
     ...(errorMessage
@@ -512,12 +630,29 @@ const finalizeRun = async (
       : {}),
   });
 
-  await appendRunMetaEvent(input.runId, input.userId, "message_stream_complete", {
+  const completedSeq = await appendRunMetaEvent(
+    input.runId,
+    input.userId,
+    "message_stream_complete",
+    {
     type: "message_stream_complete",
     conversation_id: input.chatId,
     run_id: input.runId,
     status,
-  });
+    },
+  );
+
+  const finalSeq = Math.max(lastKnownSeq ?? 0, finishSeq, completedSeq);
+  const finalizedAt = new Date().toISOString();
+  await chatStore.updateChatRunProgress(
+    input.runId,
+    {
+      lastPersistedSeq: finalSeq,
+      lastError: errorMessage ?? null,
+      lastHeartbeatAt: finalizedAt,
+    },
+    input.userId,
+  );
 
   await chatStore.completeChatRun(input.runId, status, input.userId);
 };
@@ -526,23 +661,41 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
   const reasoningId = `rs_${generateId()}`;
   const textId = `msg_${generateId()}`;
   const assistantParts: MessagePartV2[] = [];
+  const progress = createRunProgressTracker(input, assistantParts);
 
   const shouldUseWeatherTool = isWeatherQuery(input.userText);
   const city = extractCity(input.userText);
 
+  const emitDelta = async (payload: Record<string, unknown>) => {
+    const seq = await appendRunDeltaEvent(input.runId, input.userId, payload);
+    progress.markEvent(seq);
+    await progress.maybePersist();
+  };
+
+  const delayWithHeartbeat = async (ms: number) => {
+    let remaining = ms;
+
+    while (remaining > 0) {
+      const step = Math.min(remaining, RUN_PERSIST_INTERVAL_MS);
+      await delay(step, signal);
+      await progress.syncHeartbeat();
+      remaining -= step;
+    }
+  };
+
   try {
-    await appendRunDeltaEvent(input.runId, input.userId, {
+    await emitDelta({
       type: "start",
       messageId: input.assistantMessageId,
       modelId: input.model,
     });
-    await delay(50, signal);
+    await delayWithHeartbeat(50);
 
     assistantParts.push({ type: "step-start" });
-    await appendRunDeltaEvent(input.runId, input.userId, {
+    await emitDelta({
       type: "start-step",
     });
-    await delay(50, signal);
+    await delayWithHeartbeat(50);
 
     if (shouldUseWeatherTool) {
       const toolCallId = `call_${generateId()}`;
@@ -555,11 +708,11 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
         state: "streaming",
       });
 
-      await appendRunDeltaEvent(input.runId, input.userId, {
+      await emitDelta({
         type: "reasoning-start",
         id: reasoningId,
       });
-      await delay(30, signal);
+      await delayWithHeartbeat(30);
 
       for (const char of reasoningText) {
         throwIfAborted(signal);
@@ -569,12 +722,12 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
           reasoningPart.text += char;
         }
 
-        await appendRunDeltaEvent(input.runId, input.userId, {
+        await emitDelta({
           type: "reasoning-delta",
           id: reasoningId,
           delta: char,
         });
-        await delay(15, signal);
+        await delayWithHeartbeat(15);
       }
 
       const reasoningPart = assistantParts[assistantParts.length - 1];
@@ -582,11 +735,11 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
         reasoningPart.state = "done";
       }
 
-      await appendRunDeltaEvent(input.runId, input.userId, {
+      await emitDelta({
         type: "reasoning-end",
         id: reasoningId,
       });
-      await delay(50, signal);
+      await delayWithHeartbeat(50);
 
       assistantParts.push({
         type: "tool-call",
@@ -596,12 +749,12 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
         inputText: "",
       });
 
-      await appendRunDeltaEvent(input.runId, input.userId, {
+      await emitDelta({
         type: "tool-input-start",
         toolCallId,
         toolName,
       });
-      await delay(50, signal);
+      await delayWithHeartbeat(50);
 
       const inputJson = JSON.stringify({ location: city });
       for (const char of inputJson) {
@@ -612,28 +765,28 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
           toolPart.inputText = (toolPart.inputText ?? "") + char;
         }
 
-        await appendRunDeltaEvent(input.runId, input.userId, {
+        await emitDelta({
           type: "tool-input-delta",
           toolCallId,
           inputTextDelta: char,
         });
-        await delay(30, signal);
+        await delayWithHeartbeat(30);
       }
 
-      await delay(100, signal);
+      await delayWithHeartbeat(100);
       const toolPart = assistantParts[assistantParts.length - 1];
       if (toolPart.type === "tool-call") {
         toolPart.state = "input-available";
         toolPart.input = { location: city };
       }
 
-      await appendRunDeltaEvent(input.runId, input.userId, {
+      await emitDelta({
         type: "tool-input-available",
         toolCallId,
         toolName,
         input: { location: city },
       });
-      await delay(350, signal);
+      await delayWithHeartbeat(350);
 
       const weatherOutput = {
         ...mockWeatherData,
@@ -645,12 +798,12 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
         toolPart.output = weatherOutput;
       }
 
-      await appendRunDeltaEvent(input.runId, input.userId, {
+      await emitDelta({
         type: "tool-output-available",
         toolCallId,
         output: weatherOutput,
       });
-      await delay(100, signal);
+      await delayWithHeartbeat(100);
 
       assistantParts.push({
         type: "text",
@@ -658,11 +811,11 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
         state: "streaming",
       });
 
-      await appendRunDeltaEvent(input.runId, input.userId, {
+      await emitDelta({
         type: "text-start",
         id: textId,
       });
-      await delay(30, signal);
+      await delayWithHeartbeat(30);
 
       const responseText = `根据天气查询结果，${city} 现在的天气是 ${weatherOutput.condition.text}，温度 ${weatherOutput.temperature}°C。今天最高温度 ${weatherOutput.temperatureHigh}°C，最低温度 ${weatherOutput.temperatureLow}°C。湿度 ${weatherOutput.humidity}%，风速 ${weatherOutput.windSpeed} km/h。`;
 
@@ -674,12 +827,12 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
           textPart.text += char;
         }
 
-        await appendRunDeltaEvent(input.runId, input.userId, {
+        await emitDelta({
           type: "text-delta",
           id: textId,
           delta: char,
         });
-        await delay(20, signal);
+        await delayWithHeartbeat(20);
       }
 
       const textPart = assistantParts[assistantParts.length - 1];
@@ -687,7 +840,7 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
         textPart.state = "done";
       }
 
-      await appendRunDeltaEvent(input.runId, input.userId, {
+      await emitDelta({
         type: "text-end",
         id: textId,
       });
@@ -721,11 +874,11 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
         state: "streaming",
       });
 
-      await appendRunDeltaEvent(input.runId, input.userId, {
+      await emitDelta({
         type: "reasoning-start",
         id: reasoningId,
       });
-      await delay(30, signal);
+      await delayWithHeartbeat(30);
 
       for (const char of reasoningText) {
         throwIfAborted(signal);
@@ -735,12 +888,12 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
           reasoningPart.text += char;
         }
 
-        await appendRunDeltaEvent(input.runId, input.userId, {
+        await emitDelta({
           type: "reasoning-delta",
           id: reasoningId,
           delta: char,
         });
-        await delay(20, signal);
+        await delayWithHeartbeat(20);
       }
 
       const reasoningPart = assistantParts[assistantParts.length - 1];
@@ -748,11 +901,11 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
         reasoningPart.state = "done";
       }
 
-      await appendRunDeltaEvent(input.runId, input.userId, {
+      await emitDelta({
         type: "reasoning-end",
         id: reasoningId,
       });
-      await delay(40, signal);
+      await delayWithHeartbeat(40);
 
       assistantParts.push({
         type: "text",
@@ -760,11 +913,11 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
         state: "streaming",
       });
 
-      await appendRunDeltaEvent(input.runId, input.userId, {
+      await emitDelta({
         type: "text-start",
         id: textId,
       });
-      await delay(30, signal);
+      await delayWithHeartbeat(30);
 
       for (const char of responseText) {
         throwIfAborted(signal);
@@ -774,12 +927,12 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
           textPart.text += char;
         }
 
-        await appendRunDeltaEvent(input.runId, input.userId, {
+        await emitDelta({
           type: "text-delta",
           id: textId,
           delta: char,
         });
-        await delay(30, signal);
+        await delayWithHeartbeat(30);
       }
 
       const textPart = assistantParts[assistantParts.length - 1];
@@ -787,28 +940,57 @@ async function executeRun(input: RunExecutionInput, signal: AbortSignal) {
         textPart.state = "done";
       }
 
-      await appendRunDeltaEvent(input.runId, input.userId, {
+      await emitDelta({
         type: "text-end",
         id: textId,
       });
     }
 
-    await delay(50, signal);
-    await appendRunDeltaEvent(input.runId, input.userId, {
+    await delayWithHeartbeat(50);
+    await emitDelta({
       type: "finish-step",
     });
 
-    await finalizeRun(input, assistantParts, "done", "stop");
+    await progress.forcePersist();
+    await finalizeRun(
+      input,
+      assistantParts,
+      "done",
+      "stop",
+      undefined,
+      progress.getLatestSeq(),
+    );
   } catch (error) {
     if (error instanceof StreamAbortedError) {
-      await finalizeRun(input, assistantParts, "aborted", "abort");
+      await progress.forcePersist();
+      await finalizeRun(
+        input,
+        assistantParts,
+        "aborted",
+        "abort",
+        undefined,
+        progress.getLatestSeq(),
+      );
       return;
     }
 
     const message =
       error instanceof Error ? error.message : "Unknown generation error";
 
-    await finalizeRun(input, assistantParts, "error", "error", message);
+    await emitDelta({
+      type: "error",
+      message,
+      recoverable: false,
+    });
+    await progress.forcePersist();
+    await finalizeRun(
+      input,
+      assistantParts,
+      "error",
+      "error",
+      message,
+      progress.getLatestSeq(),
+    );
   }
 }
 
@@ -929,6 +1111,16 @@ export async function createChatRunHandler(request: Request, chatId: string) {
       resumeToken,
       status: "running",
     });
+
+    await chatStore.updateChatRunProgress(
+      runId,
+      {
+        lastPersistedSeq: 0,
+        lastError: null,
+        lastHeartbeatAt: new Date().toISOString(),
+      },
+      userId,
+    );
   } catch (error) {
     return jsonError(
       error instanceof Error ? error.message : "Failed to initialize chat run",
@@ -951,7 +1143,11 @@ export async function createChatRunHandler(request: Request, chatId: string) {
       assistant_message_id: assistantMessageId,
       resume_token: resumeToken,
       last_seq: 0,
+      last_persisted_seq: 0,
       status: "running",
+      status_reason: null,
+      last_error: null,
+      last_heartbeat_at: null,
       conversation_id: chatId,
     },
     { status: 201 },
@@ -983,6 +1179,8 @@ export async function streamChatRunHandler(
     return jsonError("Invalid resume token", 403);
   }
 
+  afterSeq = Math.min(afterSeq, Math.max(run.lastEventSeq, 0));
+
   let cancelled = false;
 
   const stream = new ReadableStream({
@@ -990,6 +1188,47 @@ export async function streamChatRunHandler(
       const encoder = new TextEncoder();
       let cursor = afterSeq;
       let stalledSinceMs: number | null = null;
+      let lastHeartbeatSentAt = Date.now();
+
+      console.info("[chat-run-stream] open", {
+        chatId,
+        runId: run.id,
+        afterSeq,
+        lastEventSeq: run.lastEventSeq,
+        lastPersistedSeq: run.lastPersistedSeq,
+      });
+
+      const sendProtocolErrorAndClose = (
+        message: string,
+        recoverable: boolean,
+      ) => {
+        sendSseFrame(controller, encoder, {
+          event: "delta",
+          data: {
+            o: "add",
+            v: {
+              type: "error",
+              message,
+              recoverable,
+            },
+          },
+        });
+        sendSseFrame(controller, encoder, {
+          event: "delta",
+          data: {
+            o: "add",
+            v: {
+              type: "finish",
+              finishReason: "error",
+              error: {
+                message,
+              },
+            },
+          },
+        });
+        sendSseEvent(controller, encoder, "[DONE]");
+        controller.close();
+      };
 
       try {
         sendSseFrame(controller, encoder, {
@@ -1005,6 +1244,8 @@ export async function streamChatRunHandler(
             conversation_id: chatId,
             run_id: run.id,
             assistant_message_id: run.assistantMessageId,
+            last_seq: run.lastEventSeq,
+            last_persisted_seq: run.lastPersistedSeq,
           },
         });
 
@@ -1024,16 +1265,18 @@ export async function streamChatRunHandler(
             });
           }
 
+          if (events.length > 0) {
+            lastHeartbeatSentAt = Date.now();
+          }
+
           const latestRun = await chatStore.getChatRun(run.id, userId);
           if (!latestRun) {
-            sendSseFrame(controller, encoder, {
-              event: "error",
-              data: {
-                message: "Run deleted",
-              },
+            sendProtocolErrorAndClose("Run deleted", false);
+            console.warn("[chat-run-stream] missing-run", {
+              chatId,
+              runId: run.id,
+              cursor,
             });
-            sendSseEvent(controller, encoder, "[DONE]");
-            controller.close();
             return;
           }
 
@@ -1060,7 +1303,7 @@ export async function streamChatRunHandler(
                     lastEventSeq: latestRun.lastEventSeq,
                   },
                 );
-                await recoverStalledRunOnce(run, userId, stallMessage);
+                await recoverStalledRunOnce(latestRun, userId, stallMessage);
                 stalledSinceMs = null;
                 continue;
               }
@@ -1079,9 +1322,35 @@ export async function streamChatRunHandler(
             });
 
             if (hasPending.length === 0) {
+              console.info("[chat-run-stream] complete", {
+                chatId,
+                runId: run.id,
+                cursor,
+                status: latestRun.status,
+              });
               sendSseEvent(controller, encoder, "[DONE]");
               controller.close();
               return;
+            }
+          }
+
+          if (events.length === 0) {
+            const now = Date.now();
+            if (now - lastHeartbeatSentAt >= STREAM_HEARTBEAT_INTERVAL_MS) {
+              sendSseFrame(controller, encoder, {
+                event: "delta",
+                data: {
+                  o: "add",
+                  v: {
+                    type: "heartbeat",
+                    runId: run.id,
+                    ts: new Date(now).toISOString(),
+                    cursor,
+                    status: latestRun.status,
+                  },
+                },
+              });
+              lastHeartbeatSentAt = now;
             }
           }
 
@@ -1089,20 +1358,26 @@ export async function streamChatRunHandler(
         }
       } catch (error) {
         if (!cancelled) {
-          sendSseFrame(controller, encoder, {
-            event: "error",
-            data: {
-              message: error instanceof Error ? error.message : "Stream error",
-            },
+          console.warn("[chat-run-stream] failed", {
+            chatId,
+            runId: run.id,
+            cursor,
+            error: error instanceof Error ? error.message : String(error),
           });
-          sendSseEvent(controller, encoder, "[DONE]");
-          controller.close();
+          sendProtocolErrorAndClose(
+            error instanceof Error ? error.message : "Stream error",
+            true,
+          );
         }
       }
     },
     cancel() {
       // The run continues server-side; this only closes the current subscriber.
       cancelled = true;
+      console.info("[chat-run-stream] cancelled", {
+        chatId,
+        runId: run.id,
+      });
     },
   });
 

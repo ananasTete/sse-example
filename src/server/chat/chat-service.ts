@@ -30,6 +30,10 @@ export interface FlatChatDetailResponse extends FlatChatResponse {
     status: string;
     resume_token: string;
     last_seq: number;
+    last_persisted_seq: number;
+    status_reason: string | null;
+    last_error: string | null;
+    last_heartbeat_at: string | null;
     created_at: string;
   };
 }
@@ -85,6 +89,10 @@ export function toFlatChatDetailResponse(
             status: activeRun.status,
             resume_token: activeRun.resumeToken,
             last_seq: activeRun.lastEventSeq,
+            last_persisted_seq: activeRun.lastPersistedSeq,
+            status_reason: activeRun.lastError,
+            last_error: activeRun.lastError,
+            last_heartbeat_at: activeRun.lastHeartbeatAt,
             created_at: activeRun.createdAt,
           },
         }

@@ -74,6 +74,10 @@ export interface ActiveChatRunV2 {
   status: "running" | "done" | "aborted" | "error";
   resumeToken: string;
   lastSeq: number;
+  lastPersistedSeq: number;
+  statusReason?: string | null;
+  lastError?: string | null;
+  lastHeartbeatAt?: string | null;
 }
 
 export interface OnFinishV2Params {

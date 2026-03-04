@@ -50,6 +50,9 @@ model ChatRun {
   resumeToken        String
   status             String
   lastEventSeq       Int           @default(0)
+  lastPersistedSeq   Int           @default(0)
+  lastError          String?
+  lastHeartbeatAt    DateTime?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
   finishedAt         DateTime?

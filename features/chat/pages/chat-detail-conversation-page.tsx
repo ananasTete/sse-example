@@ -145,7 +145,6 @@ export function ChatDetailConversationPage({
 
   return (
     <div className="h-full min-h-0 overflow-hidden">
-      <h3>{isDraft ? "草稿" : "会话"}</h3>
       <BoundChatConversation
         key={`${chatId}:${conversationResetVersion}`}
         chatId={chatId}

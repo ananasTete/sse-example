@@ -1,11 +1,22 @@
-import { ChangeEvent, FormEvent, useEffect, useMemo, useReducer, useRef } from "react";
-import { nanoid } from "nanoid";
-import { chatReducerV2 } from "./reducer";
-import { createSSEParserV2 } from "./parser";
+import {
+  ChangeEvent,
+  FormEvent,
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+} from "react";
+import { ChatStateV2, chatReducerV2 } from "./reducer";
+import {
+  connectToRunStreamWithRecovery,
+  recoverChatDetailSnapshotFromServer,
+  shouldAttemptSnapshotRecovery,
+} from "./run-session";
+import type { RunStreamFinishFlags } from "./run-session";
 import {
   ActiveChatRunV2,
   ChatMessageV2,
-  ConversationNode,
   ConversationStateV2,
   OnDataCallbackV2,
   OnErrorCallbackV2,
@@ -13,138 +24,23 @@ import {
   RequestTrigger,
   StreamChatV2RequestBody,
   StreamChatSettingsV2,
-  UseChatV2Status,
   findLatestAssistantNode,
   getChildrenNodes,
   getPathMessages,
   initializeConversationState,
 } from "./types";
-
-const generateId = () => nanoid();
-const RUN_PROGRESS_STORAGE_PREFIX = "chat-run-progress:v1";
-
-interface CreateChatRunResponse {
-  run_id: string;
-  assistant_message_id: string;
-  resume_token: string;
-  last_seq: number;
-  status: "running" | "done" | "aborted" | "error";
-}
-
-interface RunIdentityV2 {
-  id: string;
-  assistantMessageId: string;
-  resumeToken: string;
-  lastSeq: number;
-  status: "running" | "done" | "aborted" | "error";
-}
-
-const isBrowser = typeof window !== "undefined";
-
-const getRunProgressStorageKey = (chatId: string, runId: string) =>
-  `${RUN_PROGRESS_STORAGE_PREFIX}:${chatId}:${runId}`;
-
-const readRunProgress = (chatId: string, runId: string): number | null => {
-  if (!isBrowser) return null;
-
-  try {
-    const raw = window.localStorage.getItem(getRunProgressStorageKey(chatId, runId));
-    if (!raw) return null;
-    const parsed = Number(raw);
-    return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
-  } catch {
-    return null;
-  }
-};
-
-const writeRunProgress = (chatId: string, runId: string, seq: number) => {
-  if (!isBrowser) return;
-
-  try {
-    window.localStorage.setItem(getRunProgressStorageKey(chatId, runId), String(seq));
-  } catch {
-    // noop
-  }
-};
-
-const clearRunProgress = (chatId: string, runId: string) => {
-  if (!isBrowser) return;
-
-  try {
-    window.localStorage.removeItem(getRunProgressStorageKey(chatId, runId));
-  } catch {
-    // noop
-  }
-};
-
-const toRunIdentity = (input: ActiveChatRunV2 | CreateChatRunResponse): RunIdentityV2 => {
-  if ("run_id" in input) {
-    return {
-      id: input.run_id,
-      assistantMessageId: input.assistant_message_id,
-      resumeToken: input.resume_token,
-      lastSeq: input.last_seq,
-      status: input.status,
-    };
-  }
-
-  return {
-    id: input.id,
-    assistantMessageId: input.assistantMessageId,
-    resumeToken: input.resumeToken,
-    lastSeq: input.lastSeq,
-    status: input.status,
-  };
-};
-
-const createUserNode = (
-  chatId: string,
-  text: string,
-  parentId: string,
-): ConversationNode => {
-  const now = new Date().toISOString();
-  const id = generateId();
-
-  return {
-    id,
-    parentId,
-    childIds: [],
-    role: "user",
-    visible: true,
-    message: {
-      id,
-      chatId,
-      role: "user",
-      createdAt: now,
-      parts: [{ type: "text", text, state: "done" }],
-    },
-  };
-};
-
-const createAssistantPlaceholderNode = (
-  chatId: string,
-  parentId: string,
-  model: string,
-): ConversationNode => {
-  const now = new Date().toISOString();
-  const id = generateId();
-
-  return {
-    id,
-    parentId,
-    childIds: [],
-    role: "assistant",
-    visible: true,
-    message: {
-      id,
-      chatId,
-      role: "assistant",
-      createdAt: now,
-      model,
-      parts: [],
-    },
-  };
-};
+import {
+  CreateChatRunResponse,
+  RunIdentityV2,
+  StreamAbortReason,
+  clearAppliedSeqForRun,
+  createAssistantPlaceholderNode,
+  createUserNode,
+  getAppliedSeqForRun,
+  isStreamAbortReason,
+  setAppliedSeqForRun,
+  toRunIdentity,
+} from "./runtime";
 
 export interface UseChatV2Options {
   api: string;
@@ -176,21 +72,6 @@ interface StreamRequestOptions {
   trigger: RequestTrigger;
 }
 
-interface RecoveryChatDetailResponse {
-  conversation: {
-    rootId: string;
-    current_leaf_message_id: string;
-    mapping: ConversationStateV2["mapping"];
-  };
-}
-
-interface UseChatV2State {
-  conversation: ConversationStateV2;
-  input: string;
-  status: UseChatV2Status;
-  error: Error | null;
-}
-
 export function useChatV2({
   api,
   chatId,
@@ -207,7 +88,7 @@ export function useChatV2({
   const [state, dispatch] = useReducer(
     chatReducerV2,
     undefined,
-    (): UseChatV2State => ({
+    (): ChatStateV2 => ({
       conversation: initializeConversationState(initialConversation),
       input: "",
       status: "ready",
@@ -226,15 +107,62 @@ export function useChatV2({
   conversationRef.current = conversation;
 
   const streamAbortControllerRef = useRef<AbortController | null>(null);
+  const streamOwnerRef = useRef<string | null>(null);
+  const streamAbortReasonRef = useRef<StreamAbortReason | null>(null);
   const streamingAssistantNodeIdRef = useRef<string | null>(null);
   const activeRunRef = useRef<RunIdentityV2 | null>(null);
+  const runAppliedSeqRef = useRef<Map<string, number>>(new Map());
+
+  const getAppliedSeq = (runId: string) =>
+    getAppliedSeqForRun(runAppliedSeqRef.current, runId);
+
+  const setAppliedSeq = (runId: string, seq: number) => {
+    setAppliedSeqForRun(runAppliedSeqRef.current, runId, seq);
+  };
+
+  const clearAppliedSeq = (runId: string) => {
+    clearAppliedSeqForRun(runAppliedSeqRef.current, runId);
+  };
+
+  const getAbortReason = (signal?: AbortSignal): StreamAbortReason => {
+    const signalReason = (signal as AbortSignal & { reason?: unknown } | undefined)
+      ?.reason;
+    if (isStreamAbortReason(signalReason)) {
+      return signalReason;
+    }
+    return streamAbortReasonRef.current ?? "unknown";
+  };
+
+  const abortActiveStream = useCallback(
+    (reason: Exclude<StreamAbortReason, "unknown">) => {
+      const controller = streamAbortControllerRef.current;
+      if (!controller) return;
+
+      streamAbortReasonRef.current = reason;
+      console.info("Abort run stream", {
+        chatId,
+        runId: activeRunRef.current?.id ?? null,
+        reason,
+      });
+
+      if (!controller.signal.aborted) {
+        (
+          controller as AbortController & {
+            abort: (reason?: unknown) => void;
+          }
+        ).abort(reason);
+      }
+
+      streamAbortControllerRef.current = null;
+    },
+    [chatId],
+  );
 
   useEffect(() => {
     return () => {
-      streamAbortControllerRef.current?.abort();
-      streamAbortControllerRef.current = null;
+      abortActiveStream("hook-unmount");
     };
-  }, []);
+  }, [abortActiveStream]);
 
   const handleInputChange = (
     e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>,
@@ -264,245 +192,72 @@ export function useChatV2({
     return getChildrenNodes(conversationRef.current, nodeId);
   };
 
-  const recoverConversationFromServer = async () => {
-    try {
-      const response = await fetch(`${api}/${chatId}`, {
-        method: "GET",
-        headers,
-      });
-      if (!response.ok) return;
-
-      const data = (await response.json()) as RecoveryChatDetailResponse;
-      if (!data?.conversation?.rootId || !data.conversation.mapping) return;
-
-      const recoveredConversation: ConversationStateV2 = initializeConversationState({
-        rootId: data.conversation.rootId,
-        cursorId: data.conversation.current_leaf_message_id,
-        mapping: data.conversation.mapping,
-      });
-
-      dispatch({
-        type: "REPLACE_CONVERSATION",
-        payload: {
-          conversation: recoveredConversation,
-        },
-      });
-    } catch (recoveryError) {
-      console.warn("Failed to recover conversation from server", recoveryError);
-    }
-  };
-
-  const connectToRunStream = async (
-    runIdentity: RunIdentityV2,
-    assistantNodeId: string,
-  ) => {
-    if (streamAbortControllerRef.current) {
-      streamAbortControllerRef.current.abort();
-    }
-
-    const controller = new AbortController();
-    streamAbortControllerRef.current = controller;
-    streamingAssistantNodeIdRef.current = assistantNodeId;
-    activeRunRef.current = runIdentity;
-
-    const assistantSnapshot =
-      conversationRef.current.mapping[assistantNodeId]?.message;
-    const hasLocalAssistantState =
-      Boolean(assistantSnapshot?.parts && assistantSnapshot.parts.length > 0);
-
-    const persistedSeq = readRunProgress(chatId, runIdentity.id);
-    const serverLastSeq =
-      Number.isFinite(runIdentity.lastSeq) && runIdentity.lastSeq > 0
-        ? Math.floor(runIdentity.lastSeq)
-        : 0;
-    let lastSeq = hasLocalAssistantState
-      ? (persistedSeq ?? serverLastSeq)
-      : 0;
-
-    if (!hasLocalAssistantState) {
-      // No local streamed content to apply deltas on top of, replay from the start.
-      clearRunProgress(chatId, runIdentity.id);
-    }
-
-    let finalAssistantNodeId = assistantNodeId;
-    let isAbort = false;
-    let isDisconnect = false;
-
-    try {
-      const query = new URLSearchParams({
-        afterSeq: String(lastSeq),
-        resumeToken: runIdentity.resumeToken,
-      });
-
-      const response = await fetch(
-        `${api}/${chatId}/runs/${runIdentity.id}/stream?${query.toString()}`,
-        {
-          method: "GET",
-          headers,
-          signal: controller.signal,
-        },
+  const emitFinish = (assistantNodeId: string, flags: RunStreamFinishFlags) => {
+    queueMicrotask(() => {
+      const latestConversation = conversationRef.current;
+      const latestMessages = getPathMessages(
+        latestConversation,
+        latestConversation.cursorId,
       );
-
-      if (!response.ok) {
-        throw new Error(response.statusText || "Failed to connect run stream");
-      }
-      if (!response.body) {
-        throw new Error("No response body");
-      }
-
-      dispatch({ type: "SET_STREAMING" });
-
-      const { parser, getServerError, getAssistantNodeId } = createSSEParserV2({
-        assistantNodeId,
-        dispatch,
-        onData,
-        onSseFrame: ({ id }) => {
-          if (!id) return;
-          const seq = Number(id);
-          if (!Number.isFinite(seq) || seq <= lastSeq) return;
-          lastSeq = Math.floor(seq);
-          writeRunProgress(chatId, runIdentity.id, lastSeq);
-        },
-      });
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        if (controller.signal.aborted) {
-          await reader.cancel();
-          isAbort = true;
-          break;
-        }
-
-        let readResult: ReadableStreamReadResult<Uint8Array>;
-        try {
-          readResult = await reader.read();
-        } catch (readError) {
-          if (controller.signal.aborted) {
-            isAbort = true;
-            break;
-          }
-
-          isDisconnect = true;
-          console.warn("Run stream disconnected:", readError);
-          break;
-        }
-
-        const { done, value } = readResult;
-        if (done) break;
-
-        parser.feed(decoder.decode(value, { stream: true }));
-        const serverError = getServerError();
-        if (serverError) {
-          throw serverError;
-        }
-      }
-
-      finalAssistantNodeId = getAssistantNodeId();
-
-      dispatch({
-        type: "FINALIZE_STREAMING",
-        payload: { assistantNodeId: finalAssistantNodeId },
-      });
-
-      const completedAssistantParts =
-        conversationRef.current.mapping[finalAssistantNodeId]?.message?.parts ?? [];
-      if (completedAssistantParts.length === 0) {
-        await recoverConversationFromServer();
-      }
-
-      if (!isDisconnect) {
-        clearRunProgress(chatId, runIdentity.id);
-        activeRunRef.current = null;
-      }
-
-      queueMicrotask(() => {
-        const latestConversation = conversationRef.current;
-        const latestMessages = getPathMessages(
-          latestConversation,
-          latestConversation.cursorId,
-        );
-        const finalMessage =
-          latestConversation.mapping[finalAssistantNodeId]?.message ?? {
-            id: finalAssistantNodeId,
-            chatId,
-            role: "assistant" as const,
-            createdAt: new Date().toISOString(),
-            model,
-            parts: [],
-          };
-
-        onFinish?.({
-          message: finalMessage,
-          messages: latestMessages,
-          conversation: latestConversation,
-          isAbort,
-          isDisconnect,
-          isError: false,
-        });
-      });
-    } catch (err) {
-      const currentAssistantId = streamingAssistantNodeIdRef.current ?? assistantNodeId;
-
-      if (err instanceof Error && err.name === "AbortError") {
-        dispatch({
-          type: "ABORT_STREAMING",
-          payload: { assistantNodeId: currentAssistantId },
-        });
-
-        return;
-      }
-
-      console.warn("Run stream failed", {
+      const finalMessage = latestConversation.mapping[assistantNodeId]?.message ?? {
+        id: assistantNodeId,
         chatId,
-        runId: runIdentity.id,
-        afterSeq: lastSeq,
-        error: err instanceof Error ? err.message : String(err),
+        role: "assistant" as const,
+        createdAt: new Date().toISOString(),
+        model,
+        parts: [],
+      };
+
+      onFinish?.({
+        message: finalMessage,
+        messages: latestMessages,
+        conversation: latestConversation,
+        isAbort: flags.isAbort,
+        isDisconnect: flags.isDisconnect,
+        isError: flags.isError,
       });
-
-      dispatch({
-        type: "ABORT_STREAMING",
-        payload: {
-          assistantNodeId: currentAssistantId,
-        },
-      });
-
-      const errorObj = err instanceof Error ? err : new Error(String(err));
-      dispatch({ type: "SET_ERROR", payload: errorObj });
-      onError?.(errorObj);
-
-      await recoverConversationFromServer();
-
-      queueMicrotask(() => {
-        const latestConversation = conversationRef.current;
-        const latestMessages = getPathMessages(
-          latestConversation,
-          latestConversation.cursorId,
-        );
-        const fallbackMessage = latestConversation.mapping[currentAssistantId]?.message ?? {
-          id: currentAssistantId,
-          chatId,
-          role: "assistant" as const,
-          createdAt: new Date().toISOString(),
-          model,
-          parts: [],
-        };
-
-        onFinish?.({
-          message: fallbackMessage,
-          messages: latestMessages,
-          conversation: latestConversation,
-          isAbort: false,
-          isDisconnect: false,
-          isError: true,
-        });
-      });
-    } finally {
-      streamAbortControllerRef.current = null;
-      streamingAssistantNodeIdRef.current = null;
-    }
+    });
   };
+
+  const recoverChatDetailFromServer = (options?: { applyConversation?: boolean }) =>
+    recoverChatDetailSnapshotFromServer({
+      api,
+      chatId,
+      headers,
+      dispatch,
+      setAppliedSeq,
+      options,
+    });
+
+  const connectToRunStream = (
+    initialRunIdentity: RunIdentityV2,
+    initialAssistantNodeId: string,
+  ) =>
+    connectToRunStreamWithRecovery({
+      api,
+      chatId,
+      headers,
+      dispatch,
+      refs: {
+        conversationRef,
+        streamAbortControllerRef,
+        streamOwnerRef,
+        streamAbortReasonRef,
+        streamingAssistantNodeIdRef,
+        activeRunRef,
+      },
+      initialRunIdentity,
+      initialAssistantNodeId,
+      onData,
+      onError,
+      abortActiveStream,
+      getAbortReason,
+      getAppliedSeq,
+      setAppliedSeq,
+      clearAppliedSeq,
+      recoverChatDetailFromServer,
+      emitFinish,
+    });
 
   const createRun = async (
     parentId: string,
@@ -537,10 +292,7 @@ export function useChatV2({
   const stop = () => {
     const activeRun = activeRunRef.current;
 
-    if (streamAbortControllerRef.current) {
-      streamAbortControllerRef.current.abort();
-      streamAbortControllerRef.current = null;
-    }
+    abortActiveStream("manual-stop");
 
     dispatch({
       type: "ABORT_STREAMING",
@@ -557,7 +309,7 @@ export function useChatV2({
     if (!activeRun) return;
 
     activeRunRef.current = null;
-    clearRunProgress(chatId, activeRun.id);
+    clearAppliedSeq(activeRun.id);
 
     void fetch(`${api}/${chatId}/runs/${activeRun.id}/cancel`, {
       method: "POST",
@@ -589,10 +341,20 @@ export function useChatV2({
     await connectToRunStream(createdRun, createdRun.assistantMessageId);
   };
 
+  const resumeRun = (runIdentity: RunIdentityV2, logPrefix: string) => {
+    activeRunRef.current = runIdentity;
+    setAppliedSeq(runIdentity.id, runIdentity.lastPersistedSeq);
+
+    void connectToRunStream(runIdentity, runIdentity.assistantMessageId).catch(
+      (resumeError) => {
+        console.warn(logPrefix, resumeError);
+      },
+    );
+  };
+
   useEffect(() => {
     if (!initialActiveRun || initialActiveRun.status !== "running") return;
     if (streamAbortControllerRef.current) return;
-    if (activeRunRef.current?.id === initialActiveRun.id) return;
 
     const snapshot = conversationRef.current;
     if (!snapshot.mapping[initialActiveRun.assistantMessageId]) {
@@ -600,14 +362,41 @@ export function useChatV2({
     }
 
     const runIdentity = toRunIdentity(initialActiveRun);
-    activeRunRef.current = runIdentity;
+    resumeRun(runIdentity, "Failed to resume active run");
+  }, [chatId, initialActiveRun, model]);
 
-    dispatch({ type: "SET_STREAMING" });
-    void connectToRunStream(runIdentity, runIdentity.assistantMessageId).catch(
-      (resumeError) => {
-        console.warn("Failed to resume active run", resumeError);
-      },
-    );
+  useEffect(() => {
+    if (streamAbortControllerRef.current) return;
+
+    const snapshot = conversationRef.current;
+    if (!shouldAttemptSnapshotRecovery(snapshot, initialActiveRun?.status)) return;
+
+    let disposed = false;
+
+    console.info("Detected stale streaming snapshot without active run; reconciling", {
+      chatId,
+    });
+
+    void recoverChatDetailFromServer({ applyConversation: true }).then((recovered) => {
+      if (disposed || !recovered) return;
+
+      const recoveredRun = recovered.activeRun;
+      if (
+        recoveredRun &&
+        recoveredRun.status === "running" &&
+        recovered.conversation.mapping[recoveredRun.assistantMessageId] &&
+        !streamAbortControllerRef.current
+      ) {
+        resumeRun(
+          recoveredRun,
+          "Failed to resume run after snapshot reconciliation",
+        );
+      }
+    });
+
+    return () => {
+      disposed = true;
+    };
   }, [chatId, initialActiveRun, model]);
 
   const sendMessage = async (content: string, options?: SendMessageOptions) => {

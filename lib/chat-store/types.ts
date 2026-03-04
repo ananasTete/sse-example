@@ -32,6 +32,9 @@ export interface ChatRunEntity {
   resumeToken: string;
   status: ChatRunStatus;
   lastEventSeq: number;
+  lastPersistedSeq: number;
+  lastError: string | null;
+  lastHeartbeatAt: string | null;
   createdAt: string;
   updatedAt: string;
   finishedAt: string | null;
@@ -99,6 +102,12 @@ export interface CreateChatRunInput {
   status?: ChatRunStatus;
 }
 
+export interface UpdateChatRunProgressInput {
+  lastPersistedSeq?: number;
+  lastError?: string | null;
+  lastHeartbeatAt?: string | null;
+}
+
 export interface HideMessageSubtreeResult {
   hiddenMessageIds: string[];
   cursorMessageId: string | null;
@@ -145,6 +154,11 @@ export interface ChatStore {
   completeChatRun(
     runId: string,
     status: Exclude<ChatRunStatus, "running">,
+    userId?: string,
+  ): Promise<ChatRunEntity | null>;
+  updateChatRunProgress(
+    runId: string,
+    input: UpdateChatRunProgressInput,
     userId?: string,
   ): Promise<ChatRunEntity | null>;
   appendChatRunEvent(

@@ -32,6 +32,10 @@ export interface ChatActiveRunResponse {
   status: "running" | "done" | "aborted" | "error";
   resumeToken: string;
   lastSeq: number;
+  lastPersistedSeq: number;
+  statusReason: string | null;
+  lastError: string | null;
+  lastHeartbeatAt: string | null;
   createdAt: string;
 }
 
@@ -49,6 +53,10 @@ interface ApiChatDetailResponse extends ChatBaseResponse {
     status: "running" | "done" | "aborted" | "error";
     resume_token: string;
     last_seq: number;
+    last_persisted_seq: number;
+    status_reason: string | null;
+    last_error: string | null;
+    last_heartbeat_at: string | null;
     created_at: string;
   };
 }
@@ -106,6 +114,10 @@ export async function fetchChatDetail(chatId: string): Promise<ChatDetailRespons
           status: data.active_run.status,
           resumeToken: data.active_run.resume_token,
           lastSeq: data.active_run.last_seq,
+          lastPersistedSeq: data.active_run.last_persisted_seq,
+          statusReason: data.active_run.status_reason,
+          lastError: data.active_run.last_error,
+          lastHeartbeatAt: data.active_run.last_heartbeat_at,
           createdAt: data.active_run.created_at,
         }
       : null,
