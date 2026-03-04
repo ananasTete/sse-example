@@ -205,6 +205,31 @@ export async function chatStreamHandler(request: Request, chatId: string) {
   const rootId = getConversationRootId(chatId);
   const normalizedParentId = body.parentId === rootId ? null : body.parentId;
 
+  const incomingSettings = body.settings
+    ? { enabledWebSearch: body.settings.enabled_web_search }
+    : undefined;
+  if (
+    incomingSettings &&
+    incomingSettings.enabledWebSearch !== chat.settings.enabledWebSearch
+  ) {
+    try {
+      await chatStore.updateChat(
+        chatId,
+        {
+          settings: incomingSettings,
+        },
+        userId,
+      );
+    } catch (error) {
+      return jsonError(
+        error instanceof Error
+          ? error.message
+          : "Failed to persist chat settings",
+        500,
+      );
+    }
+  }
+
   const userMessage = toChatMessageV2(chatId, body.message);
   try {
     await chatStore.appendUserNodeIfMissing(chatId, normalizedParentId, userMessage);

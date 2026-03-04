@@ -3,9 +3,14 @@ import type { ConversationStateV2 } from "@/features/ai-sdk/hooks/use-chat-v2/ty
 
 const CHAT_DETAIL_KEY = "chat-detail";
 
+export interface ChatSettingsPayload {
+  enabled_web_search: boolean;
+}
+
 export interface CreateChatPayload {
   id: string;
   title?: string;
+  settings?: ChatSettingsPayload;
 }
 
 export interface ChatBaseResponse {
@@ -13,6 +18,7 @@ export interface ChatBaseResponse {
   title: string;
   userId: string;
   createdAt: string;
+  settings: ChatSettingsPayload;
 }
 
 export interface ChatDetailResponse extends ChatBaseResponse {

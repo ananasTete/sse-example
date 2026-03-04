@@ -27,6 +27,9 @@ export async function createChatHandler(request: Request) {
       title: body.title,
       userId,
       cursorMessageId: null,
+      settings: {
+        enabledWebSearch: body.settings?.enabled_web_search ?? false,
+      },
     });
 
     return Response.json(toFlatChatResponse(chat), { status: 201 });

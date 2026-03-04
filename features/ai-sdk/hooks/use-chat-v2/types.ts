@@ -56,11 +56,16 @@ export type UseChatV2Status = "submitted" | "streaming" | "ready" | "error";
 
 export type RequestTrigger = "submit-message" | "regenerate-message";
 
+export interface StreamChatSettingsV2 {
+  enabled_web_search: boolean;
+}
+
 export interface StreamChatV2RequestBody {
   model: string;
   trigger: RequestTrigger;
   parentId: string;
   message: ChatMessageV2;
+  settings?: StreamChatSettingsV2;
 }
 
 export interface OnFinishV2Params {

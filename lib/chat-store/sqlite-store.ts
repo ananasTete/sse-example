@@ -11,6 +11,7 @@ import {
 import { prisma } from "@/lib/prisma";
 import {
   ChatEntity,
+  ChatSettings,
   ChatStore,
   CreateMessageInput,
   HideMessageSubtreeResult,
@@ -24,6 +25,9 @@ const DEFAULT_LIST_LIMIT = 20;
 const MAX_LIST_LIMIT = 100;
 const FALLBACK_CHAT_TITLE = "新聊天";
 const CHAT_TITLE_MAX_LENGTH = 28;
+const DEFAULT_CHAT_SETTINGS: ChatSettings = {
+  enabledWebSearch: false,
+};
 
 const toIsoString = (value: Date) => value.toISOString();
 
@@ -57,6 +61,31 @@ const getChatTitle = (title: string | null, firstUserMessageText?: string) => {
 const toInputJson = (parts: MessagePartV2[]): Prisma.InputJsonValue =>
   parts as unknown as Prisma.InputJsonValue;
 
+const toSettingsJson = (settings?: ChatSettings): Prisma.InputJsonValue => ({
+  enabled_web_search: settings?.enabledWebSearch ?? false,
+});
+
+const toChatSettings = (value: unknown): ChatSettings => {
+  if (!value || typeof value !== "object") {
+    return { ...DEFAULT_CHAT_SETTINGS };
+  }
+
+  const record = value as Record<string, unknown>;
+  if (typeof record.enabled_web_search === "boolean") {
+    return {
+      enabledWebSearch: record.enabled_web_search,
+    };
+  }
+
+  if (typeof record.enabledWebSearch === "boolean") {
+    return {
+      enabledWebSearch: record.enabledWebSearch,
+    };
+  }
+
+  return { ...DEFAULT_CHAT_SETTINGS };
+};
+
 const normalizeRole = (role: string): MessageRole => {
   if (role === "user" || role === "assistant" || role === "system") return role;
   return "assistant";
@@ -83,6 +112,7 @@ const toChatEntity = (record: {
   userId: string;
   title: string | null;
   cursorMessageId: string | null;
+  settingsJson: unknown;
   createdAt: Date;
   updatedAt: Date;
   deletedAt: Date | null;
@@ -91,6 +121,7 @@ const toChatEntity = (record: {
   userId: record.userId,
   title: record.title,
   cursorMessageId: record.cursorMessageId,
+  settings: toChatSettings(record.settingsJson),
   createdAt: toIsoString(record.createdAt),
   updatedAt: toIsoString(record.updatedAt),
   deletedAt: record.deletedAt ? toIsoString(record.deletedAt) : null,
@@ -147,6 +178,7 @@ export class SqliteChatStore implements ChatStore {
     title?: string;
     userId?: string;
     cursorMessageId?: string | null;
+    settings?: ChatSettings;
   }) {
     const created = await prisma.chat.create({
       data: {
@@ -154,6 +186,7 @@ export class SqliteChatStore implements ChatStore {
         userId: input?.userId ?? "local-user",
         title: input?.title ?? null,
         cursorMessageId: input?.cursorMessageId ?? null,
+        settingsJson: toSettingsJson(input?.settings),
       },
     });
 
@@ -217,6 +250,7 @@ export class SqliteChatStore implements ChatStore {
         userId: true,
         title: true,
         cursorMessageId: true,
+        settingsJson: true,
         createdAt: true,
         updatedAt: true,
         deletedAt: true,
@@ -362,6 +396,9 @@ export class SqliteChatStore implements ChatStore {
         ...(input.title !== undefined ? { title: input.title } : {}),
         ...(input.cursorMessageId !== undefined
           ? { cursorMessageId: input.cursorMessageId }
+          : {}),
+        ...(input.settings !== undefined
+          ? { settingsJson: toSettingsJson(input.settings) }
           : {}),
       },
     });
@@ -552,6 +589,7 @@ export class SqliteChatStore implements ChatStore {
           id: input.chatId,
           userId: "local-user",
           cursorMessageId: null,
+          settingsJson: toSettingsJson(),
         },
       });
 

@@ -7,11 +7,16 @@ import {
 
 export type MessageStatus = "done" | "streaming" | "aborted" | "error";
 
+export interface ChatSettings {
+  enabledWebSearch: boolean;
+}
+
 export interface ChatEntity {
   id: string;
   userId: string;
   title: string | null;
   cursorMessageId: string | null;
+  settings: ChatSettings;
   createdAt: string;
   updatedAt: string;
   deletedAt: string | null;
@@ -38,6 +43,7 @@ export interface ListChatsResult {
 export interface UpdateChatInput {
   title?: string | null;
   cursorMessageId?: string | null;
+  settings?: ChatSettings;
 }
 
 export interface CreateMessageInput {
@@ -70,6 +76,7 @@ export interface ChatStore {
     title?: string;
     userId?: string;
     cursorMessageId?: string | null;
+    settings?: ChatSettings;
   }): Promise<ChatEntity>;
   getChat(chatId: string, userId?: string): Promise<ChatEntity | null>;
   listChats(params?: ListChatsParams): Promise<ListChatsResult>;

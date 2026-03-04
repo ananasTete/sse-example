@@ -1,21 +1,22 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ConversationStateV2 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
-import {
-  ChatConversation,
-  type ChatStreamFinishedPayload,
-} from "@/features/chat/components/conversation/chat-conversation";
 import { ChatConversationSkeleton } from "@/features/chat/components/conversation/chat-conversation-skeleton";
+import { useDelayedVisibility } from "@/hooks/use-delayed-visibility";
 import {
   chatDetailQueryOptions,
   ChatDetailError,
 } from "@/features/chat/services/chat-detail";
-import {
-  takePendingChatAutoStart,
-} from "../services/chat-session-auto-start";
+import { BoundChatConversation } from "../components/conversation/chat-conversation-bound";
+import { ChatStreamFinishedPayload } from "../components/conversation/chat-conversation.types";
 
 interface ChatDetailConversationPageProps {
   chatId: string;
+  isDraft?: boolean;
+  onBeforeSend?: (input: {
+    model: string;
+    enabledWebSearch: boolean;
+  }) => Promise<void>;
 }
 
 const createEmptyConversation = (chatId: string): ConversationStateV2 => {
@@ -38,51 +39,52 @@ const createEmptyConversation = (chatId: string): ConversationStateV2 => {
 
 export function ChatDetailConversationPage({
   chatId,
+  isDraft = false,
+  onBeforeSend,
 }: ChatDetailConversationPageProps) {
   const queryClient = useQueryClient();
-  const [conversationResetVersionByChatId, setConversationResetVersionByChatId] = useState<
-    Record<string, number>
-  >({});
-  const bootstrappedChatIdRef = useRef<string | null>(null);
-  const bootstrappedAutoStartRef = useRef<ReturnType<typeof takePendingChatAutoStart>>(null);
+  const [
+    conversationResetVersionByChatId,
+    setConversationResetVersionByChatId,
+  ] = useState<Record<string, number>>({});
 
-  if (chatId !== bootstrappedChatIdRef.current) {
-    bootstrappedChatIdRef.current = chatId;
-    // Consume once to guarantee "at most once" auto-start per pending entry.
-    bootstrappedAutoStartRef.current = takePendingChatAutoStart(chatId);
-  }
-
-  const bootstrappedAutoStart = bootstrappedAutoStartRef.current;
-
+  // 请求会话记录
   const chatDetailQuery = useQuery({
     ...chatDetailQueryOptions(chatId),
     retry: false,
+    enabled: !isDraft, // isDraft 时不发起请求
   });
 
+  // 首次拉取历史中且尚无缓存数据 -> 显示骨架屏
+  const isLoadingHistory =
+    !isDraft && chatDetailQuery.isFetching && !chatDetailQuery.data;
+
+  const showLoadingSkeleton = useDelayedVisibility(isLoadingHistory, {
+    delayMs: 160,
+    minVisibleMs: 320,
+  });
+
+  // 拉取失败且没有任何可展示的缓存数据 -> 显示错误页
+  const showConversationError =
+    !isDraft && Boolean(chatDetailQuery.error) && !chatDetailQuery.data;
+
+  // 进一步区分错误类型：404 给出专属文案"会话不存在"，其余显示通用错误信息
+  // 仅在 showConversationError 为 true 时有意义
   const isNotFoundError =
     chatDetailQuery.error instanceof ChatDetailError &&
     chatDetailQuery.error.status === 404;
-  const shouldSuppressQueryError =
-    Boolean(bootstrappedAutoStart) &&
-    !chatDetailQuery.data &&
-    chatDetailQuery.isFetching;
 
-  const showConversationError =
-    Boolean(chatDetailQuery.error) &&
-    !chatDetailQuery.data &&
-    !shouldSuppressQueryError;
-
-  const isLoadingHistory =
-    !bootstrappedAutoStart &&
-    chatDetailQuery.isFetching &&
-    !chatDetailQuery.data;
-
+  // 流异常结束（用户中断 / 网络断连 / 服务报错）后，拉取最新历史并递增 resetVersion，
+  // 使 BoundChatConversation 通过 key 变化完全重新挂载，以丢弃残留的流式状态。
+  // 正常结束时 (!isAbort && !isDisconnect && !isError) 无需重置，直接返回。
   const handleStreamFinished = useCallback(
     async ({ isAbort, isDisconnect, isError }: ChatStreamFinishedPayload) => {
       if (!isAbort && !isDisconnect && !isError) return;
 
       try {
-        const refreshed = await queryClient.fetchQuery(chatDetailQueryOptions(chatId));
+        const refreshed = await queryClient.fetchQuery(
+          chatDetailQueryOptions(chatId),
+        );
         if (refreshed?.conversation) {
           setConversationResetVersionByChatId((current) => ({
             ...current,
@@ -99,18 +101,18 @@ export function ChatDetailConversationPage({
     [chatId, queryClient],
   );
 
+  // ── 传给子组件的初始值（fallback 到空对话，子组件内部再增量合并流式消息） ────────────
   const initialConversation =
     chatDetailQuery.data?.conversation ?? createEmptyConversation(chatId);
-  const conversationResetVersion = conversationResetVersionByChatId[chatId] ?? 0;
-  const shouldApplyAutoStart = conversationResetVersion === 0;
-
-  const autoStartModel = shouldApplyAutoStart ? bootstrappedAutoStart?.model : undefined;
-  const autoStartPrompt = shouldApplyAutoStart ? bootstrappedAutoStart?.prompt : undefined;
+  const conversationResetVersion =
+    conversationResetVersionByChatId[chatId] ?? 0; // 每次异常重置后 +1，驱动 key 变化
+  const initialEnabledWebSearch =
+    chatDetailQuery.data?.settings.enabled_web_search ?? false;
 
   if (isLoadingHistory) {
     return (
       <div className="h-full min-h-0 overflow-hidden">
-        <ChatConversationSkeleton />
+        {showLoadingSkeleton ? <ChatConversationSkeleton /> : null}
       </div>
     );
   }
@@ -123,9 +125,9 @@ export function ChatDetailConversationPage({
             <div className="text-sm text-red-700">
               {isNotFoundError
                 ? "会话不存在"
-                : (chatDetailQuery.error instanceof Error
-                    ? chatDetailQuery.error.message
-                    : "加载会话失败")}
+                : chatDetailQuery.error instanceof Error
+                  ? chatDetailQuery.error.message
+                  : "加载会话失败"}
             </div>
             <button
               type="button"
@@ -142,12 +144,13 @@ export function ChatDetailConversationPage({
 
   return (
     <div className="h-full min-h-0 overflow-hidden">
-      <ChatConversation
+      <h3>{isDraft ? "草稿" : "会话"}</h3>
+      <BoundChatConversation
         key={`${chatId}:${conversationResetVersion}`}
         chatId={chatId}
         initialConversation={initialConversation}
-        autoStartModel={autoStartModel}
-        autoStartPrompt={autoStartPrompt}
+        initialEnabledWebSearch={initialEnabledWebSearch}
+        onBeforeSend={onBeforeSend}
         onStreamFinished={handleStreamFinished}
       />
     </div>

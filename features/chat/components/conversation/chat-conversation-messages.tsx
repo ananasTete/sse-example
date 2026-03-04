@@ -20,7 +20,6 @@ import {
 
 interface ChatConversationMessagesProps {
   messages: ChatMessageV2[];
-  isHeroMode: boolean;
   isLoading: boolean;
   onRegenerateAssistant: (assistantMessageId: string) => void;
   onRegenerateUser: (userMessageId: string, newContent: string) => void;
@@ -63,7 +62,6 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
 
 export function ChatConversationMessages({
   messages,
-  isHeroMode,
   isLoading,
   onRegenerateAssistant,
   onRegenerateUser,
@@ -187,16 +185,12 @@ export function ChatConversationMessages({
   return (
     <motion.div
       initial={false}
-      animate={
-        isHeroMode
-          ? { opacity: 0, y: -8, pointerEvents: "none" }
-          : { opacity: 1, y: 0, pointerEvents: "auto" }
-      }
+      animate={{ opacity: 1, y: 0, pointerEvents: "auto" }}
       transition={{ duration: 0.3, ease: "easeOut" }}
       className="h-full min-h-0 overflow-y-auto"
     >
       <div className="mx-auto max-w-3xl space-y-10 px-6 py-8">
-        {messages.length === 0 && !isHeroMode ? (
+        {messages.length === 0 ? (
           <div className="flex h-[60vh] flex-col items-center justify-center text-stone-400">
             <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-sm">
               <Sparkles className="h-7 w-7 text-stone-300" />

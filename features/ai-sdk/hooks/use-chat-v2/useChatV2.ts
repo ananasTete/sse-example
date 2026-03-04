@@ -11,6 +11,7 @@ import {
   OnFinishCallbackV2,
   RequestTrigger,
   StreamChatV2RequestBody,
+  StreamChatSettingsV2,
   UseChatV2Status,
   findLatestAssistantNode,
   getChildrenNodes,
@@ -26,6 +27,7 @@ export interface UseChatV2Options {
   model: string;
   headers?: Record<string, string>;
   trigger?: RequestTrigger;
+  settings?: StreamChatSettingsV2;
   initialConversation: ConversationStateV2;
   onFinish?: OnFinishCallbackV2;
   onError?: OnErrorCallbackV2;
@@ -110,6 +112,7 @@ export function useChatV2({
   model,
   headers = {},
   trigger = "submit-message",
+  settings,
   initialConversation,
   onFinish,
   onError,
@@ -207,6 +210,7 @@ export function useChatV2({
         trigger: requestTrigger,
         parentId,
         message,
+        ...(settings ? { settings } : {}),
       };
 
       const response = await fetch(`${api}/${chatId}`, {

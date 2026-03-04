@@ -12,6 +12,7 @@ model Chat {
   userId          String    @default("local-user")
   title           String?
   cursorMessageId String?
+  settingsJson    Json?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   deletedAt       DateTime?

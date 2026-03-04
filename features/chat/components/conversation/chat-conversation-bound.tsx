@@ -1,10 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type ChangeEvent,
+  type KeyboardEvent,
+} from "react";
 import { useChatV2 } from "@/features/ai-sdk/hooks/use-chat-v2/useChatV2";
 import type {
   ConversationNode,
   ConversationStateV2,
+  RequestTrigger,
+  StreamChatSettingsV2,
 } from "@/features/ai-sdk/hooks/use-chat-v2/types";
 import { registerActiveChatStreamController } from "@/features/chat/services/chat-stream-controller";
 import { updateCurrentLeafMessage } from "@/features/chat/services/chat-detail";
@@ -24,10 +32,15 @@ interface AssistantVariantIndicator {
 interface BoundChatConversationProps {
   chatId: string;
   initialConversation: ConversationStateV2;
-  autoStartModel?: string;
-  autoStartPrompt?: string;
+  initialEnabledWebSearch?: boolean;
+  onBeforeSend?: (input: {
+    model: string;
+    enabledWebSearch: boolean;
+  }) => Promise<void>;
   onStreamStateChange?: (streaming: boolean) => void;
-  onStreamFinished?: (payload: ChatStreamFinishedPayload) => Promise<void> | void;
+  onStreamFinished?: (
+    payload: ChatStreamFinishedPayload,
+  ) => Promise<void> | void;
 }
 
 const toTimestamp = (node: ConversationNode | undefined): number => {
@@ -92,7 +105,11 @@ const resolveAssistantVariantIds = (
   assistantId: string,
 ): string[] => {
   const assistantNode = conversation.mapping[assistantId];
-  if (!assistantNode || assistantNode.role !== "assistant" || !assistantNode.parentId) {
+  if (
+    !assistantNode ||
+    assistantNode.role !== "assistant" ||
+    !assistantNode.parentId
+  ) {
     return [];
   }
 
@@ -103,28 +120,37 @@ const resolveAssistantVariantIds = (
 
   return parentUserNode.childIds.filter((childId) => {
     const childNode = conversation.mapping[childId];
-    return Boolean(childNode && childNode.role === "assistant" && childNode.visible);
+    return Boolean(
+      childNode && childNode.role === "assistant" && childNode.visible,
+    );
   });
 };
 
 export function BoundChatConversation({
   chatId,
   initialConversation,
-  autoStartModel,
-  autoStartPrompt,
+  initialEnabledWebSearch,
+  onBeforeSend,
   onStreamStateChange,
   onStreamFinished,
 }: BoundChatConversationProps) {
-  const [selectedModel, setSelectedModel] = useState(autoStartModel ?? DEFAULT_MODEL);
-  const [forcedParentAssistantId, setForcedParentAssistantId] = useState<string | null>(null);
-  const hasAutoStartedRef = useRef(false);
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL);
+  const [isWebSearchEnabled, setIsWebSearchEnabled] = useState(
+    initialEnabledWebSearch ?? false,
+  );
+  const [preflightError, setPreflightError] = useState<Error | null>(null);
+  const [forcedParentAssistantId, setForcedParentAssistantId] = useState<
+    string | null
+  >(null);
+  const streamSettings: StreamChatSettingsV2 = {
+    enabled_web_search: isWebSearchEnabled,
+  };
 
   const {
     activeMessages,
     conversation,
     input,
     handleInputChange,
-    handleSubmit,
     error,
     isLoading,
     stop,
@@ -136,6 +162,7 @@ export function BoundChatConversation({
     api: "/api/chats",
     chatId,
     model: selectedModel,
+    settings: streamSettings,
     initialConversation,
     onFinish: ({
       isAbort,
@@ -162,66 +189,72 @@ export function BoundChatConversation({
     return registerActiveChatStreamController(chatId, stop);
   }, [chatId, stop]);
 
-  useEffect(() => {
-    if (hasAutoStartedRef.current) return;
-    if (!autoStartModel || !autoStartPrompt?.trim()) return;
+  const submitCurrentInput = async (
+    messageText: string,
+    trigger: RequestTrigger = "submit-message",
+  ) => {
+    const text = messageText.trim();
+    if (!text) return;
 
-    if (selectedModel !== autoStartModel) {
-      setSelectedModel(autoStartModel);
+    if (preflightError) {
+      setPreflightError(null);
+    }
+
+    try {
+      await onBeforeSend?.({
+        model: selectedModel,
+        enabledWebSearch: isWebSearchEnabled,
+      });
+    } catch (unknownError) {
+      const nextError =
+        unknownError instanceof Error
+          ? unknownError
+          : new Error(String(unknownError));
+      setPreflightError(nextError);
       return;
     }
 
-    const startTimer = window.setTimeout(() => {
-      if (hasAutoStartedRef.current) return;
-      hasAutoStartedRef.current = true;
-      void sendMessage(autoStartPrompt, { trigger: "submit-message" });
-    }, 0);
-
-    return () => {
-      window.clearTimeout(startTimer);
-    };
-  }, [autoStartModel, autoStartPrompt, selectedModel, sendMessage]);
-
-  const submitCurrentInput = async () => {
-    if (!input.trim()) return;
-
     const forcedParentId = forcedParentAssistantId;
     if (forcedParentId && conversation.mapping[forcedParentId]) {
-      const messageText = input;
       setInput("");
       setForcedParentAssistantId(null);
-      await sendMessage(messageText, {
+      await sendMessage(text, {
         parentId: forcedParentId,
-        trigger: "submit-message",
+        trigger,
       });
       return;
     }
 
-    await handleSubmit();
+    setInput("");
+    await sendMessage(text, {
+      trigger,
+    });
   };
 
-  const assistantVariantIndicators = activeMessages.reduce<Record<string, AssistantVariantIndicator>>(
-    (acc, message) => {
-      if (message.role !== "assistant") return acc;
+  const assistantVariantIndicators = activeMessages.reduce<
+    Record<string, AssistantVariantIndicator>
+  >((acc, message) => {
+    if (message.role !== "assistant") return acc;
 
-      const variantIds = resolveAssistantVariantIds(conversation, message.id);
-      if (variantIds.length <= 1) return acc;
+    const variantIds = resolveAssistantVariantIds(conversation, message.id);
+    if (variantIds.length <= 1) return acc;
 
-      const currentIndex = variantIds.indexOf(message.id);
-      if (currentIndex === -1) return acc;
+    const currentIndex = variantIds.indexOf(message.id);
+    if (currentIndex === -1) return acc;
 
-      acc[message.id] = {
-        index: currentIndex + 1,
-        total: variantIds.length,
-      };
-      return acc;
-    },
-    {},
-  );
+    acc[message.id] = {
+      index: currentIndex + 1,
+      total: variantIds.length,
+    };
+    return acc;
+  }, {});
 
   const switchAssistantVariant = useCallback(
     (assistantMessageId: string, direction: VariantDirection) => {
-      const variantIds = resolveAssistantVariantIds(conversation, assistantMessageId);
+      const variantIds = resolveAssistantVariantIds(
+        conversation,
+        assistantMessageId,
+      );
       if (variantIds.length <= 1) return;
 
       const currentIndex = variantIds.indexOf(assistantMessageId);
@@ -239,9 +272,14 @@ export function BoundChatConversation({
 
       setCursor(targetCursorId);
       setForcedParentAssistantId(targetAssistantId);
-      void updateCurrentLeafMessage(chatId, targetCursorId).catch((streamError) => {
-        console.warn("Failed to persist current leaf message id", streamError);
-      });
+      void updateCurrentLeafMessage(chatId, targetCursorId).catch(
+        (streamError) => {
+          console.warn(
+            "Failed to persist current leaf message id",
+            streamError,
+          );
+        },
+      );
     },
     [chatId, conversation, setCursor],
   );
@@ -257,11 +295,24 @@ export function BoundChatConversation({
     setForcedParentAssistantId(null);
   }, [isLoading]);
 
+  useEffect(() => {
+    setIsWebSearchEnabled(initialEnabledWebSearch ?? false);
+  }, [chatId, initialEnabledWebSearch]);
+
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      void submitCurrentInput();
+      void submitCurrentInput(input);
     }
+  };
+
+  const handleComposerInputChange = (
+    event: ChangeEvent<HTMLTextAreaElement>,
+  ) => {
+    if (preflightError) {
+      setPreflightError(null);
+    }
+    handleInputChange(event);
   };
 
   return (
@@ -274,7 +325,6 @@ export function BoundChatConversation({
       <div className="min-h-0 flex-1 overflow-hidden">
         <ChatConversationMessages
           messages={activeMessages}
-          isHeroMode={false}
           isLoading={isLoading}
           onRegenerateAssistant={(assistantMessageId) => {
             void regenerate({ assistantMessageId });
@@ -290,7 +340,10 @@ export function BoundChatConversation({
               targetUserNode.role !== "user" ||
               !targetUserNode.parentId
             ) {
-              console.warn("User node not found or has no parent", userMessageId);
+              console.warn(
+                "User node not found or has no parent",
+                userMessageId,
+              );
               return;
             }
 
@@ -304,13 +357,14 @@ export function BoundChatConversation({
       <div className="z-10 shrink-0">
         <ChatConversationInput
           input={input}
-          isHeroMode={false}
           isLoading={isLoading}
-          error={error}
-          onInputChange={handleInputChange}
+          error={preflightError ?? error}
+          webSearchEnabled={isWebSearchEnabled}
+          onWebSearchEnabledChange={setIsWebSearchEnabled}
+          onInputChange={handleComposerInputChange}
           onKeyDown={handleKeyDown}
           onSubmit={() => {
-            void submitCurrentInput();
+            void submitCurrentInput(input);
           }}
           onStop={stop}
         />

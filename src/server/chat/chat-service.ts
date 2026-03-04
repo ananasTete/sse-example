@@ -11,6 +11,9 @@ interface FlatChatResponse {
   title: string;
   userId: string;
   createdAt: string;
+  settings: {
+    enabled_web_search: boolean;
+  };
 }
 
 interface ApiConversationStateV2 {
@@ -48,6 +51,9 @@ export function toFlatChatResponse(chat: ChatEntity): FlatChatResponse {
     title: chat.title ?? "",
     userId: chat.userId,
     createdAt: chat.createdAt,
+    settings: {
+      enabled_web_search: chat.settings.enabledWebSearch,
+    },
   };
 }
 

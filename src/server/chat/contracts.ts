@@ -22,9 +22,14 @@ export interface ApiUserMessageV2 {
   model?: string;
 }
 
+export interface ApiChatSettings {
+  enabled_web_search: boolean;
+}
+
 export interface CreateChatRequestBody {
   id: string;
   title?: string;
+  settings?: ApiChatSettings;
 }
 
 export interface StreamChatRequestBody {
@@ -32,6 +37,7 @@ export interface StreamChatRequestBody {
   trigger: RequestTrigger;
   parentId: string;
   message: ApiUserMessageV2;
+  settings?: ApiChatSettings;
 }
 
 export interface PatchChatRequestBody {
@@ -97,6 +103,29 @@ const parseUserMessage = (value: unknown, fieldPrefix: string): ApiUserMessageV2
   };
 };
 
+const parseChatSettings = (
+  value: unknown,
+  field: string,
+): ApiChatSettings | undefined => {
+  if (value === undefined) return undefined;
+  if (!isRecord(value)) {
+    throw new Error(`${field} must be an object`);
+  }
+
+  if (value.enabled_web_search !== undefined) {
+    if (typeof value.enabled_web_search !== "boolean") {
+      throw new Error(`${field}.enabled_web_search must be a boolean`);
+    }
+    return {
+      enabled_web_search: value.enabled_web_search,
+    };
+  }
+
+  return {
+    enabled_web_search: false,
+  };
+};
+
 export const parseCreateChatRequest = (
   body: unknown,
 ): CreateChatRequestBody => {
@@ -107,6 +136,7 @@ export const parseCreateChatRequest = (
   return {
     id: assertString(body.id, "id"),
     title: toStringOrUndefined(body.title),
+    settings: parseChatSettings(body.settings, "settings"),
   };
 };
 
@@ -129,6 +159,7 @@ export const parseStreamChatRequest = (
     trigger,
     parentId: assertString(body.parentId, "parentId"),
     message: parseUserMessage(body.message, "message"),
+    settings: parseChatSettings(body.settings, "settings"),
   };
 };
 

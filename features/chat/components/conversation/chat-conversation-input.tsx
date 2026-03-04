@@ -24,9 +24,11 @@ import {
 
 interface ChatConversationInputProps {
   input: string;
-  isHeroMode: boolean;
+  isHeroMode?: boolean;
   isLoading: boolean;
   error: Error | null;
+  webSearchEnabled?: boolean;
+  onWebSearchEnabledChange?: (enabled: boolean) => void;
   onInputChange: (event: ChangeEvent<HTMLTextAreaElement>) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onSubmit: () => void;
@@ -35,16 +37,26 @@ interface ChatConversationInputProps {
 
 export function ChatConversationInput({
   input,
-  isHeroMode,
+  isHeroMode = false,
   isLoading,
   error,
+  webSearchEnabled,
+  onWebSearchEnabledChange,
   onInputChange,
   onKeyDown,
   onSubmit,
   onStop,
 }: ChatConversationInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const [isWebSearchEnabled, setIsWebSearchEnabled] = useState(false);
+  const [internalWebSearchEnabled, setInternalWebSearchEnabled] = useState(false);
+  const isWebSearchEnabled = webSearchEnabled ?? internalWebSearchEnabled;
+
+  const setIsWebSearchEnabled = (value: boolean) => {
+    if (webSearchEnabled === undefined) {
+      setInternalWebSearchEnabled(value);
+    }
+    onWebSearchEnabledChange?.(value);
+  };
 
   // 配置自适应高度
   useEffect(() => {
@@ -103,7 +115,7 @@ export function ChatConversationInput({
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onSelect={() => {
-                      setIsWebSearchEnabled((prev) => !prev);
+                      setIsWebSearchEnabled(!isWebSearchEnabled);
                     }}
                     className={
                       isWebSearchEnabled
