@@ -17,7 +17,7 @@ export type MessagePart =
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
-  status: "in_progress" | "completed" | "error";
+  status: "in_progress" | "completed" | "aborted" | "error";
   stopReason: string | null;
   parts: MessagePart[];
   createdAt: string;
@@ -40,10 +40,21 @@ export interface ChatTree {
 // —— 官方标准的 SSE 事件流定义 ——
 export type StreamEvent =
   | { type: "message_start"; message: { id: string; role: "assistant" | "user" | "system"; parent_uuid?: string; model?: string } }
-  | { type: "content_block_start"; index: number; content_block: { type: BlockType; name?: string; id?: string } } // id 通常对应 tool_use_id
+  | {
+      type: "content_block_start";
+      index: number;
+      content_block: {
+        type: BlockType;
+        name?: string;
+        id?: string;
+        content?: Record<string, unknown>[];
+      };
+    } // id 通常对应 tool_use_id
   | { type: "content_block_delta"; index: number; delta: EventDelta }
   | { type: "content_block_stop"; index: number }
   | { type: "message_delta"; delta: { stop_reason?: string | null; stop_sequence?: string | null } }
   | { type: "message_stop" }
   | { type: "message_limit"; message_limit: { type: string; resetsAt?: number; remaining?: number; utilization?: number } }
   | { type: "error"; error: { type: string; message: string } };
+
+export type SequencedStreamEvent = StreamEvent & { seq?: number };

@@ -14,6 +14,7 @@ import { Route as UseChatRouteImport } from './routes/use-chat'
 import { Route as PromptEditorRouteImport } from './routes/prompt-editor'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as AgentEditorRouteImport } from './routes/agent-editor'
+import { Route as AdvancedChatRouteImport } from './routes/advanced-chat'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ChatIndexRouteImport } from './routes/chat/index'
 import { Route as AdvancedChatIndexRouteImport } from './routes/advanced-chat/index'
@@ -58,6 +59,11 @@ const AgentEditorRoute = AgentEditorRouteImport.update({
   path: '/agent-editor',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdvancedChatRoute = AdvancedChatRouteImport.update({
+  id: '/advanced-chat',
+  path: '/advanced-chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
@@ -69,9 +75,9 @@ const ChatIndexRoute = ChatIndexRouteImport.update({
   getParentRoute: () => ChatRoute,
 } as any)
 const AdvancedChatIndexRoute = AdvancedChatIndexRouteImport.update({
-  id: '/advanced-chat/',
-  path: '/advanced-chat/',
-  getParentRoute: () => rootRouteImport,
+  id: '/',
+  path: '/',
+  getParentRoute: () => AdvancedChatRoute,
 } as any)
 const ChatChatIdRoute = ChatChatIdRouteImport.update({
   id: '/$chatId',
@@ -84,9 +90,9 @@ const ApiChatRoute = ApiChatRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdvancedChatChatIdRoute = AdvancedChatChatIdRouteImport.update({
-  id: '/advanced-chat/$chatId',
-  path: '/advanced-chat/$chatId',
-  getParentRoute: () => rootRouteImport,
+  id: '/$chatId',
+  path: '/$chatId',
+  getParentRoute: () => AdvancedChatRoute,
 } as any)
 const ChatAdvancedIndexRoute = ChatAdvancedIndexRouteImport.update({
   id: '/advanced/',
@@ -156,6 +162,7 @@ const ApiChatsChatIdRunsRunIdCancelRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/advanced-chat': typeof AdvancedChatRouteWithChildren
   '/agent-editor': typeof AgentEditorRoute
   '/chat': typeof ChatRouteWithChildren
   '/prompt-editor': typeof PromptEditorRoute
@@ -206,6 +213,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/advanced-chat': typeof AdvancedChatRouteWithChildren
   '/agent-editor': typeof AgentEditorRoute
   '/chat': typeof ChatRouteWithChildren
   '/prompt-editor': typeof PromptEditorRoute
@@ -233,6 +241,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/advanced-chat'
     | '/agent-editor'
     | '/chat'
     | '/prompt-editor'
@@ -282,6 +291,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/advanced-chat'
     | '/agent-editor'
     | '/chat'
     | '/prompt-editor'
@@ -308,14 +318,13 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AdvancedChatRoute: typeof AdvancedChatRouteWithChildren
   AgentEditorRoute: typeof AgentEditorRoute
   ChatRoute: typeof ChatRouteWithChildren
   PromptEditorRoute: typeof PromptEditorRoute
   UseChatRoute: typeof UseChatRoute
   UseGenRoute: typeof UseGenRoute
-  AdvancedChatChatIdRoute: typeof AdvancedChatChatIdRoute
   ApiChatRoute: typeof ApiChatRoute
-  AdvancedChatIndexRoute: typeof AdvancedChatIndexRoute
   ApiAdvancedChatChatIdRoute: typeof ApiAdvancedChatChatIdRouteWithChildren
   ApiAgentEditorChatIdRoute: typeof ApiAgentEditorChatIdRoute
   ApiChatsChatIdRoute: typeof ApiChatsChatIdRouteWithChildren
@@ -360,6 +369,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AgentEditorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/advanced-chat': {
+      id: '/advanced-chat'
+      path: '/advanced-chat'
+      fullPath: '/advanced-chat'
+      preLoaderRoute: typeof AdvancedChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -376,10 +392,10 @@ declare module '@tanstack/react-router' {
     }
     '/advanced-chat/': {
       id: '/advanced-chat/'
-      path: '/advanced-chat'
+      path: '/'
       fullPath: '/advanced-chat/'
       preLoaderRoute: typeof AdvancedChatIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof AdvancedChatRoute
     }
     '/chat/$chatId': {
       id: '/chat/$chatId'
@@ -397,10 +413,10 @@ declare module '@tanstack/react-router' {
     }
     '/advanced-chat/$chatId': {
       id: '/advanced-chat/$chatId'
-      path: '/advanced-chat/$chatId'
+      path: '/$chatId'
       fullPath: '/advanced-chat/$chatId'
       preLoaderRoute: typeof AdvancedChatChatIdRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof AdvancedChatRoute
     }
     '/chat/advanced/': {
       id: '/chat/advanced/'
@@ -489,6 +505,20 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AdvancedChatRouteChildren {
+  AdvancedChatChatIdRoute: typeof AdvancedChatChatIdRoute
+  AdvancedChatIndexRoute: typeof AdvancedChatIndexRoute
+}
+
+const AdvancedChatRouteChildren: AdvancedChatRouteChildren = {
+  AdvancedChatChatIdRoute: AdvancedChatChatIdRoute,
+  AdvancedChatIndexRoute: AdvancedChatIndexRoute,
+}
+
+const AdvancedChatRouteWithChildren = AdvancedChatRoute._addFileChildren(
+  AdvancedChatRouteChildren,
+)
+
 interface ChatRouteChildren {
   ChatChatIdRoute: typeof ChatChatIdRoute
   ChatIndexRoute: typeof ChatIndexRoute
@@ -538,14 +568,13 @@ const ApiChatsChatIdRouteWithChildren = ApiChatsChatIdRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AdvancedChatRoute: AdvancedChatRouteWithChildren,
   AgentEditorRoute: AgentEditorRoute,
   ChatRoute: ChatRouteWithChildren,
   PromptEditorRoute: PromptEditorRoute,
   UseChatRoute: UseChatRoute,
   UseGenRoute: UseGenRoute,
-  AdvancedChatChatIdRoute: AdvancedChatChatIdRoute,
   ApiChatRoute: ApiChatRoute,
-  AdvancedChatIndexRoute: AdvancedChatIndexRoute,
   ApiAdvancedChatChatIdRoute: ApiAdvancedChatChatIdRouteWithChildren,
   ApiAgentEditorChatIdRoute: ApiAgentEditorChatIdRoute,
   ApiChatsChatIdRoute: ApiChatsChatIdRouteWithChildren,

@@ -1,9 +1,22 @@
-import { createParser, type ParsedEvent } from "eventsource-parser";
-import type { StreamEvent, EventDelta, BlockType } from "../types/chat-advanced";
+import { createParser, type EventSourceMessage } from "eventsource-parser";
+import type {
+  EventDelta,
+  BlockType,
+  SequencedStreamEvent,
+} from "../types/chat-advanced";
 
 export interface SSECallbacks {
+  onEvent?: (event: SequencedStreamEvent) => void;
   onMessageStart?: (message: { id: string; role: string; model?: string }) => void;
-  onContentBlockStart?: (index: number, block: { type: BlockType; id?: string; name?: string }) => void;
+  onContentBlockStart?: (
+    index: number,
+    block: {
+      type: BlockType;
+      id?: string;
+      name?: string;
+      content?: Record<string, unknown>[];
+    },
+  ) => void;
   onContentBlockDelta?: (index: number, delta: EventDelta) => void;
   onContentBlockStop?: (index: number) => void;
   onMessageDelta?: (delta: { stop_reason?: string | null }) => void;
@@ -17,19 +30,20 @@ export class SSEEventProcessor {
 
   constructor(private callbacks: SSECallbacks) {
     this.parser = createParser({
-      onEvent: (event: ParsedEvent) => {
+      onEvent: (event: EventSourceMessage) => {
         this.handleEvent(event);
       }
     });
   }
 
-  private handleEvent(event: ParsedEvent) {
+  private handleEvent(event: EventSourceMessage) {
     if (!event.data) return;
     // Special handling for [DONE] if the streaming API sends it
     if (event.data === "[DONE]") return;
 
     try {
-      const data = JSON.parse(event.data) as StreamEvent;
+      const data = JSON.parse(event.data) as SequencedStreamEvent;
+      this.callbacks.onEvent?.(data);
       switch (data.type) {
         case "message_start":
           this.callbacks.onMessageStart?.(data.message);

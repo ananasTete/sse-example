@@ -40,7 +40,7 @@ export const Route = createFileRoute("/api/advanced-chat/$chatId")({
             message: {
               id: msg.id,
               role: msg.role as "user" | "assistant",
-              status: msg.status as "completed" | "in_progress" | "error",
+              status: msg.status as "completed" | "in_progress" | "aborted" | "error",
               stopReason: null,
               parts: activeStreamParts.get(msg.id) || (msg.partsJson as MessagePart[]) || [],
               createdAt: msg.createdAt.toISOString(),
