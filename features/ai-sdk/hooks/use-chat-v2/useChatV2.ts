@@ -22,6 +22,7 @@ export function useChatV2(options: ChatEngineOptions) {
   const snapshot = useSyncExternalStore(
     useCallback((onStoreChange) => engine.subscribe(onStoreChange), [engine]),
     () => engine.getSnapshot(),
+    () => engine.getSnapshot(),
   );
 
   // 3. Graceful Cleanup & Mount Handlers

@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import type { PromptImage } from "../hooks/use-prompt-editor";
-import { Plus, X } from "lucide-react";
+import { X } from "lucide-react";
 
 export interface ImageCardListProps {
   images: PromptImage[];

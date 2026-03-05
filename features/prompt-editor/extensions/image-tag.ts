@@ -1,4 +1,5 @@
 import { Node, mergeAttributes } from "@tiptap/core";
+import { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
 
@@ -216,8 +217,8 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
       node,
       HTMLAttributes,
     }: {
-      node: any;
-      HTMLAttributes: Record<string, any>;
+      node: ProseMirrorNode;
+      HTMLAttributes: Record<string, unknown>;
     }) => {
       const dom = document.createElement("span");
       dom.setAttribute("data-type", "image-tag");

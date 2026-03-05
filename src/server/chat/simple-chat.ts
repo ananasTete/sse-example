@@ -19,10 +19,10 @@ function createSimpleSseStream(text: string) {
   return createSseResponse(stream);
 }
 
-export async function simpleChatPostHandler(_request: Request) {
+export async function simpleChatPostHandler() {
   return createSimpleSseStream("这是一段优化后的非常专业的文本 (POST)。");
 }
 
-export async function simpleChatGetHandler(_request: Request) {
+export async function simpleChatGetHandler() {
   return createSimpleSseStream("这是通过 GET 请求获取的流式数据示例。");
 }

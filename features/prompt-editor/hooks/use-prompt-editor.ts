@@ -18,9 +18,9 @@ export interface PromptData {
 function parseTextToContent(
   text: string,
   labelToIdMap: Map<string, string>,
-): any {
+): Record<string, unknown> {
   const tagPattern = /\[@(图\d+)\]/g;
-  const content: any[] = [];
+  const content: Record<string, unknown>[] = [];
   let lastIndex = 0;
   let match;
 

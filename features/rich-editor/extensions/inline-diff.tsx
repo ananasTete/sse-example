@@ -29,8 +29,7 @@ export interface InlineDiffAttributes {
 // ============ React NodeView 组件 ============
 
 function InlineDiffView({ node, editor, extension }: NodeViewProps) {
-  const { suggestionId, newText, status } =
-    node.attrs as InlineDiffAttributes;
+  const { suggestionId, newText, status } = node.attrs as InlineDiffAttributes;
 
   const handleAccept = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -54,7 +53,7 @@ function InlineDiffView({ node, editor, extension }: NodeViewProps) {
   if (status !== "pending") {
     return (
       <NodeViewWrapper as="span" className="inline-diff-resolved">
-        <NodeViewContent as="span" />
+        <NodeViewContent as={"span" as "div"} />
       </NodeViewWrapper>
     );
   }
@@ -63,7 +62,7 @@ function InlineDiffView({ node, editor, extension }: NodeViewProps) {
     <NodeViewWrapper as="span" className="inline-diff-wrapper">
       {/* 原文：删除线 + 红色 */}
       <span className="inline-diff-deleted">
-        <NodeViewContent as="span" />
+        <NodeViewContent as={"span" as "div"} />
       </span>
 
       {/* 新文本：绿色 */}
@@ -200,7 +199,11 @@ export const InlineDiff = Node.create<InlineDiffOptions, InlineDiffStorage>({
               ) {
                 const newText = node.attrs.newText as string;
                 // 用纯文本替换节点
-                tr.replaceWith(pos, pos + node.nodeSize, state.schema.text(newText));
+                tr.replaceWith(
+                  pos,
+                  pos + node.nodeSize,
+                  state.schema.text(newText),
+                );
                 found = true;
                 return false;
               }
@@ -284,7 +287,11 @@ export const InlineDiff = Node.create<InlineDiffOptions, InlineDiffStorage>({
 
             positions.reverse().forEach(({ pos, node }) => {
               const newText = node.attrs.newText as string;
-              tr.replaceWith(pos, pos + node.nodeSize, state.schema.text(newText));
+              tr.replaceWith(
+                pos,
+                pos + node.nodeSize,
+                state.schema.text(newText),
+              );
             });
           }
           return true;

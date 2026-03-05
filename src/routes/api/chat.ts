@@ -7,8 +7,8 @@ import {
 export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
-      GET: ({ request }) => simpleChatGetHandler(request),
-      POST: ({ request }) => simpleChatPostHandler(request),
+      GET: () => simpleChatGetHandler(),
+      POST: () => simpleChatPostHandler(),
     },
   },
 });

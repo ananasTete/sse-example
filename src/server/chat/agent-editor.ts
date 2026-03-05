@@ -39,7 +39,7 @@ const parsePayload = (text: string): ChatPayload | null => {
   }
 };
 
-const generateRewriteSuggestions = (originalText: string, _request: string) => {
+const generateRewriteSuggestions = (originalText: string) => {
   return [
     {
       label: "更简洁",
@@ -59,7 +59,7 @@ const generateRewriteSuggestions = (originalText: string, _request: string) => {
   ];
 };
 
-const generateEditSuggestions = (fullText: string, _request: string) => {
+const generateEditSuggestions = (fullText: string) => {
   const sentences = fullText.split(/[。！？\n]/).filter((s) => s.trim());
   const edits = [];
 
@@ -147,7 +147,7 @@ export async function agentEditorStreamHandler(request: Request, chatId: string)
       if (selectionMode) {
         const toolCallId = `call_${generateId()}`;
         const toolName = "suggest_rewrite";
-        const suggestions = generateRewriteSuggestions(selectedContent, userRequest);
+        const suggestions = generateRewriteSuggestions(selectedContent);
 
         sendSseEvent(controller, encoder, {
           type: "tool-input-start",
@@ -201,7 +201,7 @@ export async function agentEditorStreamHandler(request: Request, chatId: string)
         const fullText = selectedContent;
         const toolCallId = `call_${generateId()}`;
         const toolName = "suggest_edit";
-        const edits = generateEditSuggestions(fullText, userRequest);
+        const edits = generateEditSuggestions(fullText);
 
         sendSseEvent(controller, encoder, {
           type: "tool-input-start",
