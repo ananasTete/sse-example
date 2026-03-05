@@ -22,6 +22,12 @@ function HomePage() {
           useGeneration Demo
         </Link>
         <Link
+          to="/use-chat"
+          className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded transition-colors"
+        >
+          useChat Demo
+        </Link>
+        <Link
           to="/agent-editor"
           className="bg-green-500 hover:bg-green-600 text-white px-6 py-3 rounded transition-colors"
         >

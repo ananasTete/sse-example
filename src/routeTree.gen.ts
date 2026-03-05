@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as UseGenRouteImport } from './routes/use-gen'
+import { Route as UseChatRouteImport } from './routes/use-chat'
 import { Route as PromptEditorRouteImport } from './routes/prompt-editor'
 import { Route as ChatRouteImport } from './routes/chat'
 import { Route as AgentEditorRouteImport } from './routes/agent-editor'
@@ -28,6 +29,11 @@ import { Route as ApiChatsChatIdRunsRunIdCancelRouteImport } from './routes/api/
 const UseGenRoute = UseGenRouteImport.update({
   id: '/use-gen',
   path: '/use-gen',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const UseChatRoute = UseChatRouteImport.update({
+  id: '/use-chat',
+  path: '/use-chat',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PromptEditorRoute = PromptEditorRouteImport.update({
@@ -109,6 +115,7 @@ export interface FileRoutesByFullPath {
   '/agent-editor': typeof AgentEditorRoute
   '/chat': typeof ChatRouteWithChildren
   '/prompt-editor': typeof PromptEditorRoute
+  '/use-chat': typeof UseChatRoute
   '/use-gen': typeof UseGenRoute
   '/api/chat': typeof ApiChatRoute
   '/chat/$chatId': typeof ChatChatIdRoute
@@ -125,6 +132,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/agent-editor': typeof AgentEditorRoute
   '/prompt-editor': typeof PromptEditorRoute
+  '/use-chat': typeof UseChatRoute
   '/use-gen': typeof UseGenRoute
   '/api/chat': typeof ApiChatRoute
   '/chat/$chatId': typeof ChatChatIdRoute
@@ -143,6 +151,7 @@ export interface FileRoutesById {
   '/agent-editor': typeof AgentEditorRoute
   '/chat': typeof ChatRouteWithChildren
   '/prompt-editor': typeof PromptEditorRoute
+  '/use-chat': typeof UseChatRoute
   '/use-gen': typeof UseGenRoute
   '/api/chat': typeof ApiChatRoute
   '/chat/$chatId': typeof ChatChatIdRoute
@@ -162,6 +171,7 @@ export interface FileRouteTypes {
     | '/agent-editor'
     | '/chat'
     | '/prompt-editor'
+    | '/use-chat'
     | '/use-gen'
     | '/api/chat'
     | '/chat/$chatId'
@@ -178,6 +188,7 @@ export interface FileRouteTypes {
     | '/'
     | '/agent-editor'
     | '/prompt-editor'
+    | '/use-chat'
     | '/use-gen'
     | '/api/chat'
     | '/chat/$chatId'
@@ -195,6 +206,7 @@ export interface FileRouteTypes {
     | '/agent-editor'
     | '/chat'
     | '/prompt-editor'
+    | '/use-chat'
     | '/use-gen'
     | '/api/chat'
     | '/chat/$chatId'
@@ -213,6 +225,7 @@ export interface RootRouteChildren {
   AgentEditorRoute: typeof AgentEditorRoute
   ChatRoute: typeof ChatRouteWithChildren
   PromptEditorRoute: typeof PromptEditorRoute
+  UseChatRoute: typeof UseChatRoute
   UseGenRoute: typeof UseGenRoute
   ApiChatRoute: typeof ApiChatRoute
   ApiAgentEditorChatIdRoute: typeof ApiAgentEditorChatIdRoute
@@ -227,6 +240,13 @@ declare module '@tanstack/react-router' {
       path: '/use-gen'
       fullPath: '/use-gen'
       preLoaderRoute: typeof UseGenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/use-chat': {
+      id: '/use-chat'
+      path: '/use-chat'
+      fullPath: '/use-chat'
+      preLoaderRoute: typeof UseChatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/prompt-editor': {
@@ -365,6 +385,7 @@ const rootRouteChildren: RootRouteChildren = {
   AgentEditorRoute: AgentEditorRoute,
   ChatRoute: ChatRouteWithChildren,
   PromptEditorRoute: PromptEditorRoute,
+  UseChatRoute: UseChatRoute,
   UseGenRoute: UseGenRoute,
   ApiChatRoute: ApiChatRoute,
   ApiAgentEditorChatIdRoute: ApiAgentEditorChatIdRoute,
