@@ -1,13 +1,14 @@
 "use client";
 
 import { useRef } from "react";
-import type { PromptImage } from "../hooks/use-prompt-editor";
-import { X } from "lucide-react";
+import type { PromptImage } from "../types";
+import { ImagePlus, LoaderCircle, RefreshCcw, X } from "lucide-react";
 
 export interface ImageCardListProps {
   images: PromptImage[];
   onRemove: (id: string) => void;
-  onAdd: (file: File) => void;
+  onAdd: (files: File[]) => Promise<void>;
+  onReplace: (id: string, file: File) => Promise<void>;
   canAddMore: boolean;
   maxImages?: number;
 }
@@ -16,30 +17,50 @@ export const ImageCardList = ({
   images,
   onRemove,
   onAdd,
+  onReplace,
   canAddMore,
 }: ImageCardListProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const replaceTargetIdRef = useRef<string | null>(null);
 
   const handleSelectImages = () => {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleSelectReplaceImage = (id: string) => {
+    replaceTargetIdRef.current = id;
+    replaceInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files) return;
 
-    Array.from(files).forEach((file) => {
-      onAdd(file);
-    });
+    await onAdd(Array.from(files));
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   };
 
+  const handleReplaceFileChange = async (
+    e: React.ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = e.target.files?.[0];
+    const targetId = replaceTargetIdRef.current;
+    if (!file || !targetId) return;
+
+    await onReplace(targetId, file);
+
+    replaceTargetIdRef.current = null;
+    if (replaceInputRef.current) {
+      replaceInputRef.current.value = "";
+    }
+  };
+
   return (
-    <div className="flex gap-3 flex-nowrap">
-      {/* 隐藏的删除表单 */}
+    <div className="grid grid-cols-4 gap-2">
       <input
         ref={fileInputRef}
         type="file"
@@ -48,32 +69,63 @@ export const ImageCardList = ({
         onChange={handleFileChange}
         style={{ display: "none" }}
       />
+      <input
+        ref={replaceInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleReplaceFileChange}
+        style={{ display: "none" }}
+      />
 
       {images.map((image) => (
         <div
           key={image.id}
-          className="relative w-[120px] h-[120px] rounded-xl overflow-hidden group cursor-pointer shadow-lg hover:shadow-xl transition-all duration-300"
+          className="group relative aspect-square overflow-hidden border border-slate-200 bg-slate-100"
         >
-          <img
-            src={image.url}
-            alt={image.label}
-            className="w-full h-full object-cover"
-          />
-
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+          {image.status === "ready" && image.url ? (
+            <>
+              <img
+                src={image.url}
+                alt={image.label}
+                className="h-full w-full object-cover"
+              />
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/72 via-slate-950/12 to-transparent opacity-0 transition duration-300 group-hover:opacity-100" />
+            </>
+          ) : (
+            <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-50 text-slate-400">
+              <LoaderCircle className="size-4 animate-spin" />
+              <div className="text-[10px] font-medium uppercase tracking-[0.08em]">
+                loading
+              </div>
+            </div>
+          )}
 
           <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              handleSelectReplaceImage(image.id);
+            }}
+            className="absolute left-1.5 top-1.5 flex h-7 w-7 items-center justify-center bg-black/45 text-white opacity-0 transition duration-200 group-hover:opacity-100 hover:bg-black/60 disabled:cursor-not-allowed disabled:opacity-40"
+            title="替换图片"
+            disabled={image.status !== "ready"}
+          >
+            <RefreshCcw className="size-3" />
+          </button>
+
+          <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               onRemove(image.id);
             }}
-            className="absolute top-2 right-2 w-7 h-7 bg-black/40 backdrop-blur-sm text-white rounded-full text-sm opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center cursor-pointer hover:bg-red-500 hover:scale-110"
+            className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center bg-black/45 text-white opacity-0 transition duration-200 group-hover:opacity-100 hover:bg-black/60"
             title="删除图片"
           >
             <X className="size-3" />
           </button>
 
-          <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/40 backdrop-blur-sm text-white text-xs font-medium rounded-md">
+          <div className="absolute bottom-1.5 left-1.5 bg-black/45 px-2 py-1 text-[10px] font-medium text-white">
             {image.label}
           </div>
         </div>
@@ -81,10 +133,12 @@ export const ImageCardList = ({
 
       {canAddMore && (
         <button
+          type="button"
           onClick={handleSelectImages}
-          className="w-[120px] h-[120px] bg-white/80 backdrop-blur-sm border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center gap-2 cursor-pointer"
+          className="flex aspect-square flex-col items-center justify-center gap-1 border border-dashed border-slate-300 bg-slate-50 px-2 text-center transition hover:bg-white"
         >
-          <span className="text-xs text-gray-500 font-medium">添加图片</span>
+          <ImagePlus className="size-4 text-slate-500" />
+          <div className="text-[10px] text-slate-600">添加</div>
         </button>
       )}
     </div>

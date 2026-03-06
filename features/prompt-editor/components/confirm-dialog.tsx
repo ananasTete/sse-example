@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 
 export interface ConfirmDialogProps {
   /** 是否显示弹窗 */
@@ -28,86 +28,57 @@ export const ConfirmDialog = ({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) => {
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const confirmButtonRef = useRef<HTMLButtonElement>(null);
-
-  // 处理 ESC 键关闭
-  const handleKeyDown = useCallback(
-    (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onCancel();
-      }
-    },
-    [onCancel],
-  );
-
-  // 点击遮罩层关闭
-  const handleBackdropClick = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.target === e.currentTarget) {
-        onCancel();
-      }
-    },
-    [onCancel],
-  );
-
-  useEffect(() => {
-    if (open) {
-      document.addEventListener("keydown", handleKeyDown);
-      // 自动聚焦到确认按钮
-      confirmButtonRef.current?.focus();
-    }
-
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [open, handleKeyDown]);
-
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200"
-      onClick={handleBackdropClick}
-    >
-      <div
-        ref={dialogRef}
-        className="bg-white rounded-2xl shadow-2xl w-[380px] overflow-hidden animate-in zoom-in-95 duration-200"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="dialog-title"
-      >
-        {/* 标题 */}
-        <div className="px-6 pt-6 pb-2">
-          <h2 id="dialog-title" className="text-lg font-semibold text-gray-900">
-            {title}
-          </h2>
-        </div>
-
-        {/* 内容 */}
-        <div className="px-6 pb-6">
-          <p className="text-gray-600 text-sm leading-relaxed">{message}</p>
-        </div>
-
-        {/* 按钮区域 */}
-        <div className="flex border-t border-gray-100">
-          <button
-            onClick={onCancel}
-            className="flex-1 py-3.5 text-gray-600 font-medium hover:bg-gray-50 transition-colors duration-200 cursor-pointer"
+    <Dialog.Root open={open} onOpenChange={(isOpen) => !isOpen && onCancel()}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-slate-950/28 backdrop-blur-md animate-in fade-in duration-200" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
+          <Dialog.Content
+            className="w-full max-w-[420px] overflow-hidden rounded-[28px] border border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(246,247,249,0.96))] shadow-[0_32px_80px_rgba(15,23,42,0.24)] animate-in zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 duration-200 outline-none"
+            onOpenAutoFocus={(e) => {
+              const confirmBtn = document.getElementById("confirm-dialog-btn");
+              if (confirmBtn) {
+                e.preventDefault();
+                confirmBtn.focus();
+              }
+            }}
           >
-            {cancelText}
-          </button>
-          <div className="w-px bg-gray-100" />
-          <button
-            ref={confirmButtonRef}
-            onClick={onConfirm}
-            className="flex-1 py-3.5 text-red-500 font-medium hover:bg-red-50 transition-colors duration-200 cursor-pointer"
-          >
-            {confirmText}
-          </button>
+            <div className="px-6 pt-6 pb-3 sm:px-7">
+              <div className="mb-4 inline-flex rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-medium uppercase tracking-[0.18em] text-slate-500">
+                Confirm
+              </div>
+              <Dialog.Title className="text-lg font-semibold text-slate-950">
+                {title}
+              </Dialog.Title>
+            </div>
+
+            <Dialog.Description className="px-6 pb-6 sm:px-7 text-sm leading-6 text-slate-600">
+              {message}
+            </Dialog.Description>
+
+            <div className="flex gap-3 border-t border-slate-200/80 px-6 py-5 sm:px-7">
+              <Dialog.Close asChild>
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="flex-1 rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+                >
+                  {cancelText}
+                </button>
+              </Dialog.Close>
+              <button
+                id="confirm-dialog-btn"
+                type="button"
+                onClick={onConfirm}
+                className="flex-1 rounded-full bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800 outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2"
+              >
+                {confirmText}
+              </button>
+            </div>
+          </Dialog.Content>
         </div>
-      </div>
-    </div>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 };
 

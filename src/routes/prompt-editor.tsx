@@ -7,7 +7,7 @@ export const Route = createFileRoute("/prompt-editor")({
 
 function PromptEditorPage() {
   return (
-    <div className="h-screen flex justify-center items-center">
+    <div className="h-screen overflow-hidden bg-white p-3">
       <PromptEditor />
     </div>
   );
