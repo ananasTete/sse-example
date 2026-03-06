@@ -33,3 +33,24 @@
 ```
 UI -> use-prompt-editor -> use-prompt-images
 ```
+
+### 提交后端结构
+
+```
+{
+  "prompt": "[@图1]走在人来人往的斑马线上，天空在下雨",
+  "images": [
+    {
+      "id": "img-67d38160-16b6-44e5-8c71-0025d117dae3",
+      "label": "图1",
+      "url": "xxxx",
+      "index": 1
+    }
+  ]
+}
+```
+
+- prompt：用来喂给大模型的
+- images：图片数据
+
+在回显时根据 prompt 和 images 数据，解析为编辑器的 json 数据，再给 tiptap 渲染。

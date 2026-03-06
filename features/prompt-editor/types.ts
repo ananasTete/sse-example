@@ -1,5 +1,3 @@
-import type { JSONContent } from "@tiptap/core";
-
 export type PromptImageStatus = "uploading" | "ready";
 
 export interface PromptImage {
@@ -19,6 +17,5 @@ export interface PromptImageData {
 
 export interface PromptData {
   prompt: string;
-  content: JSONContent;
   images: PromptImageData[];
 }

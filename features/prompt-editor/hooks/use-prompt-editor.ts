@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import type { Editor } from "@tiptap/core";
 import { type PromptData, type PromptImage } from "../types";
-import { EMPTY_DOC } from "../utils";
+import { promptToContent } from "../utils";
 import { usePromptImages } from "./use-prompt-images";
 
 export interface UsePromptEditorOptions {
@@ -69,6 +69,7 @@ export function usePromptEditor({
 
   // 获取 prompt 数据用于提交
   const getPromptData = useCallback((): PromptData => {
+    const prompt = editor?.getText() ?? "";
     const imageData = images
       .filter((img): img is PromptImage & { url: string; status: "ready" } => {
         return img.status === "ready" && Boolean(img.url);
@@ -81,8 +82,7 @@ export function usePromptEditor({
       }));
 
     return {
-      prompt: editor?.getText() ?? "",
-      content: editor?.getJSON() ?? EMPTY_DOC,
+      prompt,
       images: imageData,
     };
   }, [editor, images]);
@@ -101,7 +101,7 @@ export function usePromptEditor({
       }));
 
       resetImages(newImages);
-      editor.commands.setContent(data.content);
+      editor.commands.setContent(promptToContent(data.prompt, data.images));
     },
     [editor, resetImages],
   );
