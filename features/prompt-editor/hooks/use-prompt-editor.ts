@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import type { Editor } from "@tiptap/core";
-import { type PromptData, type PromptImage } from "../types";
+import { type CropMetadata, type PromptData, type PromptImage } from "../types";
 import { promptToContent } from "../utils";
 import { usePromptImages } from "./use-prompt-images";
 
@@ -14,6 +14,7 @@ export interface UsePromptEditorReturn {
   addImages: (files: File[]) => Promise<void>;
   replaceImage: (id: string, file: File) => Promise<void>;
   removeImage: (id: string) => void;
+  setImageCrop: (id: string, crop?: CropMetadata) => void;
   canAddMore: boolean;
   getPromptData: () => PromptData;
   setPromptData: (data: PromptData) => void;
@@ -30,6 +31,7 @@ export function usePromptEditor({
     replaceImage: handleReplaceImage,
     removeImageState,
     resetImages,
+    setImageCrop,
   } = usePromptImages({ maxImages });
 
   // 添加图片并设置到编辑器
@@ -79,6 +81,7 @@ export function usePromptEditor({
         label: img.label,
         index: img.index,
         url: img.url,
+        metadata: img.metadata,
       }));
 
     return {
@@ -98,6 +101,7 @@ export function usePromptEditor({
         label: img.label,
         index: img.index,
         status: "ready",
+        metadata: img.metadata,
       }));
 
       resetImages(newImages);
@@ -111,6 +115,7 @@ export function usePromptEditor({
     addImages,
     replaceImage,
     removeImage,
+    setImageCrop,
     canAddMore,
     getPromptData,
     setPromptData,

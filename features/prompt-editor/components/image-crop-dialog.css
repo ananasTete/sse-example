@@ -1,0 +1,63 @@
+.image-crop-dialog .ReactCrop {
+  display: inline-block;
+  background: transparent;
+  max-width: 100%;
+  max-height: min(62vh, 620px);
+  cursor: default;
+}
+
+.image-crop-stage {
+  position: relative;
+  background: #fff;
+}
+
+.image-crop-dialog .ReactCrop__child-wrapper {
+  max-height: min(62vh, 620px);
+  overflow: hidden;
+  background: #fff;
+  pointer-events: none;
+}
+
+.image-crop-dialog .ReactCrop__child-wrapper img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  max-height: min(62vh, 620px);
+  object-fit: contain;
+}
+
+.image-crop-dialog .ReactCrop__crop-mask {
+  opacity: 1;
+  cursor: default;
+}
+
+.image-crop-dialog .ReactCrop__crop-mask > rect {
+  fill: rgba(15, 23, 42, 0.52);
+  fill-opacity: 1;
+}
+
+.image-crop-dialog .ReactCrop__crop-selection {
+  border: 2px solid rgba(255, 255, 255, 0.98);
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.14),
+    0 8px 18px rgba(15, 23, 42, 0.18);
+  pointer-events: auto;
+}
+
+.image-crop-dialog .ReactCrop__drag-handle {
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(248, 250, 252, 0.98);
+  background: rgba(248, 250, 252, 0.98);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.22);
+}
+
+.image-crop-dialog .ReactCrop__drag-bar {
+  background-color: rgba(248, 250, 252, 0.78);
+}
+
+.image-crop-dialog .ReactCrop__rule-of-thirds-vt,
+.image-crop-dialog .ReactCrop__rule-of-thirds-hz {
+  border-color: rgba(255, 255, 255, 0.24);
+}

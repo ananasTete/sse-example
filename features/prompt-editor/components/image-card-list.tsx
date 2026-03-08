@@ -2,13 +2,15 @@
 
 import { useRef } from "react";
 import type { PromptImage } from "../types";
-import { ImagePlus, LoaderCircle, RefreshCcw, X } from "lucide-react";
+import { Crop, ImagePlus, LoaderCircle, RefreshCcw, X } from "lucide-react";
+import { CroppedImagePreview } from "./cropped-image-preview";
 
 export interface ImageCardListProps {
   images: PromptImage[];
   onRemove: (id: string) => void;
   onAdd: (files: File[]) => Promise<void>;
   onReplace: (id: string, file: File) => Promise<void>;
+  onCrop: (id: string) => void;
   canAddMore: boolean;
   maxImages?: number;
 }
@@ -18,6 +20,7 @@ export const ImageCardList = ({
   onRemove,
   onAdd,
   onReplace,
+  onCrop,
   canAddMore,
 }: ImageCardListProps) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -84,10 +87,11 @@ export const ImageCardList = ({
         >
           {image.status === "ready" && image.url ? (
             <>
-              <img
+              <CroppedImagePreview
                 src={image.url}
                 alt={image.label}
-                className="h-full w-full object-cover"
+                crop={image.metadata?.crop}
+                className="h-full w-full"
               />
               <div className="absolute inset-0 bg-gradient-to-t from-slate-950/72 via-slate-950/12 to-transparent opacity-0 transition duration-300 group-hover:opacity-100" />
             </>
@@ -100,30 +104,47 @@ export const ImageCardList = ({
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              handleSelectReplaceImage(image.id);
-            }}
-            className="absolute left-1.5 top-1.5 flex h-7 w-7 items-center justify-center bg-black/45 text-white opacity-0 transition duration-200 group-hover:opacity-100 hover:bg-black/60 disabled:cursor-not-allowed disabled:opacity-40"
-            title="替换图片"
-            disabled={image.status !== "ready"}
-          >
-            <RefreshCcw className="size-3" />
-          </button>
+          <div className="absolute left-1.5 right-1.5 top-1.5 flex items-center justify-between opacity-0 transition duration-200 group-hover:opacity-100">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleSelectReplaceImage(image.id);
+                }}
+                className="flex h-7 w-7 items-center justify-center bg-black/45 text-white transition hover:bg-black/60 disabled:cursor-not-allowed disabled:opacity-40"
+                title="替换图片"
+                disabled={image.status !== "ready"}
+              >
+                <RefreshCcw className="size-3" />
+              </button>
 
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onRemove(image.id);
-            }}
-            className="absolute right-1.5 top-1.5 flex h-7 w-7 items-center justify-center bg-black/45 text-white opacity-0 transition duration-200 group-hover:opacity-100 hover:bg-black/60"
-            title="删除图片"
-          >
-            <X className="size-3" />
-          </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCrop(image.id);
+                }}
+                className="flex h-7 w-7 items-center justify-center bg-black/45 text-white transition hover:bg-black/60 disabled:cursor-not-allowed disabled:opacity-40"
+                title="裁切图片"
+                disabled={image.status !== "ready"}
+              >
+                <Crop className="size-3" />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRemove(image.id);
+              }}
+              className="flex h-7 w-7 items-center justify-center bg-black/45 text-white transition hover:bg-black/60"
+              title="删除图片"
+            >
+              <X className="size-3" />
+            </button>
+          </div>
 
           <div className="absolute bottom-1.5 left-1.5 bg-black/45 px-2 py-1 text-[10px] font-medium text-white">
             {image.label}

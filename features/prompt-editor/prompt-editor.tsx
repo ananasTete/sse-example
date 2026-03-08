@@ -8,6 +8,7 @@ import "./editor.css";
 import { ImageTag } from "./extensions/image-tag";
 import { ImageCardList } from "./components/image-card-list";
 import { ConfirmDialog } from "./components/confirm-dialog";
+import { ImageCropDialog } from "./components/image-crop-dialog";
 import { usePromptEditor } from "./hooks/use-prompt-editor";
 
 interface PendingDelete {
@@ -20,6 +21,7 @@ const PromptEditor = () => {
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(
     null,
   );
+  const [cropTargetId, setCropTargetId] = useState<string | null>(null);
 
   const editor = useEditor({
     extensions: [
@@ -37,6 +39,7 @@ const PromptEditor = () => {
     addImages,
     replaceImage,
     removeImage,
+    setImageCrop,
     canAddMore,
     getPromptData,
     setPromptData,
@@ -67,6 +70,14 @@ const PromptEditor = () => {
     setPendingDelete(null);
   }, [pendingDelete]);
 
+  const cropImage =
+    images.find(
+      (image): image is (typeof images)[number] & { status: "ready"; url: string } =>
+        image.id === cropTargetId &&
+        image.status === "ready" &&
+        Boolean(image.url),
+    ) ?? null;
+
   useEffect(() => {
     if (editor) {
       editor.commands.setImageTagDeleteHandler(onBeforeTagDelete);
@@ -91,6 +102,7 @@ const PromptEditor = () => {
                 onRemove={removeImage}
                 onAdd={addImages}
                 onReplace={replaceImage}
+                onCrop={setCropTargetId}
                 canAddMore={canAddMore}
               />
             </div>
@@ -155,6 +167,20 @@ const PromptEditor = () => {
         cancelText="取消"
         onConfirm={confirmDelete}
         onCancel={cancelDelete}
+      />
+
+      <ImageCropDialog
+        open={cropImage !== null}
+        image={cropImage}
+        onCancel={() => setCropTargetId(null)}
+        onApply={(id, crop) => {
+          setImageCrop(id, crop);
+          setCropTargetId(null);
+        }}
+        onClear={(id) => {
+          setImageCrop(id);
+          setCropTargetId(null);
+        }}
       />
     </>
   );

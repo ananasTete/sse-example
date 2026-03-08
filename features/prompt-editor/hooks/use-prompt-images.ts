@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-import type { PromptImage } from "../types";
+import type { CropMetadata, PromptImage } from "../types";
 import { fileToDataUrl, generateId } from "../utils";
 
 export interface UsePromptImagesOptions {
@@ -17,6 +17,7 @@ export interface UsePromptImagesReturn {
   replaceImage: (id: string, file: File) => Promise<void>;
   removeImageState: (id: string) => void;
   resetImages: (newImages: PromptImage[]) => void;
+  setImageCrop: (id: string, crop?: CropMetadata) => void;
   imagesRef: React.MutableRefObject<PromptImage[]>;
 }
 
@@ -38,6 +39,11 @@ export function usePromptImages({
   const imagesRef = useRef<PromptImage[]>([]);
   const pendingAddCountRef = useRef(0);
   const usedLabelsRef = useRef<Set<number>>(new Set()); // 使用 Set 记录使用过的序号
+
+  const syncImages = useCallback((nextImages: PromptImage[]) => {
+    imagesRef.current = nextImages;
+    setImages(nextImages);
+  }, []);
 
   // 计算序号
   const findNextLabelIndex = () => {
@@ -105,13 +111,13 @@ export function usePromptImages({
                 index: draft.labelIndex,
                 url,
                 status: "ready",
+                metadata: undefined,
               };
 
               const nextImages = currentImages.map((img) =>
                 img.id === draft.id ? readyImage : img,
               );
-              imagesRef.current = nextImages;
-              setImages(nextImages);
+              syncImages(nextImages);
 
               onInsertTags?.([readyImage]);
             } catch {
@@ -145,8 +151,7 @@ export function usePromptImages({
     const loadingImages = imagesRef.current.map((img) =>
       img.id === id ? loadingImage : img,
     );
-    imagesRef.current = loadingImages;
-    setImages(loadingImages);
+    syncImages(loadingImages);
 
     try {
       const nextUrl = await mockUploadImage(file);
@@ -157,21 +162,20 @@ export function usePromptImages({
         ...latestImage,
         url: nextUrl,
         status: "ready",
+        metadata: undefined,
       };
 
       const nextImages = imagesRef.current.map((img) =>
         img.id === id ? readyImage : img,
       );
-      imagesRef.current = nextImages;
-      setImages(nextImages);
+      syncImages(nextImages);
     } catch {
       const restoredImages = imagesRef.current.map((img) =>
         img.id === id ? currentImage : img,
       );
-      imagesRef.current = restoredImages;
-      setImages(restoredImages);
+      syncImages(restoredImages);
     }
-  }, []);
+  }, [syncImages]);
 
   // 删除图片
   const removeImageState = useCallback(
@@ -202,10 +206,41 @@ export function usePromptImages({
         ...img,
         status: "ready" as const,
       }));
-      setImages(normalizedImages);
-      imagesRef.current = normalizedImages;
+      syncImages(normalizedImages);
     },
-    [],
+    [syncImages],
+  );
+
+  const setImageCrop = useCallback(
+    (id: string, crop?: CropMetadata) => {
+      const nextImages = imagesRef.current.map((image) => {
+        if (image.id !== id) {
+          return image;
+        }
+
+        if (!crop) {
+          const restMetadata = { ...(image.metadata ?? {}) };
+          delete restMetadata.crop;
+
+          return {
+            ...image,
+            metadata:
+              Object.keys(restMetadata).length > 0 ? restMetadata : undefined,
+          };
+        }
+
+        return {
+          ...image,
+          metadata: {
+            ...image.metadata,
+            crop,
+          },
+        };
+      });
+
+      syncImages(nextImages);
+    },
+    [syncImages],
   );
 
   return {
@@ -216,6 +251,7 @@ export function usePromptImages({
     replaceImage,
     removeImageState,
     resetImages,
+    setImageCrop,
     imagesRef,
   };
 }
