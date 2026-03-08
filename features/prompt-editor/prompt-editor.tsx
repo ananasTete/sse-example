@@ -2,14 +2,17 @@
 
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { Download, FileText, RotateCcw } from "lucide-react";
 import "./editor.css";
 import { ImageTag } from "./extensions/image-tag";
+import { ImageMention } from "./extensions/image-mention";
 import { ImageCardList } from "./components/image-card-list";
+import { ImageMentionMenu } from "./components/image-mention-menu";
 import { ConfirmDialog } from "./components/confirm-dialog";
 import { ImageCropDialog } from "./components/image-crop-dialog";
 import { usePromptEditor } from "./hooks/use-prompt-editor";
+import type { PromptImage } from "./types";
 
 interface PendingDelete {
   imageId: string;
@@ -22,14 +25,23 @@ const PromptEditor = () => {
     null,
   );
   const [cropTargetId, setCropTargetId] = useState<string | null>(null);
+  const imageSuggestionsRef = useRef<PromptImage[]>([]);
 
-  const editor = useEditor({
-    extensions: [
+  const extensions = useMemo(
+    () => [
       StarterKit.configure({
         dropcursor: false,
       }),
       ImageTag,
+      ImageMention.configure({
+        getImages: () => imageSuggestionsRef.current,
+      }),
     ],
+    [],
+  );
+
+  const editor = useEditor({
+    extensions,
     content: "",
     immediatelyRender: false,
   });
@@ -83,6 +95,10 @@ const PromptEditor = () => {
       editor.commands.setImageTagDeleteHandler(onBeforeTagDelete);
     }
   }, [editor, onBeforeTagDelete]);
+
+  useEffect(() => {
+    imageSuggestionsRef.current = images;
+  }, [images]);
 
   if (!editor) {
     return null;
@@ -158,6 +174,8 @@ const PromptEditor = () => {
           </section>
         </div>
       </div>
+
+      <ImageMentionMenu editor={editor} images={images} />
 
       <ConfirmDialog
         open={pendingDelete !== null}

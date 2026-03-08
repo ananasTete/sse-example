@@ -1,7 +1,9 @@
 export { default as PromptEditor } from "./prompt-editor";
 export { usePromptEditor } from "./hooks/use-prompt-editor";
 export { ImageTag } from "./extensions/image-tag";
+export { ImageMention } from "./extensions/image-mention";
 export { ImageCardList } from "./components/image-card-list";
+export { ImageMentionMenu } from "./components/image-mention-menu";
 export { ConfirmDialog } from "./components/confirm-dialog";
 export { ImageCropDialog } from "./components/image-crop-dialog";
 export type { PromptImage } from "./types";
