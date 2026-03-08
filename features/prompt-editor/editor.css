@@ -38,21 +38,15 @@
   gap: 0.2rem;
   padding: 2px 8px;
   font-size: 12px;
+  line-height: 1.3;
   font-weight: 500;
   color: #334155;
   background: #f8fafc;
   border: 1px solid #cbd5e1;
   cursor: default;
   user-select: none;
-  vertical-align: middle;
-  transform: translateY(-1px);
-}
-
-.image-tag::before,
-.image-tag::after {
-  content: "";
-  display: inline-block;
-  width: 2px;
+  white-space: nowrap;
+  vertical-align: baseline;
 }
 
 .image-tag:hover {
@@ -61,10 +55,7 @@
 }
 
 .ProseMirror .image-tag.ProseMirror-selectednode {
-  outline: 2px solid rgba(71, 85, 105, 0.35);
-  outline-offset: 1px;
-  border-color: #64748b;
-  background: #e2e8f0;
+  outline: none;
 }
 
 .image-tag[draggable="true"] {
@@ -84,6 +75,18 @@
   margin-left: -1px;
   pointer-events: none;
   animation: blink 1s ease-in-out infinite;
+}
+
+.image-tag-inline-gap {
+  display: inline-block;
+  width: 6px;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  font-size: 0;
+  line-height: 0;
+  vertical-align: baseline;
 }
 
 .ProseMirror.dragging {

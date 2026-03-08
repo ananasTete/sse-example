@@ -54,3 +54,28 @@ UI -> use-prompt-editor -> use-prompt-images
 - images：图片数据
 
 在回显时根据 prompt 和 images 数据，解析为编辑器的 json 数据，再给 tiptap 渲染。
+
+### TAG 两侧间距与末尾光标
+
+问题现象：
+
+- 希望 TAG 左右和文本之间有一点空隙，提升可读性。
+- 当 TAG 是段落最后一个节点时，点击 TAG 右侧末尾区域，光标会被 TAG 右边框盖住。
+
+原来的方案为什么不行：
+
+- 一开始尝试过用 `.image-tag::before` / `.image-tag::after` 在 TAG 内部制造左右空白。这种空白属于 TAG 盒子内部，不是编辑器真正的可编辑位置。
+- 后来改成 `margin-inline` 让 TAG 和文本分开。这个方案在视觉上有间距，但 `margin` 仍然不是 ProseMirror 文档中的真实位置。
+- 所以当 TAG 位于段落末尾时，用户点击到“右侧空白”区域，浏览器会先命中视觉 margin，随后 ProseMirror 会把 selection 校正到“节点后位置”，最终光标还是贴回 TAG 边框，看起来像右侧没有间距。最终呈现光标位置闪烁问题。
+
+最终解决方案：
+
+- 保留 `imageTag` 为原子 inline 节点，并显式设置 `contenteditable="false"`，避免浏览器把光标放进 TAG 盒子内部。
+- 不再依赖伪元素或 `margin` 提供间距，而是在 ProseMirror 插件里通过 `Decoration.widget` 给 TAG 左右插入真实的 inline gap。
+- 这些 gap 是编辑器布局的一部分，不只是视觉样式，因此点击最后一个 TAG 右侧时，光标可以落在 gap 后面，末尾交互会稳定很多。
+- gap 自身只提供横向宽度，不参与垂直高度计算，避免把所在段落的行高继续撑高。
+
+结论：
+
+- “视觉间距”和“可编辑光标落点”在 TipTap / ProseMirror 里不是一回事。
+- 只要需求包含“末尾可点击的空白区域”，就不能只用 CSS `margin` 或伪元素，必须提供真实的 inline 可布局节点。

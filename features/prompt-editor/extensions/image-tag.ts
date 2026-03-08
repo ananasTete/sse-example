@@ -24,6 +24,7 @@ declare module "@tiptap/core" {
 }
 
 const dropIndicatorKey = new PluginKey("imageTagDropIndicator");
+const inlineGapKey = new PluginKey("imageTagInlineGap");
 
 export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
   name: "imageTag",
@@ -71,6 +72,7 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
         {
           "data-type": "image-tag",
           class: "image-tag",
+          contenteditable: "false",
           draggable: "true",
         },
         this.options.HTMLAttributes,
@@ -223,6 +225,7 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
       const dom = document.createElement("span");
       dom.setAttribute("data-type", "image-tag");
       dom.className = "image-tag";
+      dom.contentEditable = "false";
       dom.draggable = true;
       dom.textContent = node.attrs.label;
 
@@ -258,7 +261,52 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
   },
 
   addProseMirrorPlugins() {
+    const imageTagName = this.name;
+
     return [
+      new Plugin({
+        key: inlineGapKey,
+        props: {
+          decorations(state) {
+            const decorations: Decoration[] = [];
+
+            state.doc.descendants((node, pos, parent, index) => {
+              if (
+                node.type.name !== imageTagName ||
+                !parent?.isTextblock ||
+                typeof index !== "number"
+              ) {
+                return;
+              }
+
+              const createGap = () => {
+                const gap = document.createElement("span");
+                gap.className = "image-tag-inline-gap";
+                gap.setAttribute("aria-hidden", "true");
+                return gap;
+              };
+
+              if (index > 0) {
+                decorations.push(
+                  Decoration.widget(pos, createGap, {
+                    side: 1,
+                    ignoreSelection: false,
+                  }),
+                );
+              }
+
+              decorations.push(
+                Decoration.widget(pos + node.nodeSize, createGap, {
+                  side: -1,
+                  ignoreSelection: false,
+                }),
+              );
+            });
+
+            return DecorationSet.create(state.doc, decorations);
+          },
+        },
+      }),
       new Plugin({
         key: dropIndicatorKey,
         state: {
