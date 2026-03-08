@@ -72,6 +72,9 @@ UI -> use-prompt-editor -> use-prompt-images
 
 - 保留 `imageTag` 为原子 inline 节点，并显式设置 `contenteditable="false"`，避免浏览器把光标放进 TAG 盒子内部。
 - 不再依赖伪元素或 `margin` 提供间距，而是在 ProseMirror 插件里通过 `Decoration.widget` 给 TAG 左右插入真实的 inline gap。
+- gap 的宽度按相邻关系区分：
+  - TAG 与普通文本相邻时，插入一个完整 gap。
+  - 两个 TAG 相邻时，不再直接叠加两个完整 gap，而是左侧 TAG 右边放 `1/2 gap`，右侧 TAG 左边再放 `1/2 gap`。视觉上仍然是一个完整间距，但光标可以稳定落在两个半 gap 之间。
 - 这些 gap 是编辑器布局的一部分，不只是视觉样式，因此点击最后一个 TAG 右侧时，光标可以落在 gap 后面，末尾交互会稳定很多。
 - gap 自身只提供横向宽度，不参与垂直高度计算，避免把所在段落的行高继续撑高。
 

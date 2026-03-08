@@ -78,8 +78,9 @@
 }
 
 .image-tag-inline-gap {
+  --image-tag-inline-gap-width: 6px;
   display: inline-block;
-  width: 6px;
+  width: var(--image-tag-inline-gap-width);
   height: 0;
   overflow: hidden;
   pointer-events: none;
@@ -87,6 +88,10 @@
   font-size: 0;
   line-height: 0;
   vertical-align: baseline;
+}
+
+.image-tag-inline-gap--half {
+  --image-tag-inline-gap-width: 3px;
 }
 
 .ProseMirror.dragging {

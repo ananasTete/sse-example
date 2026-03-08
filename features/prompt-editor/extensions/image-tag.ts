@@ -279,28 +279,55 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
                 return;
               }
 
-              const createGap = () => {
+              const createGap = (size: "full" | "half") => {
                 const gap = document.createElement("span");
-                gap.className = "image-tag-inline-gap";
+                gap.className = `image-tag-inline-gap image-tag-inline-gap--${size}`;
                 gap.setAttribute("aria-hidden", "true");
                 return gap;
               };
 
-              if (index > 0) {
+              const previousSibling = index > 0 ? parent.child(index - 1) : null;
+              const nextSibling =
+                index < parent.childCount - 1 ? parent.child(index + 1) : null;
+
+              if (
+                previousSibling &&
+                previousSibling.type.name !== imageTagName
+              ) {
                 decorations.push(
-                  Decoration.widget(pos, createGap, {
+                  Decoration.widget(pos, () => createGap("full"), {
                     side: 1,
                     ignoreSelection: false,
                   }),
                 );
               }
 
-              decorations.push(
-                Decoration.widget(pos + node.nodeSize, createGap, {
-                  side: -1,
-                  ignoreSelection: false,
-                }),
-              );
+              if (previousSibling?.type.name === imageTagName) {
+                decorations.push(
+                  Decoration.widget(pos, () => createGap("half"), {
+                    side: 1,
+                    ignoreSelection: false,
+                  }),
+                );
+              }
+
+              if (nextSibling?.type.name === imageTagName) {
+                decorations.push(
+                  Decoration.widget(pos + node.nodeSize, () => createGap("half"), {
+                    side: -1,
+                    ignoreSelection: false,
+                  }),
+                );
+              }
+
+              if (!nextSibling || nextSibling.type.name !== imageTagName) {
+                decorations.push(
+                  Decoration.widget(pos + node.nodeSize, () => createGap("full"), {
+                    side: -1,
+                    ignoreSelection: false,
+                  }),
+                );
+              }
             });
 
             return DecorationSet.create(state.doc, decorations);
