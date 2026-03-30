@@ -98,12 +98,14 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
         (imageId) =>
         ({ tr, state, dispatch }) => {
           let found = false;
+          // 从“快照(state)”的文档(doc)树中，遍历所有的后代节点
           state.doc.descendants((node, pos) => {
             if (
               node.type.name === this.name &&
               node.attrs.imageId === imageId
             ) {
               if (dispatch) {
+                // 创建一个“删除”事务
                 tr.delete(pos, pos + node.nodeSize);
               }
               found = true;
@@ -120,6 +122,7 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
     };
   },
 
+  // 删除时拦截先触发回调
   addKeyboardShortcuts() {
     const handleDelete = async (forward: boolean) => {
       const { state, view } = this.editor;
@@ -168,10 +171,13 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
     return {
       Backspace: () => {
         const { state } = this.editor;
+        // 获取选取信息
         const { selection } = state;
+        // 获取选取起点信息，empty = true 表示这是一个光标
         const { $from, empty } = selection;
 
         if (empty) {
+          // 获取光标前面的节点
           const nodeBefore = $from.nodeBefore;
           if (nodeBefore?.type.name === this.name) {
             handleDelete(false);
@@ -179,6 +185,7 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
           }
         } else {
           let hasImageTag = false;
+          // 遍历选取范围内的所有节点
           state.doc.nodesBetween(
             selection.$from.pos,
             selection.$to.pos,
@@ -239,11 +246,13 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
       // 每次拖拽开始时设置自定义拖拽图像
       dom.addEventListener("dragstart", (e) => {
         if (e.dataTransfer) {
+          // 创建一个 clone dom 作为拖拽图像
           const clone = dom.cloneNode(true) as HTMLElement;
           clone.style.position = "absolute";
           clone.style.top = "-1000px";
           document.body.appendChild(clone);
 
+          // 设置拖坏图像位置，默认与指针对齐，这里放到下方，实现不遮挡目标位置的文本
           e.dataTransfer.setDragImage(
             clone,
             clone.offsetWidth / 2 - 10,
@@ -270,6 +279,7 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
           decorations(state) {
             const decorations: Decoration[] = [];
 
+            // 遍历节点
             state.doc.descendants((node, pos, parent, index) => {
               if (
                 node.type.name !== imageTagName ||
@@ -278,7 +288,7 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
               ) {
                 return;
               }
-
+              // 创建一个 gap 元素，用来实现标签之间和标签与文本之间间距
               const createGap = (size: "full" | "half") => {
                 const gap = document.createElement("span");
                 gap.className = `image-tag-inline-gap image-tag-inline-gap--${size}`;
@@ -290,6 +300,7 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
               const nextSibling =
                 index < parent.childCount - 1 ? parent.child(index + 1) : null;
 
+              // 如果标签之前存在元素并且不是标签节点，则在标签前添加一个 gap
               if (
                 previousSibling &&
                 previousSibling.type.name !== imageTagName
@@ -302,6 +313,7 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
                 );
               }
 
+              // 如果标签之前存在元素并且是标签节点，则在标签前添加一个半宽的 gap
               if (previousSibling?.type.name === imageTagName) {
                 decorations.push(
                   Decoration.widget(pos, () => createGap("half"), {
@@ -311,6 +323,7 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
                 );
               }
 
+              // 如果标签后面存在元素并且是标签节点，则在标签后添加一个半宽的 gap
               if (nextSibling?.type.name === imageTagName) {
                 decorations.push(
                   Decoration.widget(pos + node.nodeSize, () => createGap("half"), {
@@ -320,6 +333,7 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
                 );
               }
 
+              // 如果标签后面存在元素并且不是标签节点，则在标签后添加一个 gap
               if (!nextSibling || nextSibling.type.name !== imageTagName) {
                 decorations.push(
                   Decoration.widget(pos + node.nodeSize, () => createGap("full"), {
@@ -338,11 +352,14 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
         key: dropIndicatorKey,
         state: {
           init() {
+            // 初始化一个状态用来记录：现在鼠标正拖着图片在我们文档里悬停到了哪个坐标
             return { pos: null };
           },
+          // 事务被 dispatch 后所有插件的 apply 都会自动执行
           apply(tr, value) {
             const meta = tr.getMeta(dropIndicatorKey);
             if (meta !== undefined) {
+              // 更新状态
               return { pos: meta };
             }
             return value;
@@ -353,6 +370,7 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
             const { pos } = this.getState(state) || { pos: null };
             if (pos === null) return DecorationSet.empty;
 
+            // 创建一个指示器元素插入记录的位置
             const widget = document.createElement("span");
             widget.className = "image-tag-drop-indicator";
 
@@ -366,6 +384,7 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
               return false;
             },
             dragover: (view, event) => {
+              // 把鼠标所在屏幕上的坐标（clientX / Y），反向推算出文档节点里的字符数位置 pos
               const pos = view.posAtCoords({
                 left: event.clientX,
                 top: event.clientY,
@@ -373,6 +392,7 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
               if (pos) {
                 view.dispatch(view.state.tr.setMeta(dropIndicatorKey, pos.pos));
               }
+              // 继续走浏览器默认的一些行为
               return false;
             },
             dragleave: (view) => {

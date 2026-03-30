@@ -34,6 +34,19 @@
 UI -> use-prompt-editor -> use-prompt-images
 ```
 
+### 本地数据结构
+
+```typescript
+export interface PromptImage {
+  id: string;
+  url: string | null;
+  label: string;
+  index: number;
+  status: PromptImageStatus;
+  metadata?: PromptImageMetadata;
+}
+```
+
 ### 提交后端结构
 
 ```
