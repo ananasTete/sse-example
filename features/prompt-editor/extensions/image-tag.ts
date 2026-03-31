@@ -7,18 +7,11 @@ export interface ImageTagOptions {
   HTMLAttributes: Record<string, unknown>;
 }
 
-export interface ImageTagStorage {
-  onBeforeDelete: ((imageId: string) => Promise<boolean>) | null;
-}
-
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     imageTag: {
       insertImageTag: (attrs: { imageId: string; label: string }) => ReturnType;
       removeImageTag: (imageId: string) => ReturnType;
-      setImageTagDeleteHandler: (
-        handler: ((imageId: string) => Promise<boolean>) | null,
-      ) => ReturnType;
     };
   }
 }
@@ -26,7 +19,7 @@ declare module "@tiptap/core" {
 const dropIndicatorKey = new PluginKey("imageTagDropIndicator");
 const inlineGapKey = new PluginKey("imageTagInlineGap");
 
-export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
+export const ImageTag = Node.create<ImageTagOptions>({
   name: "imageTag",
   group: "inline",
   inline: true,
@@ -37,12 +30,6 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
   addOptions() {
     return {
       HTMLAttributes: {},
-    };
-  },
-
-  addStorage() {
-    return {
-      onBeforeDelete: null,
     };
   },
 
@@ -97,127 +84,26 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
       removeImageTag:
         (imageId) =>
         ({ tr, state, dispatch }) => {
-          let found = false;
-          // 从“快照(state)”的文档(doc)树中，遍历所有的后代节点
+          const ranges: Array<{ from: number; to: number }> = [];
           state.doc.descendants((node, pos) => {
             if (
               node.type.name === this.name &&
               node.attrs.imageId === imageId
             ) {
-              if (dispatch) {
-                // 创建一个“删除”事务
-                tr.delete(pos, pos + node.nodeSize);
-              }
-              found = true;
-              return false;
+              ranges.push({ from: pos, to: pos + node.nodeSize });
             }
           });
-          return found;
+
+          if (dispatch) {
+            ranges
+              .sort((a, b) => b.from - a.from)
+              .forEach(({ from, to }) => {
+                tr.delete(from, to);
+              });
+          }
+
+          return ranges.length > 0;
         },
-
-      setImageTagDeleteHandler: (handler) => () => {
-        this.storage.onBeforeDelete = handler;
-        return true;
-      },
-    };
-  },
-
-  // 删除时拦截先触发回调
-  addKeyboardShortcuts() {
-    const handleDelete = async (forward: boolean) => {
-      const { state, view } = this.editor;
-      const { selection } = state;
-      const { $from, $to, empty } = selection;
-
-      let targetNode = null;
-      let targetPos = -1;
-
-      if (empty) {
-        const node = forward ? $from.nodeAfter : $from.nodeBefore;
-        if (node?.type.name === this.name) {
-          targetNode = node;
-          targetPos = forward ? $from.pos : $from.pos - node.nodeSize;
-        }
-      } else {
-        state.doc.nodesBetween($from.pos, $to.pos, (node, pos) => {
-          if (node.type.name === this.name) {
-            targetNode = node;
-            targetPos = pos;
-            return false;
-          }
-        });
-      }
-
-      if (targetNode && targetPos >= 0) {
-        const imageId = targetNode.attrs.imageId;
-        const onBeforeDelete = this.storage.onBeforeDelete;
-
-        if (onBeforeDelete) {
-          const confirmed = await onBeforeDelete(imageId);
-          if (confirmed) {
-            const tr = view.state.tr.delete(
-              targetPos,
-              targetPos + targetNode.nodeSize,
-            );
-            view.dispatch(tr);
-          }
-          return true;
-        }
-      }
-
-      return false;
-    };
-
-    return {
-      Backspace: () => {
-        const { state } = this.editor;
-        // 获取选取信息
-        const { selection } = state;
-        // 获取选取起点信息，empty = true 表示这是一个光标
-        const { $from, empty } = selection;
-
-        if (empty) {
-          // 获取光标前面的节点
-          const nodeBefore = $from.nodeBefore;
-          if (nodeBefore?.type.name === this.name) {
-            handleDelete(false);
-            return true;
-          }
-        } else {
-          let hasImageTag = false;
-          // 遍历选取范围内的所有节点
-          state.doc.nodesBetween(
-            selection.$from.pos,
-            selection.$to.pos,
-            (node) => {
-              if (node.type.name === this.name) {
-                hasImageTag = true;
-                return false;
-              }
-            },
-          );
-          if (hasImageTag) {
-            handleDelete(false);
-            return true;
-          }
-        }
-        return false;
-      },
-
-      Delete: () => {
-        const { state } = this.editor;
-        const { selection } = state;
-        const { $from, empty } = selection;
-
-        if (empty) {
-          const nodeAfter = $from.nodeAfter;
-          if (nodeAfter?.type.name === this.name) {
-            handleDelete(true);
-            return true;
-          }
-        }
-        return false;
-      },
     };
   },
 
@@ -231,7 +117,6 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
     }) => {
       const dom = document.createElement("span");
       dom.setAttribute("data-type", "image-tag");
-      dom.className = "image-tag";
       dom.contentEditable = "false";
       dom.draggable = true;
       dom.textContent = node.attrs.label;
@@ -239,9 +124,17 @@ export const ImageTag = Node.create<ImageTagOptions, ImageTagStorage>({
       // 应用额外的 HTML 属性
       Object.entries(HTMLAttributes).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
+          if (key === "class") {
+            return;
+          }
           dom.setAttribute(key, String(value));
         }
       });
+
+      const className = [dom.className, "image-tag", String(HTMLAttributes.class ?? "")]
+        .filter(Boolean)
+        .join(" ");
+      dom.className = className;
 
       // 每次拖拽开始时设置自定义拖拽图像
       dom.addEventListener("dragstart", (e) => {

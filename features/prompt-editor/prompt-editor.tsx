@@ -2,36 +2,31 @@
 
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useState, useCallback, useMemo, useRef } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { Download, FileText, RotateCcw } from "lucide-react";
 import "./editor.css";
+import { ImageRegistry, PromptDocument } from "./extensions/prompt-document";
 import { ImageTag } from "./extensions/image-tag";
 import { ImageMention } from "./extensions/image-mention";
 import { ImageCardList } from "./components/image-card-list";
 import { ImageMentionMenu } from "./components/image-mention-menu";
-import { ConfirmDialog } from "./components/confirm-dialog";
 import { ImageCropDialog } from "./components/image-crop-dialog";
 import { usePromptEditor } from "./hooks/use-prompt-editor";
 import type { PromptImage } from "./types";
-
-interface PendingDelete {
-  imageId: string;
-  label: string;
-  resolve: (confirmed: boolean) => void;
-}
+import { EMPTY_DOC } from "./utils";
 
 const PromptEditor = () => {
-  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(
-    null,
-  );
   const [cropTargetId, setCropTargetId] = useState<string | null>(null);
   const imageSuggestionsRef = useRef<PromptImage[]>([]);
 
   const extensions = useMemo(
     () => [
+      PromptDocument,
       StarterKit.configure({
+        document: false,
         dropcursor: false,
       }),
+      ImageRegistry,
       ImageTag,
       ImageMention.configure({
         getImages: () => imageSuggestionsRef.current,
@@ -42,7 +37,7 @@ const PromptEditor = () => {
 
   const editor = useEditor({
     extensions,
-    content: "",
+    content: EMPTY_DOC,
     immediatelyRender: false,
   });
 
@@ -57,31 +52,6 @@ const PromptEditor = () => {
     setPromptData,
   } = usePromptEditor({ editor, maxImages: 4 });
 
-  const onBeforeTagDelete = useCallback(
-    (imageId: string): Promise<boolean> => {
-      return new Promise((resolve) => {
-        const image = images.find((img) => img.id === imageId);
-        const label = image?.label || "图片";
-        setPendingDelete({ imageId, label, resolve });
-      });
-    },
-    [images],
-  );
-
-  const confirmDelete = useCallback(() => {
-    if (!pendingDelete) return;
-
-    removeImage(pendingDelete.imageId);
-    pendingDelete.resolve(true);
-    setPendingDelete(null);
-  }, [pendingDelete, removeImage]);
-
-  const cancelDelete = useCallback(() => {
-    if (!pendingDelete) return;
-    pendingDelete.resolve(false);
-    setPendingDelete(null);
-  }, [pendingDelete]);
-
   const cropImage =
     images.find(
       (image): image is (typeof images)[number] & { status: "ready"; url: string } =>
@@ -89,12 +59,6 @@ const PromptEditor = () => {
         image.status === "ready" &&
         Boolean(image.url),
     ) ?? null;
-
-  useEffect(() => {
-    if (editor) {
-      editor.commands.setImageTagDeleteHandler(onBeforeTagDelete);
-    }
-  }, [editor, onBeforeTagDelete]);
 
   useEffect(() => {
     imageSuggestionsRef.current = images;
@@ -131,7 +95,7 @@ const PromptEditor = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    console.log("log", editor.getText());
+                    console.log("log", getPromptData().prompt);
                   }}
                   className="inline-flex items-center gap-1.5 border border-slate-200 px-3 py-1.5 text-xs text-slate-700 transition hover:bg-slate-50"
                 >
@@ -176,16 +140,6 @@ const PromptEditor = () => {
       </div>
 
       <ImageMentionMenu editor={editor} images={images} />
-
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        title="删除确认"
-        message={`是否同时删除 "${pendingDelete?.label || "图片"}" 对应的图片？`}
-        confirmText="确认删除"
-        cancelText="取消"
-        onConfirm={confirmDelete}
-        onCancel={cancelDelete}
-      />
 
       <ImageCropDialog
         open={cropImage !== null}

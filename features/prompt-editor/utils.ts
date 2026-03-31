@@ -1,11 +1,23 @@
 import type { JSONContent } from "@tiptap/core";
-import type { PromptImageData } from "./types";
+import { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import type { PromptData, PromptImage, PromptImageData } from "./types";
+
+export const IMAGE_REGISTRY_NODE_NAME = "imageRegistry";
+export const IMAGE_TAG_NODE_NAME = "imageTag";
 
 export const generateId = () => `img-${crypto.randomUUID()}`; // 之后需要其他渠道的图片如主体、历史生成等，就可以给他们不同的 id 前缀。如 'object-uuid' 等用来区分
 
 export const EMPTY_DOC: JSONContent = {
   type: "doc",
-  content: [{ type: "paragraph" }],
+  content: [
+    {
+      type: IMAGE_REGISTRY_NODE_NAME,
+      attrs: {
+        images: [],
+      },
+    },
+    { type: "paragraph" },
+  ],
 };
 
 export function fileToDataUrl(file: File): Promise<string> {
@@ -33,7 +45,7 @@ function appendTextNodes(text: string, nodes: JSONContent[]) {
 
 function buildParagraphContent(
   text: string,
-  labelToImageMap: Map<string, PromptImageData>,
+  labelToImageMap: Map<string, PromptImage>,
 ): JSONContent[] {
   const tagPattern = /\[@(图\d+)\]/g;
   const content: JSONContent[] = [];
@@ -71,12 +83,14 @@ export function promptToContent(
   prompt: string,
   images: PromptImageData[],
 ): JSONContent {
-  if (!prompt) {
-    return EMPTY_DOC;
-  }
-
-  const labelToImageMap = new Map(images.map((image) => [image.label, image]));
-  const paragraphs = prompt.split("\n\n");
+  const readyImages: PromptImage[] = images.map((image) => ({
+    ...image,
+    status: "ready",
+  }));
+  const labelToImageMap = new Map<string, PromptImage>(
+    readyImages.map((image) => [image.label, image]),
+  );
+  const paragraphs = prompt ? prompt.split("\n\n") : [""];
   const docContent = paragraphs.map((paragraph) => {
     const paragraphContent = buildParagraphContent(paragraph, labelToImageMap);
 
@@ -87,6 +101,120 @@ export function promptToContent(
 
   return {
     type: "doc",
-    content: docContent.length > 0 ? docContent : EMPTY_DOC.content,
+    content: [
+      {
+        type: IMAGE_REGISTRY_NODE_NAME,
+        attrs: { images: readyImages },
+      },
+      ...(docContent.length > 0 ? docContent : [{ type: "paragraph" }]),
+    ],
+  };
+}
+
+export function findImageRegistryPos(doc: ProseMirrorNode): number | null {
+  return doc.firstChild?.type.name === IMAGE_REGISTRY_NODE_NAME ? 0 : null;
+}
+
+export function getPromptImages(doc: ProseMirrorNode): PromptImage[] {
+  const registryPos = findImageRegistryPos(doc);
+  if (registryPos === null) {
+    return [];
+  }
+
+  const registryNode = doc.nodeAt(registryPos);
+  const images = registryNode?.attrs.images;
+
+  return Array.isArray(images) ? (images as PromptImage[]) : [];
+}
+
+export function getPromptImageMap(doc: ProseMirrorNode) {
+  return new Map(getPromptImages(doc).map((image) => [image.id, image]));
+}
+
+export function getReferencedImageIds(doc: ProseMirrorNode) {
+  const ids = new Set<string>();
+
+  doc.descendants((node) => {
+    if (node.type.name === IMAGE_REGISTRY_NODE_NAME) {
+      return false;
+    }
+
+    if (
+      node.type.name === IMAGE_TAG_NODE_NAME &&
+      typeof node.attrs.imageId === "string"
+    ) {
+      ids.add(node.attrs.imageId);
+      return false;
+    }
+  });
+
+  return ids;
+}
+
+function serializeInlineContent(node: ProseMirrorNode): string {
+  const parts: string[] = [];
+
+  node.forEach((child) => {
+    if (child.isText) {
+      parts.push(child.text ?? "");
+      return;
+    }
+
+    if (child.type.name === "hardBreak") {
+      parts.push("\n");
+      return;
+    }
+
+    if (child.type.name === IMAGE_TAG_NODE_NAME) {
+      parts.push(`[@${child.attrs.label}]`);
+      return;
+    }
+
+    if (child.isLeaf) {
+      parts.push(child.textContent);
+      return;
+    }
+
+    parts.push(serializeInlineContent(child));
+  });
+
+  return parts.join("");
+}
+
+export function serializePrompt(doc: ProseMirrorNode): string {
+  const blocks: string[] = [];
+
+  doc.forEach((node) => {
+    if (node.type.name === IMAGE_REGISTRY_NODE_NAME) {
+      return;
+    }
+
+    blocks.push(serializeInlineContent(node));
+  });
+
+  return blocks.join("\n\n");
+}
+
+export function serializePromptData(doc: ProseMirrorNode): PromptData {
+  const referencedImageIds = getReferencedImageIds(doc);
+  const images = getPromptImages(doc)
+    .filter((image): image is PromptImage & { status: "ready"; url: string } => {
+      return (
+        referencedImageIds.has(image.id) &&
+        image.status === "ready" &&
+        Boolean(image.url)
+      );
+    })
+    .map((image) => ({
+      id: image.id,
+      label: image.label,
+      index: image.index,
+      url: image.url,
+      metadata: image.metadata,
+    }));
+
+  return {
+    prompt: serializePrompt(doc),
+    images,
   };
 }
