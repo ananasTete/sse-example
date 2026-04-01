@@ -7,6 +7,9 @@ export const IMAGE_TAG_NODE_NAME = "imageTag";
 
 export const generateId = () => `img-${crypto.randomUUID()}`; // 之后需要其他渠道的图片如主体、历史生成等，就可以给他们不同的 id 前缀。如 'object-uuid' 等用来区分
 
+/**
+ * 自定义 document 节点：将注册表节点作为第一个子节点，用于后续索引
+ */
 export const EMPTY_DOC: JSONContent = {
   type: "doc",
   content: [
@@ -111,26 +114,42 @@ export function promptToContent(
   };
 }
 
+/**
+ * 获取图片注册表的位置，因为把这个节点放在了文档的开头，所以直接获取第一个节点的位置即可，效率最高
+ */
 export function findImageRegistryPos(doc: ProseMirrorNode): number | null {
   return doc.firstChild?.type.name === IMAGE_REGISTRY_NODE_NAME ? 0 : null;
 }
 
+/**
+ * 获取文档中的图片注册表
+ * @param doc 
+ * @returns 
+ */
 export function getPromptImages(doc: ProseMirrorNode): PromptImage[] {
+  // 判定注册表节点的位置
   const registryPos = findImageRegistryPos(doc);
   if (registryPos === null) {
     return [];
   }
 
   const registryNode = doc.nodeAt(registryPos);
+  // 获取注册表节点中的图片数据
   const images = registryNode?.attrs.images;
 
   return Array.isArray(images) ? (images as PromptImage[]) : [];
 }
 
+/**
+ * 获取注册表 id 映射
+ */
 export function getPromptImageMap(doc: ProseMirrorNode) {
   return new Map(getPromptImages(doc).map((image) => [image.id, image]));
 }
 
+/**
+ * 获取文档中所有被引用的去重图片 id
+ */
 export function getReferencedImageIds(doc: ProseMirrorNode) {
   const ids = new Set<string>();
 

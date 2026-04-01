@@ -15,6 +15,9 @@ export interface PromptDocumentOptions {
   HTMLAttributes: Record<string, unknown>;
 }
 
+/**
+ * 合并图片去重
+ */
 function mergePromptImages(
   currentImages: PromptImage[],
   updates: PromptImage[],
@@ -23,6 +26,7 @@ function mergePromptImages(
     return currentImages;
   }
 
+  // 去重
   const updatesById = new Map(updates.map((image) => [image.id, image]));
   const nextImages = currentImages.map((image) => {
     return updatesById.get(image.id) ?? image;
@@ -37,11 +41,13 @@ function mergePromptImages(
   return nextImages;
 }
 
+// 设置更新注册表节点的 transaction
 function setRegistryImages(
   doc: ProseMirrorNode,
   tr: Transaction,
   images: PromptImage[],
 ): boolean {
+  // 判定注册表节点的位置
   const registryPos = findImageRegistryPos(doc);
 
   if (registryPos === null) {
@@ -53,6 +59,7 @@ function setRegistryImages(
     return false;
   }
 
+  // 更新注册表节点的属性
   tr.setNodeMarkup(registryPos, undefined, {
     ...registryNode.attrs,
     images,
@@ -61,6 +68,9 @@ function setRegistryImages(
   return true;
 }
 
+/**
+ * 获取所有需要删除的图片标签的位置
+ */
 function collectImageTagRanges(doc: ProseMirrorNode, ids: Set<string>) {
   const ranges: Array<{ from: number; to: number }> = [];
 
@@ -107,12 +117,6 @@ export const PromptDocument = Node.create<PromptDocumentOptions>({
   topNode: true,
   content: "imageRegistry block+",
 
-  addOptions() {
-    return {
-      HTMLAttributes: {},
-    };
-  },
-
   renderHTML({ HTMLAttributes }) {
     return ["div", mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0];
   },
@@ -123,12 +127,6 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
   atom: true,
   selectable: false,
   draggable: false,
-
-  addOptions() {
-    return {
-      HTMLAttributes: {},
-    };
-  },
 
   addAttributes() {
     return {
@@ -161,6 +159,7 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
     return "";
   },
 
+  // 创建一个隐藏的元素
   addNodeView() {
     return () => {
       const dom = document.createElement("div");
@@ -175,13 +174,19 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
 
   addCommands() {
     return {
+      /**
+       * 插入图片
+       */
       upsertPromptImages:
         (images) =>
         ({ state, tr, dispatch }) => {
+          // 获取当前图片注册表中的图片
           const currentImages = getPromptImages(state.doc);
+          // 合并图片
           const nextImages = mergePromptImages(currentImages, images);
 
           if (dispatch) {
+            // 设置图片注册表中的图片
             setRegistryImages(state.doc, tr, nextImages);
             dispatch(tr);
           }
@@ -189,6 +194,9 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
           return true;
         },
 
+      /**
+       * 更新图片
+       */
       updatePromptImage:
         (id, patch) =>
         ({ state, tr, dispatch }) => {
@@ -211,6 +219,9 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
           return true;
         },
 
+      /**
+       * 删除图片
+       */
       removePromptImagesAndTags:
         (ids) =>
         ({ state, tr, dispatch }) => {
@@ -218,10 +229,12 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
             return true;
           }
 
+          // 去重
           const idSet = new Set(ids);
           const nextImages = getPromptImages(state.doc).filter((image) => {
             return !idSet.has(image.id);
           });
+          // 获取所有需要删除的图片标签的位置
           const ranges = collectImageTagRanges(state.doc, idSet);
 
           if (dispatch) {
@@ -238,6 +251,9 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
           return true;
         },
 
+      /**
+       * 更新图片裁剪信息
+       */
       setPromptImageCrop:
         (id, crop) =>
         ({ state, tr, dispatch }) => {
@@ -284,10 +300,13 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
     return [
       new Plugin({
         key: promptDocumentNormalizeKey,
+        // 任何 tr 触发后自动调用，并执行返回的 tr
         appendTransaction(transactions, _oldState, newState) {
           if (!transactions.some((transaction) => transaction.docChanged)) {
             return null;
           }
+
+          // ========== 遍历文档收集无效 TAG 或 label 错误的 TAG，删除和修复 ==========
 
           const imageMap = getPromptImageMap(newState.doc);
           const invalidTagRanges: Array<{ from: number; to: number }> = [];
@@ -357,6 +376,8 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
             });
             changed = true;
           });
+
+          // ========== 自动垃圾回收（Garbage Collection）： 检查注册表里的所有图片，如果有图片的 id 已经没有被任何 imageTag 引用了，就把它从 imageRegistry 中剔除 ==========
 
           const currentImages = getPromptImages(tr.doc);
           const referencedImageIds = getReferencedImageIds(tr.doc);

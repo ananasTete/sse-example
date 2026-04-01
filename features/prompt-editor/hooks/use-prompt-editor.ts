@@ -109,10 +109,12 @@ export function usePromptEditor({
         };
       });
 
+      // 先更新注册表
       const chain = editor.chain().focus().upsertPromptImages(
         placeholders.map(({ image }) => image),
       );
 
+      // 插入节点
       placeholders.forEach(({ image }) => {
         chain.insertImageTag({ imageId: image.id, label: image.label });
       });
