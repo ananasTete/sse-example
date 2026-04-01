@@ -1,54 +1,48 @@
 import { mergeAttributes, Node } from "@tiptap/core";
 import { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, Transaction } from "@tiptap/pm/state";
-import type { CropMetadata, PromptImage } from "../types";
+import type { CropMetadata, PromptResource } from "../types";
 import {
-  findImageRegistryPos,
-  getPromptImageMap,
-  getPromptImages,
-  getReferencedImageIds,
-  IMAGE_REGISTRY_NODE_NAME,
+  findResourceRegistryPos,
+  getPromptResourceMap,
+  getPromptResources,
+  getReferencedResourceIds,
   IMAGE_TAG_NODE_NAME,
+  RESOURCE_REGISTRY_NODE_NAME,
 } from "../utils";
 
 export interface PromptDocumentOptions {
   HTMLAttributes: Record<string, unknown>;
 }
 
-/**
- * 合并图片去重
- */
-function mergePromptImages(
-  currentImages: PromptImage[],
-  updates: PromptImage[],
-): PromptImage[] {
+function mergePromptResources(
+  currentResources: PromptResource[],
+  updates: PromptResource[],
+): PromptResource[] {
   if (updates.length === 0) {
-    return currentImages;
+    return currentResources;
   }
 
-  // 去重
-  const updatesById = new Map(updates.map((image) => [image.id, image]));
-  const nextImages = currentImages.map((image) => {
-    return updatesById.get(image.id) ?? image;
+  const updatesById = new Map(updates.map((resource) => [resource.id, resource]));
+  const nextResources = currentResources.map((resource) => {
+    return updatesById.get(resource.id) ?? resource;
   });
 
-  updates.forEach((image) => {
-    if (!currentImages.some((currentImage) => currentImage.id === image.id)) {
-      nextImages.push(image);
+  updates.forEach((resource) => {
+    if (!currentResources.some((currentResource) => currentResource.id === resource.id)) {
+      nextResources.push(resource);
     }
   });
 
-  return nextImages;
+  return nextResources;
 }
 
-// 设置更新注册表节点的 transaction
-function setRegistryImages(
+function setRegistryResources(
   doc: ProseMirrorNode,
   tr: Transaction,
-  images: PromptImage[],
+  resources: PromptResource[],
 ): boolean {
-  // 判定注册表节点的位置
-  const registryPos = findImageRegistryPos(doc);
+  const registryPos = findResourceRegistryPos(doc);
 
   if (registryPos === null) {
     return false;
@@ -59,30 +53,26 @@ function setRegistryImages(
     return false;
   }
 
-  // 更新注册表节点的属性
   tr.setNodeMarkup(registryPos, undefined, {
     ...registryNode.attrs,
-    images,
+    resources,
   });
 
   return true;
 }
 
-/**
- * 获取所有需要删除的图片标签的位置
- */
 function collectImageTagRanges(doc: ProseMirrorNode, ids: Set<string>) {
   const ranges: Array<{ from: number; to: number }> = [];
 
   doc.descendants((node, pos) => {
-    if (node.type.name === IMAGE_REGISTRY_NODE_NAME) {
+    if (node.type.name === RESOURCE_REGISTRY_NODE_NAME) {
       return false;
     }
 
     if (
       node.type.name === IMAGE_TAG_NODE_NAME &&
-      typeof node.attrs.imageId === "string" &&
-      ids.has(node.attrs.imageId)
+      typeof node.attrs.resourceId === "string" &&
+      ids.has(node.attrs.resourceId)
     ) {
       ranges.push({ from: pos, to: pos + node.nodeSize });
       return false;
@@ -101,13 +91,13 @@ const promptDocumentNormalizeKey = new PluginKey("promptDocumentNormalize");
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     promptDocument: {
-      upsertPromptImages: (images: PromptImage[]) => ReturnType;
-      updatePromptImage: (
+      upsertPromptResources: (resources: PromptResource[]) => ReturnType;
+      updatePromptResource: (
         id: string,
-        patch: Partial<PromptImage>,
+        patch: Partial<PromptResource>,
       ) => ReturnType;
-      removePromptImagesAndTags: (ids: string[]) => ReturnType;
-      setPromptImageCrop: (id: string, crop?: CropMetadata) => ReturnType;
+      removePromptResourcesAndTags: (ids: string[]) => ReturnType;
+      setPromptResourceCrop: (id: string, crop?: CropMetadata) => ReturnType;
     };
   }
 }
@@ -115,29 +105,29 @@ declare module "@tiptap/core" {
 export const PromptDocument = Node.create<PromptDocumentOptions>({
   name: "doc",
   topNode: true,
-  content: "imageRegistry block+",
+  content: "resourceRegistry block+",
 
   renderHTML({ HTMLAttributes }) {
     return ["div", mergeAttributes(this.options.HTMLAttributes, HTMLAttributes), 0];
   },
 });
 
-export const ImageRegistry = Node.create<PromptDocumentOptions>({
-  name: IMAGE_REGISTRY_NODE_NAME,
+export const ResourceRegistry = Node.create<PromptDocumentOptions>({
+  name: RESOURCE_REGISTRY_NODE_NAME,
   atom: true,
   selectable: false,
   draggable: false,
 
   addAttributes() {
     return {
-      images: {
+      resources: {
         default: [],
       },
     };
   },
 
   parseHTML() {
-    return [{ tag: 'div[data-type="image-registry"]' }];
+    return [{ tag: 'div[data-type="resource-registry"]' }];
   },
 
   renderHTML({ HTMLAttributes }) {
@@ -145,7 +135,7 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
       "div",
       mergeAttributes(
         {
-          "data-type": "image-registry",
+          "data-type": "resource-registry",
           hidden: "hidden",
           "aria-hidden": "true",
         },
@@ -159,11 +149,10 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
     return "";
   },
 
-  // 创建一个隐藏的元素
   addNodeView() {
     return () => {
       const dom = document.createElement("div");
-      dom.setAttribute("data-type", "image-registry");
+      dom.setAttribute("data-type", "resource-registry");
       dom.hidden = true;
       dom.setAttribute("aria-hidden", "true");
       dom.contentEditable = "false";
@@ -174,67 +163,53 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
 
   addCommands() {
     return {
-      /**
-       * 插入图片
-       */
-      upsertPromptImages:
-        (images) =>
+      upsertPromptResources:
+        (resources) =>
         ({ state, tr, dispatch }) => {
-          // 获取当前图片注册表中的图片
-          const currentImages = getPromptImages(state.doc);
-          // 合并图片
-          const nextImages = mergePromptImages(currentImages, images);
+          const currentResources = getPromptResources(state.doc);
+          const nextResources = mergePromptResources(currentResources, resources);
 
           if (dispatch) {
-            // 设置图片注册表中的图片
-            setRegistryImages(state.doc, tr, nextImages);
+            setRegistryResources(state.doc, tr, nextResources);
             dispatch(tr);
           }
 
           return true;
         },
 
-      /**
-       * 更新图片
-       */
-      updatePromptImage:
+      updatePromptResource:
         (id, patch) =>
         ({ state, tr, dispatch }) => {
-          const currentImages = getPromptImages(state.doc);
-          const currentImage = currentImages.find((image) => image.id === id);
+          const currentResources = getPromptResources(state.doc);
+          const currentResource = currentResources.find((resource) => resource.id === id);
 
-          if (!currentImage) {
+          if (!currentResource) {
             return false;
           }
 
-          const nextImages = currentImages.map((image) => {
-            return image.id === id ? { ...image, ...patch } : image;
+          const nextResources = currentResources.map((resource) => {
+            return resource.id === id ? { ...resource, ...patch } : resource;
           });
 
           if (dispatch) {
-            setRegistryImages(state.doc, tr, nextImages);
+            setRegistryResources(state.doc, tr, nextResources);
             dispatch(tr);
           }
 
           return true;
         },
 
-      /**
-       * 删除图片
-       */
-      removePromptImagesAndTags:
+      removePromptResourcesAndTags:
         (ids) =>
         ({ state, tr, dispatch }) => {
           if (ids.length === 0) {
             return true;
           }
 
-          // 去重
           const idSet = new Set(ids);
-          const nextImages = getPromptImages(state.doc).filter((image) => {
-            return !idSet.has(image.id);
+          const nextResources = getPromptResources(state.doc).filter((resource) => {
+            return !idSet.has(resource.id);
           });
-          // 获取所有需要删除的图片标签的位置
           const ranges = collectImageTagRanges(state.doc, idSet);
 
           if (dispatch) {
@@ -244,50 +219,47 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
                 tr.delete(from, to);
               });
 
-            setRegistryImages(state.doc, tr, nextImages);
+            setRegistryResources(state.doc, tr, nextResources);
             dispatch(tr);
           }
 
           return true;
         },
 
-      /**
-       * 更新图片裁剪信息
-       */
-      setPromptImageCrop:
+      setPromptResourceCrop:
         (id, crop) =>
         ({ state, tr, dispatch }) => {
-          const currentImages = getPromptImages(state.doc);
-          const currentImage = currentImages.find((image) => image.id === id);
+          const currentResources = getPromptResources(state.doc);
+          const currentResource = currentResources.find((resource) => resource.id === id);
 
-          if (!currentImage) {
+          if (!currentResource) {
             return false;
           }
 
-          const nextMetadata = (() => {
+          const nextTransform = (() => {
             if (!crop) {
-              const restMetadata = { ...(currentImage.metadata ?? {}) };
-              delete restMetadata.crop;
+              const restTransform = { ...(currentResource.transform ?? {}) };
+              delete restTransform.crop;
 
-              return Object.keys(restMetadata).length > 0
-                ? restMetadata
+              return Object.keys(restTransform).length > 0
+                ? restTransform
                 : undefined;
             }
 
             return {
-              ...currentImage.metadata,
+              ...currentResource.transform,
               crop,
             };
           })();
 
-          const nextImages = currentImages.map((image) => {
-            return image.id === id
-              ? { ...image, metadata: nextMetadata }
-              : image;
+          const nextResources = currentResources.map((resource) => {
+            return resource.id === id
+              ? { ...resource, transform: nextTransform }
+              : resource;
           });
 
           if (dispatch) {
-            setRegistryImages(state.doc, tr, nextImages);
+            setRegistryResources(state.doc, tr, nextResources);
             dispatch(tr);
           }
 
@@ -300,24 +272,16 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
     return [
       new Plugin({
         key: promptDocumentNormalizeKey,
-        // 任何 tr 触发后自动调用，并执行返回的 tr
         appendTransaction(transactions, _oldState, newState) {
           if (!transactions.some((transaction) => transaction.docChanged)) {
             return null;
           }
 
-          // ========== 遍历文档收集无效 TAG 或 label 错误的 TAG，删除和修复 ==========
-
-          const imageMap = getPromptImageMap(newState.doc);
+          const resourceMap = getPromptResourceMap(newState.doc);
           const invalidTagRanges: Array<{ from: number; to: number }> = [];
-          const labelFixes: Array<{
-            pos: number;
-            imageId: string;
-            label: string;
-          }> = [];
 
           newState.doc.descendants((node, pos) => {
-            if (node.type.name === IMAGE_REGISTRY_NODE_NAME) {
+            if (node.type.name === RESOURCE_REGISTRY_NODE_NAME) {
               return false;
             }
 
@@ -325,24 +289,10 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
               return;
             }
 
-            const imageId = node.attrs.imageId as string | undefined;
-            if (!imageId) {
+            const resourceId = node.attrs.resourceId as string | undefined;
+            if (!resourceId || !resourceMap.has(resourceId)) {
               invalidTagRanges.push({ from: pos, to: pos + node.nodeSize });
               return false;
-            }
-
-            const image = imageMap.get(imageId);
-            if (!image) {
-              invalidTagRanges.push({ from: pos, to: pos + node.nodeSize });
-              return false;
-            }
-
-            if (node.attrs.label !== image.label) {
-              labelFixes.push({
-                pos,
-                imageId,
-                label: image.label,
-              });
             }
 
             return false;
@@ -358,35 +308,14 @@ export const ImageRegistry = Node.create<PromptDocumentOptions>({
               changed = true;
             });
 
-          labelFixes.forEach(({ pos, imageId, label }) => {
-            const mappedPos = tr.mapping.map(pos);
-            const node = tr.doc.nodeAt(mappedPos);
-
-            if (
-              node?.type.name !== IMAGE_TAG_NODE_NAME ||
-              node.attrs.imageId !== imageId ||
-              node.attrs.label === label
-            ) {
-              return;
-            }
-
-            tr.setNodeMarkup(mappedPos, undefined, {
-              ...node.attrs,
-              label,
-            });
-            changed = true;
+          const currentResources = getPromptResources(tr.doc);
+          const referencedResourceIds = getReferencedResourceIds(tr.doc);
+          const nextResources = currentResources.filter((resource) => {
+            return referencedResourceIds.has(resource.id);
           });
 
-          // ========== 自动垃圾回收（Garbage Collection）： 检查注册表里的所有图片，如果有图片的 id 已经没有被任何 imageTag 引用了，就把它从 imageRegistry 中剔除 ==========
-
-          const currentImages = getPromptImages(tr.doc);
-          const referencedImageIds = getReferencedImageIds(tr.doc);
-          const nextImages = currentImages.filter((image) => {
-            return referencedImageIds.has(image.id);
-          });
-
-          if (nextImages.length !== currentImages.length) {
-            setRegistryImages(tr.doc, tr, nextImages);
+          if (nextResources.length !== currentResources.length) {
+            setRegistryResources(tr.doc, tr, nextResources);
             changed = true;
           }
 

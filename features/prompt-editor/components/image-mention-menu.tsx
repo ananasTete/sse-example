@@ -15,33 +15,35 @@ import { useEffect, useMemo, useRef } from "react";
 import { cn } from "@/lib/utils";
 import { CroppedImagePreview } from "./cropped-image-preview";
 import {
+  buildImageMentionIndex,
   filterImageMentionItems,
-  getImageMentionQuery,
+  getImageMentionActiveIndex,
   ImageMentionPluginKey,
+  type ImageMentionItem,
   type ImageMentionPluginState,
 } from "../extensions/image-mention";
-import type { PromptImage } from "../types";
+import { getPromptResources } from "../utils";
 
 export interface ImageMentionMenuProps {
   editor: Editor;
-  images: PromptImage[];
 }
 
 function getClosedState(): ImageMentionPluginState {
   return {
     isOpen: false,
     triggerFrom: null,
+    query: "",
     selectedIndex: 0,
   };
 }
 
-export function ImageMentionMenu({
-  editor,
-  images,
-}: ImageMentionMenuProps) {
+export function ImageMentionMenu({ editor }: ImageMentionMenuProps) {
   const ui = useEditorState({
     editor,
     selector: ({ editor: currentEditor }) => {
+      const mentionIndex = buildImageMentionIndex(
+        getPromptResources(currentEditor.state.doc),
+      );
       const pluginState =
         (ImageMentionPluginKey.getState(
           currentEditor.state,
@@ -49,38 +51,28 @@ export function ImageMentionMenu({
 
       if (!pluginState.isOpen || pluginState.triggerFrom == null) {
         return {
-          isOpen: false,
-          triggerFrom: null as number | null,
-          query: "",
+          ...pluginState,
           caret: null as number | null,
-          selectedIndex: 0,
+          hasReadyImages: mentionIndex.length > 0,
+          items: [] as ImageMentionItem[],
         };
       }
 
       return {
         ...pluginState,
-        query: getImageMentionQuery(currentEditor.state, pluginState.triggerFrom),
         caret: currentEditor.state.selection.from,
+        hasReadyImages: mentionIndex.length > 0,
+        items: filterImageMentionItems(mentionIndex, pluginState.query),
       };
     },
   });
 
   const itemRefs = useRef(new Map<string, HTMLButtonElement>());
-
-  const items = useMemo(
-    () => filterImageMentionItems(images, ui.query),
-    [images, ui.query],
+  const activeIndex = getImageMentionActiveIndex(
+    ui.selectedIndex,
+    ui.items.length,
   );
-
-  const hasReadyImages = useMemo(
-    () =>
-      images.some((image) => image.status === "ready" && Boolean(image.url)),
-    [images],
-  );
-
-  const activeIndex =
-    items.length === 0 ? 0 : Math.min(ui.selectedIndex, items.length - 1);
-  const activeItem = items[activeIndex] ?? null;
+  const activeItem = ui.items[activeIndex] ?? null;
   const isOpen = ui.isOpen && ui.triggerFrom != null && ui.caret != null;
 
   const virtualReference = useMemo<VirtualElement | null>(() => {
@@ -202,23 +194,24 @@ export function ImageMentionMenu({
         </div>
 
         <div className="max-h-72 overflow-y-auto p-1.5">
-          {items.length > 0 ? (
-            items.map((image, index) => {
+          {ui.items.length > 0 ? (
+            ui.items.map((item, index) => {
+              const image = item.resource;
               const isActive = index === activeIndex;
 
               return (
                 <button
-                  key={image.id}
+                  key={item.id}
                   type="button"
                   role="option"
                   aria-selected={isActive}
                   ref={(node) => {
                     if (!node) {
-                      itemRefs.current.delete(image.id);
+                      itemRefs.current.delete(item.id);
                       return;
                     }
 
-                    itemRefs.current.set(image.id, node);
+                    itemRefs.current.set(item.id, node);
                   }}
                   className={cn(
                     "flex w-full items-center gap-3 border border-transparent px-2 py-2 text-left transition",
@@ -231,8 +224,7 @@ export function ImageMentionMenu({
                   }}
                   onClick={() => {
                     editor.commands.insertImageMention({
-                      imageId: image.id,
-                      label: image.label,
+                      resourceId: item.id,
                     });
                   }}
                 >
@@ -245,22 +237,22 @@ export function ImageMentionMenu({
                     )}
                   >
                     <CroppedImagePreview
-                      src={image.url}
-                      alt={image.label}
-                      crop={image.metadata?.crop}
+                      src={image.asset.url}
+                      alt={item.token}
+                      crop={image.transform?.crop}
                       className="h-full w-full"
                     />
                   </div>
 
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium">{image.label}</div>
+                    <div className="text-sm font-medium">{item.token}</div>
                     <div
                       className={cn(
                         "truncate text-xs",
                         isActive ? "text-slate-300" : "text-slate-500",
                       )}
                     >
-                      {image.metadata?.crop?.enabled ? "已裁切图片" : "原始图片"}
+                      {image.transform?.crop?.enabled ? "已裁切图片" : "原始图片"}
                     </div>
                   </div>
                 </button>
@@ -268,7 +260,7 @@ export function ImageMentionMenu({
             })
           ) : (
             <div className="px-3 py-6 text-center text-sm text-slate-500">
-              {hasReadyImages
+              {ui.hasReadyImages
                 ? `没有匹配“${ui.query}”的图片`
                 : "暂无可插入图片"}
             </div>

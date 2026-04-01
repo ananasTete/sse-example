@@ -1,22 +1,24 @@
 import type { JSONContent } from "@tiptap/core";
 import { Node as ProseMirrorNode } from "@tiptap/pm/model";
-import type { PromptData, PromptImage, PromptImageData } from "./types";
+import type {
+  PromptPayload,
+  PromptReference,
+  PromptResource,
+  ReadyPromptResource,
+} from "./types";
 
-export const IMAGE_REGISTRY_NODE_NAME = "imageRegistry";
+export const RESOURCE_REGISTRY_NODE_NAME = "resourceRegistry";
 export const IMAGE_TAG_NODE_NAME = "imageTag";
 
-export const generateId = () => `img-${crypto.randomUUID()}`; // 之后需要其他渠道的图片如主体、历史生成等，就可以给他们不同的 id 前缀。如 'object-uuid' 等用来区分
+export const generateId = () => `res-${crypto.randomUUID()}`;
 
-/**
- * 自定义 document 节点：将注册表节点作为第一个子节点，用于后续索引
- */
 export const EMPTY_DOC: JSONContent = {
   type: "doc",
   content: [
     {
-      type: IMAGE_REGISTRY_NODE_NAME,
+      type: RESOURCE_REGISTRY_NODE_NAME,
       attrs: {
-        images: [],
+        resources: [],
       },
     },
     { type: "paragraph" },
@@ -30,6 +32,26 @@ export function fileToDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+export function getPromptResourceToken(resource: PromptResource): string {
+  return resource.reference.type === "slot"
+    ? `图${resource.reference.slot}`
+    : resource.reference.handle;
+}
+
+export function getPromptResourceMentionText(resource: PromptResource): string {
+  return `[@${getPromptResourceToken(resource)}]`;
+}
+
+export function isReadyPromptResource(
+  resource: PromptResource,
+): resource is ReadyPromptResource {
+  return resource.status === "ready" && Boolean(resource.asset?.url);
+}
+
+export function getPromptResourcePreviewUrl(resource: PromptResource) {
+  return resource.asset?.url ?? null;
 }
 
 function appendTextNodes(text: string, nodes: JSONContent[]) {
@@ -46,56 +68,69 @@ function appendTextNodes(text: string, nodes: JSONContent[]) {
   });
 }
 
+function buildResourceTokenMap(resources: PromptResource[]) {
+  const tokenEntries = resources.map((resource) => [
+    getPromptResourceMentionText(resource),
+    resource,
+  ] as const);
+
+  tokenEntries.sort((a, b) => b[0].length - a[0].length);
+
+  return tokenEntries;
+}
+
 function buildParagraphContent(
   text: string,
-  labelToImageMap: Map<string, PromptImage>,
+  resources: PromptResource[],
 ): JSONContent[] {
-  const tagPattern = /\[@(图\d+)\]/g;
   const content: JSONContent[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
+  const tokenEntries = buildResourceTokenMap(resources);
+  let cursor = 0;
 
-  while ((match = tagPattern.exec(text)) !== null) {
-    if (match.index > lastIndex) {
-      appendTextNodes(text.slice(lastIndex, match.index), content);
-    }
+  while (cursor < text.length) {
+    const matchedEntry = tokenEntries.find(([token]) =>
+      text.startsWith(token, cursor),
+    );
 
-    const label = match[1];
-    const image = labelToImageMap.get(label);
-
-    if (image) {
+    if (matchedEntry) {
+      const [token, resource] = matchedEntry;
       content.push({
-        type: "imageTag",
-        attrs: { imageId: image.id, label: image.label },
+        type: IMAGE_TAG_NODE_NAME,
+        attrs: { resourceId: resource.id },
       });
-    } else {
-      appendTextNodes(match[0], content);
+      cursor += token.length;
+      continue;
     }
 
-    lastIndex = match.index + match[0].length;
-  }
+    const nextTokenStart = (() => {
+      for (let index = cursor; index < text.length; index += 1) {
+        if (text[index] !== "@") {
+          continue;
+        }
 
-  if (lastIndex < text.length) {
-    appendTextNodes(text.slice(lastIndex), content);
+        if (tokenEntries.some(([token]) => text.startsWith(token, index))) {
+          return index;
+        }
+      }
+
+      return -1;
+    })();
+
+    const textEnd = nextTokenStart === -1 ? text.length : nextTokenStart;
+    appendTextNodes(text.slice(cursor, textEnd), content);
+    cursor = textEnd;
   }
 
   return content;
 }
 
-export function promptToContent(
-  prompt: string,
-  images: PromptImageData[],
+export function payloadToContent(
+  text: string,
+  resources: PromptResource[],
 ): JSONContent {
-  const readyImages: PromptImage[] = images.map((image) => ({
-    ...image,
-    status: "ready",
-  }));
-  const labelToImageMap = new Map<string, PromptImage>(
-    readyImages.map((image) => [image.label, image]),
-  );
-  const paragraphs = prompt ? prompt.split("\n\n") : [""];
+  const paragraphs = text ? text.split("\n\n") : [""];
   const docContent = paragraphs.map((paragraph) => {
-    const paragraphContent = buildParagraphContent(paragraph, labelToImageMap);
+    const paragraphContent = buildParagraphContent(paragraph, resources);
 
     return paragraphContent.length > 0
       ? { type: "paragraph", content: paragraphContent }
@@ -106,63 +141,49 @@ export function promptToContent(
     type: "doc",
     content: [
       {
-        type: IMAGE_REGISTRY_NODE_NAME,
-        attrs: { images: readyImages },
+        type: RESOURCE_REGISTRY_NODE_NAME,
+        attrs: { resources },
       },
       ...(docContent.length > 0 ? docContent : [{ type: "paragraph" }]),
     ],
   };
 }
 
-/**
- * 获取图片注册表的位置，因为把这个节点放在了文档的开头，所以直接获取第一个节点的位置即可，效率最高
- */
-export function findImageRegistryPos(doc: ProseMirrorNode): number | null {
-  return doc.firstChild?.type.name === IMAGE_REGISTRY_NODE_NAME ? 0 : null;
+export function findResourceRegistryPos(doc: ProseMirrorNode): number | null {
+  return doc.firstChild?.type.name === RESOURCE_REGISTRY_NODE_NAME ? 0 : null;
 }
 
-/**
- * 获取文档中的图片注册表
- * @param doc 
- * @returns 
- */
-export function getPromptImages(doc: ProseMirrorNode): PromptImage[] {
-  // 判定注册表节点的位置
-  const registryPos = findImageRegistryPos(doc);
+export function getPromptResources(doc: ProseMirrorNode): PromptResource[] {
+  const registryPos = findResourceRegistryPos(doc);
   if (registryPos === null) {
     return [];
   }
 
   const registryNode = doc.nodeAt(registryPos);
-  // 获取注册表节点中的图片数据
-  const images = registryNode?.attrs.images;
+  const resources = registryNode?.attrs.resources;
 
-  return Array.isArray(images) ? (images as PromptImage[]) : [];
+  return Array.isArray(resources) ? (resources as PromptResource[]) : [];
 }
 
-/**
- * 获取注册表 id 映射
- */
-export function getPromptImageMap(doc: ProseMirrorNode) {
-  return new Map(getPromptImages(doc).map((image) => [image.id, image]));
+export function getPromptResourceMap(doc: ProseMirrorNode) {
+  return new Map(
+    getPromptResources(doc).map((resource) => [resource.id, resource]),
+  );
 }
 
-/**
- * 获取文档中所有被引用的去重图片 id
- */
-export function getReferencedImageIds(doc: ProseMirrorNode) {
+export function getReferencedResourceIds(doc: ProseMirrorNode) {
   const ids = new Set<string>();
 
   doc.descendants((node) => {
-    if (node.type.name === IMAGE_REGISTRY_NODE_NAME) {
+    if (node.type.name === RESOURCE_REGISTRY_NODE_NAME) {
       return false;
     }
 
     if (
       node.type.name === IMAGE_TAG_NODE_NAME &&
-      typeof node.attrs.imageId === "string"
+      typeof node.attrs.resourceId === "string"
     ) {
-      ids.add(node.attrs.imageId);
+      ids.add(node.attrs.resourceId);
       return false;
     }
   });
@@ -170,7 +191,10 @@ export function getReferencedImageIds(doc: ProseMirrorNode) {
   return ids;
 }
 
-function serializeInlineContent(node: ProseMirrorNode): string {
+function serializeInlineContent(
+  node: ProseMirrorNode,
+  resourceMap: Map<string, PromptResource>,
+): string {
   const parts: string[] = [];
 
   node.forEach((child) => {
@@ -185,7 +209,12 @@ function serializeInlineContent(node: ProseMirrorNode): string {
     }
 
     if (child.type.name === IMAGE_TAG_NODE_NAME) {
-      parts.push(`[@${child.attrs.label}]`);
+      const resourceId = child.attrs.resourceId as string | undefined;
+      const resource = resourceId ? resourceMap.get(resourceId) : undefined;
+
+      parts.push(
+        resource ? getPromptResourceMentionText(resource) : `[@${resourceId ?? ""}]`,
+      );
       return;
     }
 
@@ -194,7 +223,7 @@ function serializeInlineContent(node: ProseMirrorNode): string {
       return;
     }
 
-    parts.push(serializeInlineContent(child));
+    parts.push(serializeInlineContent(child, resourceMap));
   });
 
   return parts.join("");
@@ -202,38 +231,38 @@ function serializeInlineContent(node: ProseMirrorNode): string {
 
 export function serializePrompt(doc: ProseMirrorNode): string {
   const blocks: string[] = [];
+  const resourceMap = getPromptResourceMap(doc);
 
   doc.forEach((node) => {
-    if (node.type.name === IMAGE_REGISTRY_NODE_NAME) {
+    if (node.type.name === RESOURCE_REGISTRY_NODE_NAME) {
       return;
     }
 
-    blocks.push(serializeInlineContent(node));
+    blocks.push(serializeInlineContent(node, resourceMap));
   });
 
   return blocks.join("\n\n");
 }
 
-export function serializePromptData(doc: ProseMirrorNode): PromptData {
-  const referencedImageIds = getReferencedImageIds(doc);
-  const images = getPromptImages(doc)
-    .filter((image): image is PromptImage & { status: "ready"; url: string } => {
-      return (
-        referencedImageIds.has(image.id) &&
-        image.status === "ready" &&
-        Boolean(image.url)
-      );
-    })
-    .map((image) => ({
-      id: image.id,
-      label: image.label,
-      index: image.index,
-      url: image.url,
-      metadata: image.metadata,
-    }));
+export function serializePromptPayload(doc: ProseMirrorNode): PromptPayload {
+  const referencedResourceIds = getReferencedResourceIds(doc);
+  const resources = getPromptResources(doc).filter((resource) => {
+    return referencedResourceIds.has(resource.id);
+  });
 
   return {
-    prompt: serializePrompt(doc),
-    images,
+    text: serializePrompt(doc),
+    resources,
   };
+}
+
+export function getLocalResourceSlots(resources: PromptResource[]) {
+  return resources
+    .filter(
+      (resource): resource is PromptResource & {
+        reference: Extract<PromptReference, { type: "slot" }>;
+      } =>
+        resource.kind === "local_image" && resource.reference.type === "slot",
+    )
+    .map((resource) => resource.reference.slot);
 }

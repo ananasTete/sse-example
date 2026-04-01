@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useState } from "react";
 import type { Editor } from "@tiptap/core";
-import { type CropMetadata, type PromptData, type PromptImage } from "../types";
+import type {
+  CropMetadata,
+  PromptPayload,
+  PromptResource,
+} from "../types";
 import {
   fileToDataUrl,
   generateId,
-  getPromptImages,
-  promptToContent,
-  serializePromptData,
+  getLocalResourceSlots,
+  getPromptResources,
+  payloadToContent,
+  serializePromptPayload,
 } from "../utils";
 
 export interface UsePromptEditorOptions {
@@ -15,14 +20,14 @@ export interface UsePromptEditorOptions {
 }
 
 export interface UsePromptEditorReturn {
-  images: PromptImage[];
+  resources: PromptResource[];
   addImages: (files: File[]) => Promise<void>;
   replaceImage: (id: string, file: File) => Promise<void>;
   removeImage: (id: string) => void;
   setImageCrop: (id: string, crop?: CropMetadata) => void;
   canAddMore: boolean;
-  getPromptData: () => PromptData;
-  setPromptData: (data: PromptData) => void;
+  getPromptPayload: () => PromptPayload;
+  setPromptPayload: (payload: PromptPayload) => void;
 }
 
 const MOCK_UPLOAD_DELAY_MS = 1200;
@@ -40,143 +45,149 @@ export function usePromptEditor({
   editor,
   maxImages = 4,
 }: UsePromptEditorOptions): UsePromptEditorReturn {
-  const [images, setImages] = useState<PromptImage[]>([]);
+  const [resources, setResources] = useState<PromptResource[]>([]);
 
   useEffect(() => {
     if (!editor) {
-      setImages([]);
+      setResources([]);
       return;
     }
 
-    const syncImages = () => {
-      setImages(getPromptImages(editor.state.doc));
+    const syncResources = () => {
+      setResources(getPromptResources(editor.state.doc));
     };
 
-    syncImages();
-    editor.on("transaction", syncImages);
+    syncResources();
+    editor.on("transaction", syncResources);
 
     return () => {
-      editor.off("transaction", syncImages);
+      editor.off("transaction", syncResources);
     };
   }, [editor]);
 
-  const canAddMore = images.length < maxImages;
+  const localResources = resources.filter((resource) => {
+    return resource.kind === "local_image";
+  });
+  const canAddMore = localResources.length < maxImages;
 
-  const getNextLabelIndexes = useCallback(
+  const getNextSlotNumbers = useCallback(
     (count: number) => {
-      const usedIndexes = new Set(images.map((image) => image.index));
-      const nextIndexes: number[] = [];
-      let nextIndex = 1;
+      const usedSlots = new Set(getLocalResourceSlots(resources));
+      const nextSlots: number[] = [];
+      let nextSlot = 1;
 
-      while (nextIndexes.length < count) {
-        if (!usedIndexes.has(nextIndex)) {
-          usedIndexes.add(nextIndex);
-          nextIndexes.push(nextIndex);
+      while (nextSlots.length < count) {
+        if (!usedSlots.has(nextSlot)) {
+          usedSlots.add(nextSlot);
+          nextSlots.push(nextSlot);
         }
 
-        nextIndex += 1;
+        nextSlot += 1;
       }
 
-      return nextIndexes;
+      return nextSlots;
     },
-    [images],
+    [resources],
   );
 
-  // 添加图片并设置到编辑器
   const addImages = useCallback(
     async (files: File[]) => {
       if (!editor) return;
 
-      const remainingSlots = maxImages - getPromptImages(editor.state.doc).length;
+      const currentLocalCount = getPromptResources(editor.state.doc).filter((resource) => {
+        return resource.kind === "local_image";
+      }).length;
+      const remainingSlots = maxImages - currentLocalCount;
       const acceptedFiles = files.slice(0, Math.max(remainingSlots, 0));
       if (acceptedFiles.length === 0) {
         return;
       }
 
-      const labelIndexes = getNextLabelIndexes(acceptedFiles.length);
+      const slots = getNextSlotNumbers(acceptedFiles.length);
       const placeholders = acceptedFiles.map((file, index) => {
-        const labelIndex = labelIndexes[index];
+        const slot = slots[index];
 
         return {
           file,
-          image: {
+          resource: {
             id: generateId(),
-            label: `图${labelIndex}`,
-            index: labelIndex,
-            url: null,
+            kind: "local_image" as const,
             status: "uploading" as const,
+            reference: {
+              type: "slot" as const,
+              slot,
+            },
+            sourceMeta: {
+              type: "local" as const,
+            },
           },
         };
       });
 
-      // 先更新注册表
-      const chain = editor.chain().focus().upsertPromptImages(
-        placeholders.map(({ image }) => image),
+      const chain = editor.chain().focus().upsertPromptResources(
+        placeholders.map(({ resource }) => resource),
       );
 
-      // 插入节点
-      placeholders.forEach(({ image }) => {
-        chain.insertImageTag({ imageId: image.id, label: image.label });
+      placeholders.forEach(({ resource }) => {
+        chain.insertImageTag({ resourceId: resource.id });
       });
 
       chain.run();
 
       await Promise.allSettled(
-        placeholders.map(async ({ file, image }) => {
+        placeholders.map(async ({ file, resource }) => {
           try {
             const url = await mockUploadImage(file);
-            editor.commands.updatePromptImage(image.id, {
-              url,
+            editor.commands.updatePromptResource(resource.id, {
+              asset: { url },
               status: "ready",
-              metadata: undefined,
+              transform: undefined,
             });
           } catch {
-            editor.commands.removePromptImagesAndTags([image.id]);
+            editor.commands.removePromptResourcesAndTags([resource.id]);
           }
         }),
       );
     },
-    [editor, getNextLabelIndexes, maxImages],
+    [editor, getNextSlotNumbers, maxImages],
   );
 
-  // 删除图片
   const removeImage = useCallback(
     (id: string) => {
       if (!editor) return;
 
-      editor.commands.removePromptImagesAndTags([id]);
+      editor.commands.removePromptResourcesAndTags([id]);
     },
     [editor],
   );
 
-  // 替换图片
   const replaceImage = useCallback(
     async (id: string, file: File) => {
       if (!editor) {
         return;
       }
 
-      const currentImage = getPromptImages(editor.state.doc).find(
-        (image) => image.id === id,
+      const currentResource = getPromptResources(editor.state.doc).find(
+        (resource) => resource.id === id,
       );
-      if (!currentImage || currentImage.status !== "ready") {
+      if (!currentResource || currentResource.kind !== "local_image") {
         return;
       }
 
-      editor.commands.updatePromptImage(id, {
-        url: null,
+      editor.commands.updatePromptResource(id, {
+        asset: undefined,
         status: "uploading",
       });
 
       try {
         const nextUrl = await mockUploadImage(file);
-        editor.commands.updatePromptImage(id, {
-          url: nextUrl,
+        editor.commands.updatePromptResource(id, {
+          asset: { url: nextUrl },
           status: "ready",
-          metadata: undefined,
+          transform: undefined,
         });
       } catch {
-        editor.commands.updatePromptImage(id, currentImage);
+        editor.commands.updatePromptResource(id, currentResource);
       }
     },
     [editor],
@@ -188,42 +199,40 @@ export function usePromptEditor({
         return;
       }
 
-      editor.commands.setPromptImageCrop(id, crop);
+      editor.commands.setPromptResourceCrop(id, crop);
     },
     [editor],
   );
 
-  // 获取 prompt 数据用于提交
-  const getPromptData = useCallback((): PromptData => {
+  const getPromptPayload = useCallback((): PromptPayload => {
     if (!editor) {
       return {
-        prompt: "",
-        images: [],
+        text: "",
+        resources: [],
       };
     }
 
-    return serializePromptData(editor.state.doc);
+    return serializePromptPayload(editor.state.doc);
   }, [editor]);
 
-  // 设置 prompt 数据用于回显
-  const setPromptData = useCallback(
-    (data: PromptData) => {
+  const setPromptPayload = useCallback(
+    (payload: PromptPayload) => {
       if (!editor) return;
 
-      editor.commands.setContent(promptToContent(data.prompt, data.images));
+      editor.commands.setContent(payloadToContent(payload.text, payload.resources));
     },
     [editor],
   );
 
   return {
-    images,
+    resources,
     addImages,
     replaceImage,
     removeImage,
     setImageCrop,
     canAddMore,
-    getPromptData,
-    setPromptData,
+    getPromptPayload,
+    setPromptPayload,
   };
 }
 

@@ -7,16 +7,25 @@ import {
   TextSelection,
   type EditorState,
 } from "@tiptap/pm/state";
-import type { PromptImage } from "../types";
+import type { PromptResource, ReadyPromptResource } from "../types";
+import {
+  getPromptResourceToken,
+  getPromptResources,
+  isReadyPromptResource,
+} from "../utils";
 
 export interface ImageMentionPluginState {
   isOpen: boolean;
   triggerFrom: number | null;
+  query: string;
   selectedIndex: number;
 }
 
-export interface ImageMentionOptions {
-  getImages: () => PromptImage[];
+export interface ImageMentionItem {
+  id: string;
+  resource: ReadyPromptResource;
+  token: string;
+  tokenLower: string;
 }
 
 export type ImageMentionMeta =
@@ -28,19 +37,13 @@ export const ImageMentionPluginKey = new PluginKey<ImageMentionPluginState>(
   "imageMention",
 );
 
-export interface ReadyPromptImage extends PromptImage {
-  status: "ready";
-  url: string;
-}
-
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     imageMention: {
       closeImageMention: () => ReturnType;
       setImageMentionSelectedIndex: (index: number) => ReturnType;
       insertImageMention: (attrs: {
-        imageId: string;
-        label: string;
+        resourceId: string;
       }) => ReturnType;
     };
   }
@@ -50,35 +53,58 @@ function getDefaultState(): ImageMentionPluginState {
   return {
     isOpen: false,
     triggerFrom: null,
+    query: "",
     selectedIndex: 0,
   };
 }
 
-function getReadyImages(images: PromptImage[]): ReadyPromptImage[] {
-  return images.filter(
-    (image): image is ReadyPromptImage =>
-      image.status === "ready" && Boolean(image.url),
-  );
+export function buildImageMentionIndex(
+  resources: PromptResource[],
+): ImageMentionItem[] {
+  return resources.filter(isReadyPromptResource).map((resource) => {
+    const token = getPromptResourceToken(resource);
+
+    return {
+      id: resource.id,
+      resource,
+      token,
+      tokenLower: token.toLowerCase(),
+    };
+  });
 }
 
 export function filterImageMentionItems(
-  images: PromptImage[],
+  mentionIndex: ImageMentionItem[],
   query: string,
-): ReadyPromptImage[] {
-  const readyImages = getReadyImages(images);
+): ImageMentionItem[] {
   const normalizedQuery = query.trim().toLowerCase();
 
   if (!normalizedQuery) {
-    return readyImages;
+    return mentionIndex;
   }
 
-  return readyImages.filter((image) => {
-    const label = image.label.toLowerCase();
-    return (
-      label.includes(normalizedQuery) ||
-      String(image.index).includes(normalizedQuery)
-    );
-  });
+  return mentionIndex.filter((item) => item.tokenLower.includes(normalizedQuery));
+}
+
+export function getImageMentionActiveIndex(
+  selectedIndex: number,
+  itemCount: number,
+) {
+  if (itemCount === 0) {
+    return 0;
+  }
+
+  return Math.min(Math.max(0, selectedIndex), itemCount - 1);
+}
+
+function getImageMentionItems(
+  state: EditorState,
+  query: string,
+): ImageMentionItem[] {
+  return filterImageMentionItems(
+    buildImageMentionIndex(getPromptResources(state.doc)),
+    query,
+  );
 }
 
 export function getImageMentionQuery(state: EditorState, triggerFrom: number) {
@@ -146,14 +172,8 @@ function isImageMentionStillValid(state: EditorState, triggerFrom: number) {
   return true;
 }
 
-export const ImageMention = Extension.create<ImageMentionOptions>({
+export const ImageMention = Extension.create({
   name: "imageMention",
-
-  addOptions() {
-    return {
-      getImages: () => [],
-    };
-  },
 
   addCommands() {
     return {
@@ -206,7 +226,6 @@ export const ImageMention = Extension.create<ImageMentionOptions>({
   },
 
   addProseMirrorPlugins() {
-    const getImages = this.options.getImages;
     const editor = this.editor;
 
     return [
@@ -216,7 +235,7 @@ export const ImageMention = Extension.create<ImageMentionOptions>({
           init() {
             return getDefaultState();
           },
-          apply(tr, prev, oldState, nextState) {
+          apply(tr, prev, _oldState, nextState) {
             const meta = tr.getMeta(ImageMentionPluginKey) as
               | ImageMentionMeta
               | undefined;
@@ -225,6 +244,7 @@ export const ImageMention = Extension.create<ImageMentionOptions>({
               return {
                 isOpen: true,
                 triggerFrom: meta.triggerFrom,
+                query: "",
                 selectedIndex: 0,
               };
             }
@@ -247,13 +267,10 @@ export const ImageMention = Extension.create<ImageMentionOptions>({
               return getDefaultState();
             }
 
-            const prevQuery = getImageMentionQuery(oldState, prev.triggerFrom);
             const nextQuery = getImageMentionQuery(nextState, nextTriggerFrom);
-            const items = filterImageMentionItems(getImages(), nextQuery);
-            const maxIndex = Math.max(0, items.length - 1);
 
             let selectedIndex =
-              prevQuery === nextQuery ? prev.selectedIndex : 0;
+              prev.query === nextQuery ? prev.selectedIndex : 0;
 
             if (meta?.type === "setSelectedIndex") {
               selectedIndex = meta.index;
@@ -262,7 +279,8 @@ export const ImageMention = Extension.create<ImageMentionOptions>({
             return {
               isOpen: true,
               triggerFrom: nextTriggerFrom,
-              selectedIndex: Math.min(Math.max(0, selectedIndex), maxIndex),
+              query: nextQuery,
+              selectedIndex: Math.max(0, selectedIndex),
             };
           },
         },
@@ -297,8 +315,11 @@ export const ImageMention = Extension.create<ImageMentionOptions>({
               return false;
             }
 
-            const query = getImageMentionQuery(view.state, pluginState.triggerFrom);
-            const items = filterImageMentionItems(getImages(), query);
+            const items = getImageMentionItems(view.state, pluginState.query);
+            const activeIndex = getImageMentionActiveIndex(
+              pluginState.selectedIndex,
+              items.length,
+            );
 
             if (event.key === "ArrowDown") {
               event.preventDefault();
@@ -306,7 +327,7 @@ export const ImageMention = Extension.create<ImageMentionOptions>({
                 return true;
               }
 
-              const nextIndex = (pluginState.selectedIndex + 1) % items.length;
+              const nextIndex = (activeIndex + 1) % items.length;
               editor.commands.setImageMentionSelectedIndex(nextIndex);
               return true;
             }
@@ -317,18 +338,14 @@ export const ImageMention = Extension.create<ImageMentionOptions>({
                 return true;
               }
 
-              const nextIndex =
-                (pluginState.selectedIndex - 1 + items.length) % items.length;
+              const nextIndex = (activeIndex - 1 + items.length) % items.length;
               editor.commands.setImageMentionSelectedIndex(nextIndex);
               return true;
             }
 
             if (event.key === "Enter" || event.key === "Tab") {
-              const activeItem = items[pluginState.selectedIndex];
+              const activeItem = items[activeIndex];
               if (!activeItem) {
-                // Keep ownership of Enter/Tab while the menu is open.
-                // Falling through here would let ProseMirror insert a newline
-                // or move focus away while the floating menu is still visible.
                 event.preventDefault();
                 editor.commands.closeImageMention();
                 return true;
@@ -336,8 +353,7 @@ export const ImageMention = Extension.create<ImageMentionOptions>({
 
               event.preventDefault();
               editor.commands.insertImageMention({
-                imageId: activeItem.id,
-                label: activeItem.label,
+                resourceId: activeItem.resource.id,
               });
               return true;
             }

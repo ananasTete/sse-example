@@ -1,4 +1,9 @@
-export type PromptImageStatus = "uploading" | "ready";
+export type PromptResourceStatus = "uploading" | "ready" | "failed";
+
+export type PromptResourceKind =
+  | "local_image"
+  | "subject_image"
+  | "history_image";
 
 export type CropMode = "free" | "aspect";
 
@@ -25,28 +30,67 @@ export interface CropMetadata {
   };
 }
 
-export interface PromptImageMetadata {
-  crop?: CropMetadata;
+export interface PromptRegion {
+  topLeft: {
+    x: number;
+    y: number;
+  };
+  bottomRight: {
+    x: number;
+    y: number;
+  };
 }
 
-export interface PromptImage {
-  id: string;
-  url: string | null;
-  label: string;
-  index: number;
-  status: PromptImageStatus;
-  metadata?: PromptImageMetadata;
-}
+export type PromptReference =
+  | {
+      type: "slot";
+      slot: number;
+    }
+  | {
+      type: "handle";
+      handle: string;
+    };
 
-export interface PromptImageData {
-  id: string;
-  label: string;
+export interface PromptAsset {
   url: string;
-  index: number;
-  metadata?: PromptImageMetadata;
 }
 
-export interface PromptData {
-  prompt: string;
-  images: PromptImageData[];
+export type PromptSourceMeta =
+  | {
+      type: "local";
+    }
+  | {
+      type: "subject";
+      subjectId: string;
+    }
+  | {
+      type: "history";
+      historyId: string;
+      originTaskId?: string;
+      outputIndex?: number;
+    };
+
+export interface PromptResourceTransform {
+  crop?: CropMetadata;
+  selectedRegion?: PromptRegion;
+}
+
+export interface PromptResource {
+  id: string;
+  kind: PromptResourceKind;
+  status: PromptResourceStatus;
+  reference: PromptReference;
+  asset?: PromptAsset;
+  transform?: PromptResourceTransform;
+  sourceMeta?: PromptSourceMeta;
+}
+
+export type ReadyPromptResource = PromptResource & {
+  status: "ready";
+  asset: PromptAsset;
+};
+
+export interface PromptPayload {
+  text: string;
+  resources: PromptResource[];
 }

@@ -1,12 +1,16 @@
 "use client";
 
 import { useRef } from "react";
-import type { PromptImage } from "../types";
+import type { PromptResource } from "../types";
 import { Crop, ImagePlus, LoaderCircle, RefreshCcw, X } from "lucide-react";
 import { CroppedImagePreview } from "./cropped-image-preview";
+import {
+  getPromptResourcePreviewUrl,
+  getPromptResourceToken,
+} from "../utils";
 
 export interface ImageCardListProps {
-  images: PromptImage[];
+  resources: PromptResource[];
   onRemove: (id: string) => void;
   onAdd: (files: File[]) => Promise<void>;
   onReplace: (id: string, file: File) => Promise<void>;
@@ -16,7 +20,7 @@ export interface ImageCardListProps {
 }
 
 export const ImageCardList = ({
-  images,
+  resources,
   onRemove,
   onAdd,
   onReplace,
@@ -36,8 +40,8 @@ export const ImageCardList = ({
     replaceInputRef.current?.click();
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.target.files;
     if (!files) return;
 
     await onAdd(Array.from(files));
@@ -48,9 +52,9 @@ export const ImageCardList = ({
   };
 
   const handleReplaceFileChange = async (
-    e: React.ChangeEvent<HTMLInputElement>,
+    event: React.ChangeEvent<HTMLInputElement>,
   ) => {
-    const file = e.target.files?.[0];
+    const file = event.target.files?.[0];
     const targetId = replaceTargetIdRef.current;
     if (!file || !targetId) return;
 
@@ -80,77 +84,85 @@ export const ImageCardList = ({
         style={{ display: "none" }}
       />
 
-      {images.map((image) => (
-        <div
-          key={image.id}
-          className="group relative aspect-square overflow-hidden border border-slate-200 bg-slate-100"
-        >
-          {image.status === "ready" && image.url ? (
-            <>
-              <CroppedImagePreview
-                src={image.url}
-                alt={image.label}
-                crop={image.metadata?.crop}
-                className="h-full w-full"
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-slate-950/72 via-slate-950/12 to-transparent opacity-0 transition duration-300 group-hover:opacity-100" />
-            </>
-          ) : (
-            <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-50 text-slate-400">
-              <LoaderCircle className="size-4 animate-spin" />
-              <div className="text-[10px] font-medium uppercase tracking-[0.08em]">
-                loading
+      {resources.map((resource) => {
+        const previewUrl = getPromptResourcePreviewUrl(resource);
+        const token = getPromptResourceToken(resource);
+        const canReplace = resource.kind === "local_image";
+
+        return (
+          <div
+            key={resource.id}
+            className="group relative aspect-square overflow-hidden border border-slate-200 bg-slate-100"
+          >
+            {resource.status === "ready" && previewUrl ? (
+              <>
+                <CroppedImagePreview
+                  src={previewUrl}
+                  alt={token}
+                  crop={resource.transform?.crop}
+                  className="h-full w-full"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/72 via-slate-950/12 to-transparent opacity-0 transition duration-300 group-hover:opacity-100" />
+              </>
+            ) : (
+              <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-50 text-slate-400">
+                <LoaderCircle
+                  className={`size-4 ${resource.status === "uploading" ? "animate-spin" : ""}`}
+                />
+                <div className="text-[10px] font-medium uppercase tracking-[0.08em]">
+                  {resource.status === "failed" ? "failed" : "loading"}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          <div className="absolute left-1.5 right-1.5 top-1.5 flex items-center justify-between opacity-0 transition duration-200 group-hover:opacity-100">
-            <div className="flex items-center gap-1">
+            <div className="absolute left-1.5 right-1.5 top-1.5 flex items-center justify-between opacity-0 transition duration-200 group-hover:opacity-100">
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleSelectReplaceImage(resource.id);
+                  }}
+                  className="flex h-7 w-7 items-center justify-center bg-black/45 text-white transition hover:bg-black/60 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="替换图片"
+                  disabled={!canReplace}
+                >
+                  <RefreshCcw className="size-3" />
+                </button>
+
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCrop(resource.id);
+                  }}
+                  className="flex h-7 w-7 items-center justify-center bg-black/45 text-white transition hover:bg-black/60 disabled:cursor-not-allowed disabled:opacity-40"
+                  title="裁切图片"
+                  disabled={resource.status !== "ready" || !previewUrl}
+                >
+                  <Crop className="size-3" />
+                </button>
+              </div>
+
               <button
                 type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleSelectReplaceImage(image.id);
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onRemove(resource.id);
                 }}
-                className="flex h-7 w-7 items-center justify-center bg-black/45 text-white transition hover:bg-black/60 disabled:cursor-not-allowed disabled:opacity-40"
-                title="替换图片"
-                disabled={image.status !== "ready"}
+                className="flex h-7 w-7 items-center justify-center bg-black/45 text-white transition hover:bg-black/60"
+                title="删除图片"
               >
-                <RefreshCcw className="size-3" />
-              </button>
-
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onCrop(image.id);
-                }}
-                className="flex h-7 w-7 items-center justify-center bg-black/45 text-white transition hover:bg-black/60 disabled:cursor-not-allowed disabled:opacity-40"
-                title="裁切图片"
-                disabled={image.status !== "ready"}
-              >
-                <Crop className="size-3" />
+                <X className="size-3" />
               </button>
             </div>
 
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onRemove(image.id);
-              }}
-              className="flex h-7 w-7 items-center justify-center bg-black/45 text-white transition hover:bg-black/60"
-              title="删除图片"
-            >
-              <X className="size-3" />
-            </button>
+            <div className="absolute bottom-1.5 left-1.5 bg-black/45 px-2 py-1 text-[10px] font-medium text-white">
+              {token}
+            </div>
           </div>
-
-          <div className="absolute bottom-1.5 left-1.5 bg-black/45 px-2 py-1 text-[10px] font-medium text-white">
-            {image.label}
-          </div>
-        </div>
-      ))}
+        );
+      })}
 
       {canAddMore && (
         <button

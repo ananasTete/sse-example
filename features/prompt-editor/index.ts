@@ -6,7 +6,7 @@ export { ImageCardList } from "./components/image-card-list";
 export { ImageMentionMenu } from "./components/image-mention-menu";
 export { ConfirmDialog } from "./components/confirm-dialog";
 export { ImageCropDialog } from "./components/image-crop-dialog";
-export type { PromptImage } from "./types";
+export type { PromptPayload, PromptResource } from "./types";
 export type { UsePromptEditorOptions, UsePromptEditorReturn } from "./hooks/use-prompt-editor";
 export type { ImageCardListProps } from "./components/image-card-list";
 export type { ConfirmDialogProps } from "./components/confirm-dialog";

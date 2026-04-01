@@ -2,6 +2,10 @@ import { Node, mergeAttributes } from "@tiptap/core";
 import { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import {
+  getPromptResourceMap,
+  getPromptResourceToken,
+} from "../utils";
 
 export interface ImageTagOptions {
   HTMLAttributes: Record<string, unknown>;
@@ -10,8 +14,8 @@ export interface ImageTagOptions {
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     imageTag: {
-      insertImageTag: (attrs: { imageId: string; label: string }) => ReturnType;
-      removeImageTag: (imageId: string) => ReturnType;
+      insertImageTag: (attrs: { resourceId: string }) => ReturnType;
+      removeImageTag: (resourceId: string) => ReturnType;
     };
   }
 }
@@ -35,15 +39,12 @@ export const ImageTag = Node.create<ImageTagOptions>({
 
   addAttributes() {
     return {
-      imageId: {
+      resourceId: {
         default: null,
-        parseHTML: (element) => element.getAttribute("data-image-id"),
-        renderHTML: (attributes) => ({ "data-image-id": attributes.imageId }),
-      },
-      label: {
-        default: "",
-        parseHTML: (element) => element.getAttribute("data-label"),
-        renderHTML: (attributes) => ({ "data-label": attributes.label }),
+        parseHTML: (element) =>
+          element.getAttribute("data-resource-id") ??
+          element.getAttribute("data-image-id"),
+        renderHTML: (attributes) => ({ "data-resource-id": attributes.resourceId }),
       },
     };
   },
@@ -65,12 +66,8 @@ export const ImageTag = Node.create<ImageTagOptions>({
         this.options.HTMLAttributes,
         HTMLAttributes,
       ),
-      node.attrs.label,
+      node.attrs.resourceId ?? "",
     ];
-  },
-
-  renderText({ node }) {
-    return `[@${node.attrs.label}]`;
   },
 
   addCommands() {
@@ -82,13 +79,13 @@ export const ImageTag = Node.create<ImageTagOptions>({
         },
 
       removeImageTag:
-        (imageId) =>
+        (resourceId) =>
         ({ tr, state, dispatch }) => {
           const ranges: Array<{ from: number; to: number }> = [];
           state.doc.descendants((node, pos) => {
             if (
               node.type.name === this.name &&
-              node.attrs.imageId === imageId
+              node.attrs.resourceId === resourceId
             ) {
               ranges.push({ from: pos, to: pos + node.nodeSize });
             }
@@ -108,6 +105,9 @@ export const ImageTag = Node.create<ImageTagOptions>({
   },
 
   addNodeView() {
+    const editor = this.editor;
+    const imageTagName = this.name;
+
     return ({
       node,
       HTMLAttributes,
@@ -119,9 +119,21 @@ export const ImageTag = Node.create<ImageTagOptions>({
       dom.setAttribute("data-type", "image-tag");
       dom.contentEditable = "false";
       dom.draggable = true;
-      dom.textContent = node.attrs.label;
 
-      // 应用额外的 HTML 属性
+      const applyDomState = (currentNode: ProseMirrorNode) => {
+        const resourceId = currentNode.attrs.resourceId as string | undefined;
+        const resource = resourceId
+          ? getPromptResourceMap(editor.state.doc).get(resourceId)
+          : undefined;
+
+        dom.textContent = resource ? getPromptResourceToken(resource) : "";
+        if (resourceId) {
+          dom.setAttribute("data-resource-id", resourceId);
+        } else {
+          dom.removeAttribute("data-resource-id");
+        }
+      };
+
       Object.entries(HTMLAttributes).forEach(([key, value]) => {
         if (value !== undefined && value !== null) {
           if (key === "class") {
@@ -135,18 +147,16 @@ export const ImageTag = Node.create<ImageTagOptions>({
         .filter(Boolean)
         .join(" ");
       dom.className = className;
+      applyDomState(node);
 
-      // 每次拖拽开始时设置自定义拖拽图像
-      dom.addEventListener("dragstart", (e) => {
-        if (e.dataTransfer) {
-          // 创建一个 clone dom 作为拖拽图像
+      dom.addEventListener("dragstart", (event) => {
+        if (event.dataTransfer) {
           const clone = dom.cloneNode(true) as HTMLElement;
           clone.style.position = "absolute";
           clone.style.top = "-1000px";
           document.body.appendChild(clone);
 
-          // 设置拖坏图像位置，默认与指针对齐，这里放到下方，实现不遮挡目标位置的文本
-          e.dataTransfer.setDragImage(
+          event.dataTransfer.setDragImage(
             clone,
             clone.offsetWidth / 2 - 10,
             clone.offsetHeight / 2 - 10,
@@ -158,7 +168,17 @@ export const ImageTag = Node.create<ImageTagOptions>({
         }
       });
 
-      return { dom };
+      return {
+        dom,
+        update(updatedNode) {
+          if (updatedNode.type.name !== imageTagName) {
+            return false;
+          }
+
+          applyDomState(updatedNode);
+          return true;
+        },
+      };
     };
   },
 
@@ -172,7 +192,6 @@ export const ImageTag = Node.create<ImageTagOptions>({
           decorations(state) {
             const decorations: Decoration[] = [];
 
-            // 遍历节点
             state.doc.descendants((node, pos, parent, index) => {
               if (
                 node.type.name !== imageTagName ||
@@ -181,7 +200,7 @@ export const ImageTag = Node.create<ImageTagOptions>({
               ) {
                 return;
               }
-              // 创建一个 gap 元素，用来实现标签之间和标签与文本之间间距
+
               const createGap = (size: "full" | "half") => {
                 const gap = document.createElement("span");
                 gap.className = `image-tag-inline-gap image-tag-inline-gap--${size}`;
@@ -193,7 +212,6 @@ export const ImageTag = Node.create<ImageTagOptions>({
               const nextSibling =
                 index < parent.childCount - 1 ? parent.child(index + 1) : null;
 
-              // 如果标签之前存在元素并且不是标签节点，则在标签前添加一个 gap
               if (
                 previousSibling &&
                 previousSibling.type.name !== imageTagName
@@ -206,7 +224,6 @@ export const ImageTag = Node.create<ImageTagOptions>({
                 );
               }
 
-              // 如果标签之前存在元素并且是标签节点，则在标签前添加一个半宽的 gap
               if (previousSibling?.type.name === imageTagName) {
                 decorations.push(
                   Decoration.widget(pos, () => createGap("half"), {
@@ -216,7 +233,6 @@ export const ImageTag = Node.create<ImageTagOptions>({
                 );
               }
 
-              // 如果标签后面存在元素并且是标签节点，则在标签后添加一个半宽的 gap
               if (nextSibling?.type.name === imageTagName) {
                 decorations.push(
                   Decoration.widget(pos + node.nodeSize, () => createGap("half"), {
@@ -226,7 +242,6 @@ export const ImageTag = Node.create<ImageTagOptions>({
                 );
               }
 
-              // 如果标签后面存在元素并且不是标签节点，则在标签后添加一个 gap
               if (!nextSibling || nextSibling.type.name !== imageTagName) {
                 decorations.push(
                   Decoration.widget(pos + node.nodeSize, () => createGap("full"), {
@@ -245,14 +260,11 @@ export const ImageTag = Node.create<ImageTagOptions>({
         key: dropIndicatorKey,
         state: {
           init() {
-            // 初始化一个状态用来记录：现在鼠标正拖着图片在我们文档里悬停到了哪个坐标
             return { pos: null };
           },
-          // 事务被 dispatch 后所有插件的 apply 都会自动执行
           apply(tr, value) {
             const meta = tr.getMeta(dropIndicatorKey);
             if (meta !== undefined) {
-              // 更新状态
               return { pos: meta };
             }
             return value;
@@ -263,7 +275,6 @@ export const ImageTag = Node.create<ImageTagOptions>({
             const { pos } = this.getState(state) || { pos: null };
             if (pos === null) return DecorationSet.empty;
 
-            // 创建一个指示器元素插入记录的位置
             const widget = document.createElement("span");
             widget.className = "image-tag-drop-indicator";
 
@@ -277,7 +288,6 @@ export const ImageTag = Node.create<ImageTagOptions>({
               return false;
             },
             dragover: (view, event) => {
-              // 把鼠标所在屏幕上的坐标（clientX / Y），反向推算出文档节点里的字符数位置 pos
               const pos = view.posAtCoords({
                 left: event.clientX,
                 top: event.clientY,
@@ -285,7 +295,6 @@ export const ImageTag = Node.create<ImageTagOptions>({
               if (pos) {
                 view.dispatch(view.state.tr.setMeta(dropIndicatorKey, pos.pos));
               }
-              // 继续走浏览器默认的一些行为
               return false;
             },
             dragleave: (view) => {

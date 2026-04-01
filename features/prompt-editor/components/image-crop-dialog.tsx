@@ -12,17 +12,16 @@ import type {
   CropAspectRatio,
   CropMetadata,
   CropMode,
-  PromptImage,
+  ReadyPromptResource,
 } from "../types";
 import { CroppedImagePreview } from "./cropped-image-preview";
+import { getPromptResourceToken } from "../utils";
 import "./image-crop-dialog.css";
 import "react-image-crop/dist/ReactCrop.css";
 
-type ReadyPromptImage = PromptImage & { status: "ready"; url: string };
-
 interface ImageCropDialogProps {
   open: boolean;
-  image: ReadyPromptImage | null;
+  image: ReadyPromptResource | null;
   onCancel: () => void;
   onApply: (id: string, crop: CropMetadata) => void;
   onClear: (id: string) => void;
@@ -181,7 +180,7 @@ export const ImageCropDialog = ({
       return;
     }
 
-    const savedCrop = image.metadata?.crop;
+    const savedCrop = image.transform?.crop;
     setMode(savedCrop?.mode ?? "free");
     setAspectRatio(savedCrop?.aspectRatio);
     setCrop(savedCrop ? toPercentCrop(savedCrop) : undefined);
@@ -200,7 +199,7 @@ export const ImageCropDialog = ({
       ? aspectRatio.x / aspectRatio.y
       : undefined;
 
-  const hasSavedCrop = Boolean(image?.metadata?.crop?.enabled);
+  const hasSavedCrop = Boolean(image?.transform?.crop?.enabled);
 
   const applyOption = (option: RatioOption) => {
     setMode(option.mode);
@@ -234,8 +233,8 @@ export const ImageCropDialog = ({
     const { naturalWidth, naturalHeight } = event.currentTarget;
     setNaturalSize({ width: naturalWidth, height: naturalHeight });
 
-    if (image?.metadata?.crop) {
-      setCrop(toPercentCrop(image.metadata.crop));
+    if (image?.transform?.crop) {
+      setCrop(toPercentCrop(image.transform.crop));
       return;
     }
 
@@ -266,7 +265,7 @@ export const ImageCropDialog = ({
   const currentPreviewCrop =
     crop && naturalSize
       ? toCropMetadata(crop, mode, aspectRatio, naturalSize)
-      : image?.metadata?.crop;
+      : image?.transform?.crop;
   const currentPreviewAspectRatio = getCropAspectRatio(currentPreviewCrop);
 
   return (
@@ -293,7 +292,7 @@ export const ImageCropDialog = ({
                   ) : null}
                   {image ? (
                     <span className="border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] text-slate-600">
-                      {image.label}
+                      {getPromptResourceToken(image)}
                     </span>
                   ) : null}
                 </div>
@@ -325,8 +324,8 @@ export const ImageCropDialog = ({
                       ruleOfThirds
                     >
                       <img
-                        src={image.url}
-                        alt={image.label}
+                        src={image.asset.url}
+                        alt={getPromptResourceToken(image)}
                         className="block max-w-full select-none"
                         draggable={false}
                         onLoad={handleImageLoad}
@@ -349,8 +348,8 @@ export const ImageCropDialog = ({
                           }}
                         >
                           <CroppedImagePreview
-                            src={image.url}
-                            alt={image.label}
+                            src={image.asset.url}
+                            alt={getPromptResourceToken(image)}
                             crop={currentPreviewCrop}
                             aspectRatio={currentPreviewAspectRatio}
                             className="h-full w-full"

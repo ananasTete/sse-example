@@ -2,22 +2,21 @@
 
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useMemo, useState } from "react";
 import { Download, FileText, RotateCcw } from "lucide-react";
 import "./editor.css";
-import { ImageRegistry, PromptDocument } from "./extensions/prompt-document";
+import { PromptDocument, ResourceRegistry } from "./extensions/prompt-document";
 import { ImageTag } from "./extensions/image-tag";
 import { ImageMention } from "./extensions/image-mention";
 import { ImageCardList } from "./components/image-card-list";
 import { ImageMentionMenu } from "./components/image-mention-menu";
 import { ImageCropDialog } from "./components/image-crop-dialog";
 import { usePromptEditor } from "./hooks/use-prompt-editor";
-import type { PromptImage } from "./types";
+import type { ReadyPromptResource } from "./types";
 import { EMPTY_DOC } from "./utils";
 
 const PromptEditor = () => {
   const [cropTargetId, setCropTargetId] = useState<string | null>(null);
-  const imageSuggestionsRef = useRef<PromptImage[]>([]);
 
   const extensions = useMemo(
     () => [
@@ -26,11 +25,9 @@ const PromptEditor = () => {
         document: false,
         dropcursor: false,
       }),
-      ImageRegistry,
+      ResourceRegistry,
       ImageTag,
-      ImageMention.configure({
-        getImages: () => imageSuggestionsRef.current,
-      }),
+      ImageMention,
     ],
     [],
   );
@@ -42,27 +39,23 @@ const PromptEditor = () => {
   });
 
   const {
-    images,
+    resources,
     addImages,
     replaceImage,
     removeImage,
     setImageCrop,
     canAddMore,
-    getPromptData,
-    setPromptData,
+    getPromptPayload,
+    setPromptPayload,
   } = usePromptEditor({ editor, maxImages: 4 });
 
   const cropImage =
-    images.find(
-      (image): image is (typeof images)[number] & { status: "ready"; url: string } =>
-        image.id === cropTargetId &&
-        image.status === "ready" &&
-        Boolean(image.url),
-    ) ?? null;
-
-  useEffect(() => {
-    imageSuggestionsRef.current = images;
-  }, [images]);
+    resources.find(
+      (resource): resource is ReadyPromptResource =>
+        resource.id === cropTargetId &&
+        resource.status === "ready" &&
+        Boolean(resource.asset?.url),
+      ) ?? null;
 
   if (!editor) {
     return null;
@@ -78,7 +71,7 @@ const PromptEditor = () => {
             </div>
             <div className="p-3">
               <ImageCardList
-                images={images}
+                resources={resources}
                 onRemove={removeImage}
                 onAdd={addImages}
                 onReplace={replaceImage}
@@ -95,7 +88,7 @@ const PromptEditor = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    console.log("log", getPromptData().prompt);
+                    console.log("log", getPromptPayload().text);
                   }}
                   className="inline-flex items-center gap-1.5 border border-slate-200 px-3 py-1.5 text-xs text-slate-700 transition hover:bg-slate-50"
                 >
@@ -106,11 +99,11 @@ const PromptEditor = () => {
                   type="button"
                   className="inline-flex items-center gap-1.5 border border-slate-200 px-3 py-1.5 text-xs text-slate-700 transition hover:bg-slate-50"
                   onClick={() => {
-                    const stored = localStorage.getItem("promptData");
+                    const stored = localStorage.getItem("promptPayload");
                     if (stored) {
-                      const data = JSON.parse(stored);
-                      setPromptData(data);
-                      console.log("回显数据:", data);
+                      const payload = JSON.parse(stored);
+                      setPromptPayload(payload);
+                      console.log("回显数据:", payload);
                     }
                   }}
                 >
@@ -121,9 +114,9 @@ const PromptEditor = () => {
                   type="button"
                   className="inline-flex items-center gap-1.5 bg-slate-950 px-3 py-1.5 text-xs text-white transition hover:bg-slate-800"
                   onClick={() => {
-                    const data = getPromptData();
-                    localStorage.setItem("promptData", JSON.stringify(data));
-                    console.log("导出数据:", data);
+                    const payload = getPromptPayload();
+                    localStorage.setItem("promptPayload", JSON.stringify(payload));
+                    console.log("导出数据:", payload);
                   }}
                 >
                   <Download className="size-3.5" />
@@ -139,7 +132,7 @@ const PromptEditor = () => {
         </div>
       </div>
 
-      <ImageMentionMenu editor={editor} images={images} />
+      <ImageMentionMenu editor={editor} />
 
       <ImageCropDialog
         open={cropImage !== null}
