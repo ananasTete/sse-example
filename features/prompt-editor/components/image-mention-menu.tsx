@@ -1,7 +1,5 @@
 "use client";
 
-import type { Editor } from "@tiptap/react";
-import { useEditorState } from "@tiptap/react";
 import {
   autoUpdate,
   flip,
@@ -11,111 +9,135 @@ import {
   useFloating,
   type VirtualElement,
 } from "@floating-ui/react";
-import { useEffect, useMemo, useRef } from "react";
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+} from "react";
 import { cn } from "@/lib/utils";
 import { CroppedImagePreview } from "./cropped-image-preview";
 import {
-  buildImageMentionIndex,
-  filterImageMentionItems,
   getImageMentionActiveIndex,
-  ImageMentionPluginKey,
   type ImageMentionItem,
-  type ImageMentionPluginState,
 } from "../extensions/image-mention";
-import { getPromptResources } from "../utils";
 
 export interface ImageMentionMenuProps {
-  editor: Editor;
+  items: ImageMentionItem[];
+  query: string;
+  selectedIndex: number;
+  hasReadyImages: boolean;
+  clientRect: (() => DOMRect | null) | null;
+  onSelect: (item: ImageMentionItem) => void;
+  onSelectIndex: (index: number) => void;
+  onClose: () => void;
 }
 
-function getClosedState(): ImageMentionPluginState {
-  return {
-    isOpen: false,
-    triggerFrom: null,
-    query: "",
-    selectedIndex: 0,
-  };
+export interface ImageMentionMenuRef {
+  onKeyDown: (event: KeyboardEvent) => boolean;
 }
 
-export function ImageMentionMenu({ editor }: ImageMentionMenuProps) {
-  const ui = useEditorState({
-    editor,
-    selector: ({ editor: currentEditor }) => {
-      const mentionIndex = buildImageMentionIndex(
-        getPromptResources(currentEditor.state.doc),
-      );
-      const pluginState =
-        (ImageMentionPluginKey.getState(
-          currentEditor.state,
-        ) as ImageMentionPluginState | null) ?? getClosedState();
+const EMPTY_RECT = {
+  top: 0,
+  bottom: 0,
+  left: 0,
+  right: 0,
+  width: 0,
+  height: 0,
+  x: 0,
+  y: 0,
+  toJSON: () => ({}),
+};
 
-      if (!pluginState.isOpen || pluginState.triggerFrom == null) {
-        return {
-          ...pluginState,
-          caret: null as number | null,
-          hasReadyImages: mentionIndex.length > 0,
-          items: [] as ImageMentionItem[],
-        };
-      }
-
-      return {
-        ...pluginState,
-        caret: currentEditor.state.selection.from,
-        hasReadyImages: mentionIndex.length > 0,
-        items: filterImageMentionItems(mentionIndex, pluginState.query),
-      };
-    },
-  });
-
+export const ImageMentionMenu = forwardRef<
+  ImageMentionMenuRef,
+  ImageMentionMenuProps
+>(function ImageMentionMenu(
+  {
+    items,
+    query,
+    selectedIndex,
+    hasReadyImages,
+    clientRect,
+    onSelect,
+    onSelectIndex,
+    onClose,
+  },
+  ref,
+) {
   const itemRefs = useRef(new Map<string, HTMLButtonElement>());
-  const activeIndex = getImageMentionActiveIndex(
-    ui.selectedIndex,
-    ui.items.length,
+  const activeIndex = getImageMentionActiveIndex(selectedIndex, items.length);
+  const activeItem = items[activeIndex] ?? null;
+  const isOpen = clientRect !== null;
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      onKeyDown(event) {
+        if (event.isComposing) {
+          return false;
+        }
+
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          if (items.length === 0) {
+            return true;
+          }
+
+          onSelectIndex((activeIndex + 1) % items.length);
+          return true;
+        }
+
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          if (items.length === 0) {
+            return true;
+          }
+
+          onSelectIndex((activeIndex - 1 + items.length) % items.length);
+          return true;
+        }
+
+        if (event.key === "Enter" || event.key === "Tab") {
+          event.preventDefault();
+
+          if (!activeItem) {
+            onClose();
+            return true;
+          }
+
+          onSelect(activeItem);
+          return true;
+        }
+
+        if (event.key === "Escape") {
+          event.preventDefault();
+          onClose();
+          return true;
+        }
+
+        return false;
+      },
+    }),
+    [activeIndex, activeItem, items, onClose, onSelect, onSelectIndex],
   );
-  const activeItem = ui.items[activeIndex] ?? null;
-  const isOpen = ui.isOpen && ui.triggerFrom != null && ui.caret != null;
 
   const virtualReference = useMemo<VirtualElement | null>(() => {
-    if (!isOpen || ui.triggerFrom == null || ui.caret == null) {
+    if (!isOpen || !clientRect) {
       return null;
     }
-
-    const triggerFrom = ui.triggerFrom;
-    const caret = ui.caret;
 
     return {
       getBoundingClientRect() {
         try {
-          const triggerRect = editor.view.coordsAtPos(triggerFrom);
-          const caretRect = editor.view.coordsAtPos(caret);
-
-          return {
-            top: caretRect.top,
-            bottom: caretRect.bottom,
-            left: triggerRect.left,
-            right: triggerRect.left,
-            width: 0,
-            height: Math.max(0, caretRect.bottom - caretRect.top),
-            x: triggerRect.left,
-            y: caretRect.top,
-            toJSON: () => ({}),
-          };
+          return clientRect() ?? EMPTY_RECT;
         } catch {
-          return {
-            top: 0,
-            bottom: 0,
-            left: 0,
-            right: 0,
-            width: 0,
-            height: 0,
-            x: 0,
-            y: 0,
-            toJSON: () => ({}),
-          };
+          return EMPTY_RECT;
         }
       },
     };
-  }, [editor.view, isOpen, ui.caret, ui.triggerFrom]);
+  }, [clientRect, isOpen]);
 
   const { refs, floatingStyles, elements } = useFloating({
     open: isOpen,
@@ -152,12 +174,11 @@ export function ImageMentionMenu({ editor }: ImageMentionMenuProps) {
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (editor.view.dom.contains(target)) return;
 
       const floating = refs.floating.current;
       if (floating?.contains(target)) return;
 
-      editor.commands.closeImageMention();
+      onClose();
     };
 
     document.addEventListener("pointerdown", handlePointerDown);
@@ -165,12 +186,12 @@ export function ImageMentionMenu({ editor }: ImageMentionMenuProps) {
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
     };
-  }, [editor, isOpen, refs.floating]);
+  }, [isOpen, onClose, refs.floating]);
 
   const isPositioned =
     isOpen && !!elements.floating && Boolean(floatingStyles.transform);
 
-  if (!isOpen || ui.triggerFrom == null) {
+  if (!isOpen) {
     return null;
   }
 
@@ -194,8 +215,8 @@ export function ImageMentionMenu({ editor }: ImageMentionMenuProps) {
         </div>
 
         <div className="max-h-72 overflow-y-auto p-1.5">
-          {ui.items.length > 0 ? (
-            ui.items.map((item, index) => {
+          {items.length > 0 ? (
+            items.map((item, index) => {
               const image = item.resource;
               const isActive = index === activeIndex;
 
@@ -220,12 +241,10 @@ export function ImageMentionMenu({ editor }: ImageMentionMenuProps) {
                       : "text-slate-700 hover:border-slate-200 hover:bg-slate-50",
                   )}
                   onMouseEnter={() => {
-                    editor.commands.setImageMentionSelectedIndex(index);
+                    onSelectIndex(index);
                   }}
                   onClick={() => {
-                    editor.commands.insertImageMention({
-                      resourceId: item.id,
-                    });
+                    onSelect(item);
                   }}
                 >
                   <div
@@ -260,8 +279,8 @@ export function ImageMentionMenu({ editor }: ImageMentionMenuProps) {
             })
           ) : (
             <div className="px-3 py-6 text-center text-sm text-slate-500">
-              {ui.hasReadyImages
-                ? `没有匹配“${ui.query}”的图片`
+              {hasReadyImages
+                ? `没有匹配“${query}”的图片`
                 : "暂无可插入图片"}
             </div>
           )}
@@ -273,6 +292,6 @@ export function ImageMentionMenu({ editor }: ImageMentionMenuProps) {
       </div>
     </FloatingPortal>
   );
-}
+});
 
 export default ImageMentionMenu;

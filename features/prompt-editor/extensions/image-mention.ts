@@ -1,25 +1,23 @@
 "use client";
 
-import { Extension } from "@tiptap/core";
-import {
-  Plugin,
-  PluginKey,
-  TextSelection,
-  type EditorState,
-} from "@tiptap/pm/state";
+import { Extension, type Editor, type Range } from "@tiptap/core";
+import { PluginKey, type EditorState } from "@tiptap/pm/state";
+import { ReactRenderer } from "@tiptap/react";
+import Suggestion, {
+  exitSuggestion,
+  type SuggestionOptions,
+} from "@tiptap/suggestion";
+import { ImageMentionMenu } from "../components/image-mention-menu";
+import type {
+  ImageMentionMenuProps,
+  ImageMentionMenuRef,
+} from "../components/image-mention-menu";
 import type { PromptResource, ReadyPromptResource } from "../types";
 import {
   getPromptResourceToken,
   getPromptResources,
   isReadyPromptResource,
 } from "../utils";
-
-export interface ImageMentionPluginState {
-  isOpen: boolean;
-  triggerFrom: number | null;
-  query: string;
-  selectedIndex: number;
-}
 
 export interface ImageMentionItem {
   id: string;
@@ -28,34 +26,30 @@ export interface ImageMentionItem {
   tokenLower: string;
 }
 
-export type ImageMentionMeta =
-  | { type: "open"; triggerFrom: number }
-  | { type: "close" }
-  | { type: "setSelectedIndex"; index: number };
+export interface ImageMentionOptions {
+  suggestion: Omit<SuggestionOptions<ImageMentionItem>, "editor">;
+}
 
-export const ImageMentionPluginKey = new PluginKey<ImageMentionPluginState>(
-  "imageMention",
-);
+type ImageMentionSuggestionProps = {
+  editor: Editor;
+  query: string;
+  items: ImageMentionItem[];
+  command: (item: ImageMentionItem) => void;
+  clientRect?: (() => DOMRect | null) | null;
+};
+
+export const ImageMentionPluginKey = new PluginKey("imageMention");
 
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     imageMention: {
       closeImageMention: () => ReturnType;
-      setImageMentionSelectedIndex: (index: number) => ReturnType;
       insertImageMention: (attrs: {
         resourceId: string;
+        range: Range;
       }) => ReturnType;
     };
   }
-}
-
-function getDefaultState(): ImageMentionPluginState {
-  return {
-    isOpen: false,
-    triggerFrom: null,
-    query: "",
-    selectedIndex: 0,
-  };
 }
 
 export function buildImageMentionIndex(
@@ -97,128 +91,168 @@ export function getImageMentionActiveIndex(
   return Math.min(Math.max(0, selectedIndex), itemCount - 1);
 }
 
-function getImageMentionItems(
-  state: EditorState,
-  query: string,
-): ImageMentionItem[] {
+function getImageMentionItems(editor: Editor, query: string) {
   return filterImageMentionItems(
-    buildImageMentionIndex(getPromptResources(state.doc)),
+    buildImageMentionIndex(getPromptResources(editor.state.doc)),
     query,
   );
 }
 
-export function getImageMentionQuery(state: EditorState, triggerFrom: number) {
-  const { selection, doc } = state;
-  const caret = selection.from;
-
-  if (caret <= triggerFrom + 1) {
-    return "";
-  }
-
-  return doc.textBetween(triggerFrom + 1, caret, "\n", "\0");
-}
-
-function shouldTriggerImageMention(state: EditorState) {
+function shouldAllowImageMention({
+  state,
+  range,
+}: {
+  state: EditorState;
+  range: Range;
+}) {
   const { selection } = state;
-  if (!selection.empty) return false;
 
-  const $from = selection.$from;
-  const parent = $from.parent;
-  if (!parent?.isTextblock) return false;
-  if (parent.type?.spec?.code) return false;
-
-  return true;
-}
-
-function isImageMentionStillValid(state: EditorState, triggerFrom: number) {
-  if (triggerFrom < 1 || triggerFrom > state.doc.content.size) {
-    return false;
-  }
-
-  const charAtTrigger = state.doc.textBetween(
-    triggerFrom,
-    triggerFrom + 1,
-    "\0",
-    "\0",
-  );
-  if (charAtTrigger !== "@") {
-    return false;
-  }
-
-  const { selection } = state;
   if (!selection.empty) {
     return false;
   }
-  if (selection.from < triggerFrom + 1) {
+
+  const $from = selection.$from;
+  const parent = $from.parent;
+
+  if (!parent?.isTextblock) {
     return false;
   }
 
-  const $trigger = state.doc.resolve(triggerFrom);
-  const blockStart = $trigger.start($trigger.depth);
-  const blockEnd = $trigger.end($trigger.depth);
-
-  if (selection.from < blockStart || selection.from > blockEnd) {
-    return false;
-  }
-  if (selection.$from.parent.type.spec.code) {
+  if (parent.type?.spec?.code) {
     return false;
   }
 
-  const query = getImageMentionQuery(state, triggerFrom);
-  if (/\s/.test(query) || query.includes("\0")) {
+  if (range.from < 1 || range.from > state.doc.content.size) {
     return false;
   }
 
   return true;
 }
 
-export const ImageMention = Extension.create({
+function buildMenuProps(
+  props: ImageMentionSuggestionProps,
+  selectedIndex: number,
+  setSelectedIndex: (index: number) => void,
+): ImageMentionMenuProps {
+  const mentionIndex = buildImageMentionIndex(getPromptResources(props.editor.state.doc));
+  const items = props.items;
+  const activeIndex = getImageMentionActiveIndex(selectedIndex, items.length);
+
+  return {
+    items,
+    query: props.query,
+    selectedIndex: activeIndex,
+    hasReadyImages: mentionIndex.length > 0,
+    clientRect: props.clientRect ?? null,
+    onClose: () => {
+      exitSuggestion(props.editor.view, ImageMentionPluginKey);
+    },
+    onSelect: (item) => {
+      props.command(item);
+    },
+    onSelectIndex: (index) => {
+      setSelectedIndex(index);
+    },
+  };
+}
+
+export const ImageMention = Extension.create<ImageMentionOptions>({
   name: "imageMention",
+
+  addOptions() {
+    return {
+      suggestion: {
+        pluginKey: ImageMentionPluginKey,
+        char: "@",
+        allowedPrefixes: null,
+        allowSpaces: false,
+        startOfLine: false,
+        allow: ({ state, range }) => {
+          return shouldAllowImageMention({ state, range });
+        },
+        items: ({ editor, query }) => {
+          return getImageMentionItems(editor, query);
+        },
+        command: ({ editor, range, props }) => {
+          editor.commands.insertImageMention({
+            resourceId: props.resource.id,
+            range,
+          });
+        },
+        render: () => {
+          let reactRenderer:
+            | ReactRenderer<ImageMentionMenuRef, ImageMentionMenuProps>
+            | null = null;
+          let selectedIndex = 0;
+          let latestProps: ImageMentionSuggestionProps | null = null;
+
+          const setSelectedIndex = (index: number) => {
+            selectedIndex = index;
+
+            if (!reactRenderer || !latestProps) {
+              return;
+            }
+
+            reactRenderer.updateProps(
+              buildMenuProps(latestProps, selectedIndex, setSelectedIndex),
+            );
+          };
+
+          return {
+            onStart: (props: ImageMentionSuggestionProps) => {
+              selectedIndex = 0;
+              latestProps = props;
+
+              reactRenderer = new ReactRenderer(ImageMentionMenu, {
+                editor: props.editor,
+                props: buildMenuProps(props, selectedIndex, setSelectedIndex),
+              });
+            },
+            onUpdate: (props: ImageMentionSuggestionProps) => {
+              latestProps = props;
+
+              if (!reactRenderer) {
+                return;
+              }
+
+              reactRenderer.updateProps(
+                buildMenuProps(props, selectedIndex, setSelectedIndex),
+              );
+            },
+            onKeyDown: ({ event }: { event: KeyboardEvent }) => {
+              return reactRenderer?.ref?.onKeyDown(event) ?? false;
+            },
+            onExit: () => {
+              reactRenderer?.destroy();
+              reactRenderer = null;
+              latestProps = null;
+              selectedIndex = 0;
+            },
+          };
+        },
+      },
+    };
+  },
 
   addCommands() {
     return {
       closeImageMention:
         () =>
-        ({ tr, dispatch }) => {
-          if (dispatch) {
-            dispatch(tr.setMeta(ImageMentionPluginKey, { type: "close" }));
-          }
-          return true;
-        },
-      setImageMentionSelectedIndex:
-        (index) =>
-        ({ tr, dispatch }) => {
-          if (dispatch) {
-            dispatch(
-              tr.setMeta(ImageMentionPluginKey, {
-                type: "setSelectedIndex",
-                index,
-              } satisfies ImageMentionMeta),
-            );
-          }
+        ({ editor }) => {
+          exitSuggestion(editor.view, ImageMentionPluginKey);
           return true;
         },
       insertImageMention:
-        (attrs) =>
+        ({ resourceId, range }) =>
         ({ editor }) => {
-          const pluginState = ImageMentionPluginKey.getState(
-            editor.state,
-          ) as ImageMentionPluginState | null;
-
-          if (!pluginState?.isOpen || pluginState.triggerFrom == null) {
-            return false;
-          }
-
           return editor
             .chain()
             .focus()
-            .deleteRange({
-              from: pluginState.triggerFrom,
-              to: editor.state.selection.from,
-            })
-            .insertContent({
+            .insertContentAt(range, {
               type: "imageTag",
-              attrs,
+              attrs: {
+                resourceId,
+              },
             })
             .run();
         },
@@ -226,147 +260,10 @@ export const ImageMention = Extension.create({
   },
 
   addProseMirrorPlugins() {
-    const editor = this.editor;
-
     return [
-      new Plugin<ImageMentionPluginState>({
-        key: ImageMentionPluginKey,
-        state: {
-          init() {
-            return getDefaultState();
-          },
-          apply(tr, prev, _oldState, nextState) {
-            const meta = tr.getMeta(ImageMentionPluginKey) as
-              | ImageMentionMeta
-              | undefined;
-
-            if (meta?.type === "open") {
-              return {
-                isOpen: true,
-                triggerFrom: meta.triggerFrom,
-                query: "",
-                selectedIndex: 0,
-              };
-            }
-
-            if (meta?.type === "close") {
-              return getDefaultState();
-            }
-
-            if (!prev.isOpen || prev.triggerFrom == null) {
-              return prev;
-            }
-
-            const mapped = tr.mapping.mapResult(prev.triggerFrom);
-            if (mapped.deleted) {
-              return getDefaultState();
-            }
-
-            const nextTriggerFrom = mapped.pos;
-            if (!isImageMentionStillValid(nextState, nextTriggerFrom)) {
-              return getDefaultState();
-            }
-
-            const nextQuery = getImageMentionQuery(nextState, nextTriggerFrom);
-
-            let selectedIndex =
-              prev.query === nextQuery ? prev.selectedIndex : 0;
-
-            if (meta?.type === "setSelectedIndex") {
-              selectedIndex = meta.index;
-            }
-
-            return {
-              isOpen: true,
-              triggerFrom: nextTriggerFrom,
-              query: nextQuery,
-              selectedIndex: Math.max(0, selectedIndex),
-            };
-          },
-        },
-        props: {
-          handleTextInput(view, from, to, text) {
-            const state = view.state;
-            if (text !== "@") {
-              return false;
-            }
-            if (!shouldTriggerImageMention(state)) {
-              return false;
-            }
-
-            const tr = state.tr.insertText(text, from, to);
-            tr.setMeta(ImageMentionPluginKey, {
-              type: "open",
-              triggerFrom: from,
-            } satisfies ImageMentionMeta);
-            tr.setSelection(TextSelection.near(tr.doc.resolve(from + 1)));
-            view.dispatch(tr);
-            return true;
-          },
-          handleKeyDown(view, event) {
-            const pluginState = ImageMentionPluginKey.getState(
-              view.state,
-            ) as ImageMentionPluginState | null;
-
-            if (!pluginState?.isOpen || pluginState.triggerFrom == null) {
-              return false;
-            }
-            if (event.isComposing) {
-              return false;
-            }
-
-            const items = getImageMentionItems(view.state, pluginState.query);
-            const activeIndex = getImageMentionActiveIndex(
-              pluginState.selectedIndex,
-              items.length,
-            );
-
-            if (event.key === "ArrowDown") {
-              event.preventDefault();
-              if (items.length === 0) {
-                return true;
-              }
-
-              const nextIndex = (activeIndex + 1) % items.length;
-              editor.commands.setImageMentionSelectedIndex(nextIndex);
-              return true;
-            }
-
-            if (event.key === "ArrowUp") {
-              event.preventDefault();
-              if (items.length === 0) {
-                return true;
-              }
-
-              const nextIndex = (activeIndex - 1 + items.length) % items.length;
-              editor.commands.setImageMentionSelectedIndex(nextIndex);
-              return true;
-            }
-
-            if (event.key === "Enter" || event.key === "Tab") {
-              const activeItem = items[activeIndex];
-              if (!activeItem) {
-                event.preventDefault();
-                editor.commands.closeImageMention();
-                return true;
-              }
-
-              event.preventDefault();
-              editor.commands.insertImageMention({
-                resourceId: activeItem.resource.id,
-              });
-              return true;
-            }
-
-            if (event.key === "Escape") {
-              event.preventDefault();
-              editor.commands.closeImageMention();
-              return true;
-            }
-
-            return false;
-          },
-        },
+      Suggestion({
+        editor: this.editor,
+        ...this.options.suggestion,
       }),
     ];
   },

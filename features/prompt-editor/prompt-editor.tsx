@@ -9,7 +9,6 @@ import { PromptDocument, ResourceRegistry } from "./extensions/prompt-document";
 import { ImageTag } from "./extensions/image-tag";
 import { ImageMention } from "./extensions/image-mention";
 import { ImageCardList } from "./components/image-card-list";
-import { ImageMentionMenu } from "./components/image-mention-menu";
 import { ImageCropDialog } from "./components/image-crop-dialog";
 import { usePromptEditor } from "./hooks/use-prompt-editor";
 import type { ReadyPromptResource } from "./types";
@@ -131,8 +130,6 @@ const PromptEditor = () => {
           </section>
         </div>
       </div>
-
-      <ImageMentionMenu editor={editor} />
 
       <ImageCropDialog
         open={cropImage !== null}

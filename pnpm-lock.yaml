@@ -86,6 +86,9 @@ importers:
       '@tiptap/starter-kit':
         specifier: ^3.14.0
         version: 3.15.3
+      '@tiptap/suggestion':
+        specifier: ^3.15.3
+        version: 3.22.0(@tiptap/core@3.15.3(@tiptap/pm@3.15.3))(@tiptap/pm@3.15.3)
       '@vitejs/plugin-react':
         specifier: ^5.1.4
         version: 5.1.4(vite@7.3.1(@types/node@20.19.28)(jiti@2.6.1)(lightningcss@1.30.2)(tsx@4.21.0))
@@ -2055,6 +2058,12 @@ packages:
 
   '@tiptap/starter-kit@3.15.3':
     resolution: {integrity: sha512-ia+eQr9Mt1ln2UO+kK4kFTJOrZK4GhvZXFjpCCYuHtco3rhr2fZAIxEEY4cl/vo5VO5WWyPqxhkFeLcoWmNjSw==}
+
+  '@tiptap/suggestion@3.22.0':
+    resolution: {integrity: sha512-qdZ4v7sXkM4p2+M7OWCGVoNmHmiaHhiGQN3lUzaNG7mG1gZ2SDirSaeOfL8lHxpnPlGzmE4tUe5eCWMpNKHypA==}
+    peerDependencies:
+      '@tiptap/core': ^3.22.0
+      '@tiptap/pm': ^3.22.0
 
   '@types/babel__core@7.20.5':
     resolution: {integrity: sha512-qoQprZvz5wQFJwMDqeseRXWv3rqMvhgpbXFfVyWhbx9X47POIA6i/+dXefEmZKoAgOaTdaIgNSMqMIU61yRyzA==}
@@ -5636,6 +5645,11 @@ snapshots:
       '@tiptap/extension-text': 3.15.3(@tiptap/core@3.15.3(@tiptap/pm@3.15.3))
       '@tiptap/extension-underline': 3.15.3(@tiptap/core@3.15.3(@tiptap/pm@3.15.3))
       '@tiptap/extensions': 3.15.3(@tiptap/core@3.15.3(@tiptap/pm@3.15.3))(@tiptap/pm@3.15.3)
+      '@tiptap/pm': 3.15.3
+
+  '@tiptap/suggestion@3.22.0(@tiptap/core@3.15.3(@tiptap/pm@3.15.3))(@tiptap/pm@3.15.3)':
+    dependencies:
+      '@tiptap/core': 3.15.3(@tiptap/pm@3.15.3)
       '@tiptap/pm': 3.15.3
 
   '@types/babel__core@7.20.5':
