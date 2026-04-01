@@ -121,14 +121,13 @@ tiptap 中存储数据的三种方式对比：
 最终解决方案：
 
 - 保留 `imageTag` 为原子 inline 节点，并显式设置 `contenteditable="false"`，避免浏览器把光标放进 TAG 盒子内部。
-- 不再依赖伪元素或 `margin` 提供间距，而是在 ProseMirror 插件里通过 `Decoration.widget` 给 TAG 左右插入真实的 inline gap。
-- gap 的宽度按相邻关系区分：
-  - TAG 与普通文本相邻时，插入一个完整 gap。
-  - 两个 TAG 相邻时，不再直接叠加两个完整 gap，而是左侧 TAG 右边放 `1/2 gap`，右侧 TAG 左边再放 `1/2 gap`。视觉上仍然是一个完整间距，但光标可以稳定落在两个半 gap 之间。
-- 这些 gap 是编辑器布局的一部分，不只是视觉样式，因此点击最后一个 TAG 右侧时，光标可以落在 gap 后面，末尾交互会稳定很多。
-- gap 自身只提供横向宽度，不参与垂直高度计算，避免把所在段落的行高继续撑高。
+- `imageTag` 改为 `selectable: false`。这样左右方向键只在真实文本位置之间移动，不会先落进一个不可见的 `NodeSelection`。
+- `TAG-text` 的 6px 间距继续由 `imageTag` 的上下文 decoration class 控制。
+- `TAG-TAG` 不再往文档里塞隐藏字符，而是在两个相邻 TAG 共享的那个真实文档位置上挂一个 3px 的 `Decoration.widget`。
+- 这个 widget 只负责把“原本宽度为 0 的边界位置”渲染成可点击的可视 gap；点击它时，selection 直接落到这两个 TAG 之间那个真实位置，输入文本后也会自然插入在两者之间。
+- 文档本身不再引入新的内部结构字符；序列化层仅保留对历史 `\u200B` 的兼容清理，避免旧数据残留泄漏到对外文本。
 
 结论：
 
 - “视觉间距”和“可编辑光标落点”在 TipTap / ProseMirror 里不是一回事。
-- 只要需求包含“末尾可点击的空白区域”，就不能只用 CSS `margin` 或伪元素，必须提供真实的 inline 可布局节点。
+- 真正稳定的方案是只利用已有的真实文档位置，不额外创造隐藏文本节点；`TAG-TAG` 的可点击 gap 应该是“单位置 widget”，而不是“隐藏字符”。

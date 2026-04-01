@@ -9,8 +9,32 @@ import type {
 
 export const RESOURCE_REGISTRY_NODE_NAME = "resourceRegistry";
 export const IMAGE_TAG_NODE_NAME = "imageTag";
+export const IMAGE_TAG_PAIR_GAP_SENTINEL = "\u200B";
 
 export const generateId = () => `res-${crypto.randomUUID()}`;
+
+export function stripImageTagPairGapSentinels(text: string): string {
+  return text.replaceAll(IMAGE_TAG_PAIR_GAP_SENTINEL, "");
+}
+
+export function sanitizePromptText(text: string): string {
+  return stripImageTagPairGapSentinels(text);
+}
+
+export function isImageTagPairGapSentinelText(text: string): boolean {
+  return (
+    text.length > 0 &&
+    stripImageTagPairGapSentinels(text).length === 0
+  );
+}
+
+export function isImageTagPairGapSentinelTextNode(
+  node: ProseMirrorNode | null | undefined,
+): boolean {
+  return Boolean(
+    node?.isText && isImageTagPairGapSentinelText(node.text ?? ""),
+  );
+}
 
 export const EMPTY_DOC: JSONContent = {
   type: "doc",
@@ -85,11 +109,12 @@ function buildParagraphContent(
 ): JSONContent[] {
   const content: JSONContent[] = [];
   const tokenEntries = buildResourceTokenMap(resources);
+  const normalizedText = sanitizePromptText(text);
   let cursor = 0;
 
-  while (cursor < text.length) {
+  while (cursor < normalizedText.length) {
     const matchedEntry = tokenEntries.find(([token]) =>
-      text.startsWith(token, cursor),
+      normalizedText.startsWith(token, cursor),
     );
 
     if (matchedEntry) {
@@ -103,12 +128,12 @@ function buildParagraphContent(
     }
 
     const nextTokenStart = (() => {
-      for (let index = cursor; index < text.length; index += 1) {
-        if (text[index] !== "@") {
+      for (let index = cursor; index < normalizedText.length; index += 1) {
+        if (normalizedText[index] !== "@") {
           continue;
         }
 
-        if (tokenEntries.some(([token]) => text.startsWith(token, index))) {
+        if (tokenEntries.some(([token]) => normalizedText.startsWith(token, index))) {
           return index;
         }
       }
@@ -116,8 +141,8 @@ function buildParagraphContent(
       return -1;
     })();
 
-    const textEnd = nextTokenStart === -1 ? text.length : nextTokenStart;
-    appendTextNodes(text.slice(cursor, textEnd), content);
+    const textEnd = nextTokenStart === -1 ? normalizedText.length : nextTokenStart;
+    appendTextNodes(normalizedText.slice(cursor, textEnd), content);
     cursor = textEnd;
   }
 
@@ -128,7 +153,8 @@ export function payloadToContent(
   text: string,
   resources: PromptResource[],
 ): JSONContent {
-  const paragraphs = text ? text.split("\n\n") : [""];
+  const normalizedText = sanitizePromptText(text);
+  const paragraphs = normalizedText ? normalizedText.split("\n\n") : [""];
   const docContent = paragraphs.map((paragraph) => {
     const paragraphContent = buildParagraphContent(paragraph, resources);
 
@@ -199,7 +225,7 @@ function serializeInlineContent(
 
   node.forEach((child) => {
     if (child.isText) {
-      parts.push(child.text ?? "");
+      parts.push(sanitizePromptText(child.text ?? ""));
       return;
     }
 
@@ -219,7 +245,7 @@ function serializeInlineContent(
     }
 
     if (child.isLeaf) {
-      parts.push(child.textContent);
+      parts.push(sanitizePromptText(child.textContent));
       return;
     }
 

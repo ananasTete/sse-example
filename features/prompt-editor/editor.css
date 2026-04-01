@@ -1,5 +1,17 @@
 .prompt-editor-surface {
   background: #fff;
+  --image-tag-text-gap: 6px;
+  --image-tag-pair-gap: 3px;
+  --image-tag-font-size: 12px;
+  --image-tag-line-height: 1.3;
+  --image-tag-padding-y: 2px;
+  --image-tag-padding-x: 8px;
+  --image-tag-border-width: 1px;
+  --image-tag-outer-height: calc(
+    (var(--image-tag-font-size) * var(--image-tag-line-height)) +
+    (var(--image-tag-padding-y) * 2) +
+    (var(--image-tag-border-width) * 2)
+  );
 }
 
 .ProseMirror {
@@ -36,17 +48,17 @@
   display: inline-flex;
   align-items: center;
   gap: 0.2rem;
-  padding: 2px 8px;
-  font-size: 12px;
-  line-height: 1.3;
+  padding: var(--image-tag-padding-y) var(--image-tag-padding-x);
+  font-size: var(--image-tag-font-size);
+  line-height: var(--image-tag-line-height);
   font-weight: 500;
   color: #334155;
   background: #f8fafc;
-  border: 1px solid #cbd5e1;
+  border: var(--image-tag-border-width) solid #cbd5e1;
   cursor: default;
   user-select: none;
   white-space: nowrap;
-  vertical-align: baseline;
+  vertical-align: middle;
 }
 
 .image-tag:hover {
@@ -77,21 +89,25 @@
   animation: blink 1s ease-in-out infinite;
 }
 
-.image-tag-inline-gap {
-  --image-tag-inline-gap-width: 6px;
-  display: inline-block;
-  width: var(--image-tag-inline-gap-width);
-  height: 0;
+.image-tag-gap {
+  display: inline-flex;
+  height: var(--image-tag-outer-height);
   overflow: hidden;
-  pointer-events: none;
-  user-select: none;
+  vertical-align: middle;
+  cursor: text;
   font-size: 0;
   line-height: 0;
-  vertical-align: baseline;
+  box-sizing: border-box;
+  position: relative;
+  top: 0;
 }
 
-.image-tag-inline-gap--half {
-  --image-tag-inline-gap-width: 3px;
+.image-tag-gap--full {
+  width: var(--image-tag-text-gap);
+}
+
+.image-tag-gap--half {
+  width: calc(var(--image-tag-pair-gap));
 }
 
 .ProseMirror.dragging {

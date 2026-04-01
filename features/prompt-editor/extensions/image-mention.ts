@@ -5,7 +5,10 @@ import { PluginKey, type EditorState } from "@tiptap/pm/state";
 import { ReactRenderer } from "@tiptap/react";
 import Suggestion, {
   exitSuggestion,
+  findSuggestionMatch as defaultFindSuggestionMatch,
+  type SuggestionMatch,
   type SuggestionOptions,
+  type Trigger,
 } from "@tiptap/suggestion";
 import { ImageMentionMenu } from "../components/image-mention-menu";
 import type {
@@ -17,6 +20,7 @@ import {
   getPromptResourceToken,
   getPromptResources,
   isReadyPromptResource,
+  sanitizePromptText,
 } from "../utils";
 
 export interface ImageMentionItem {
@@ -71,7 +75,7 @@ export function filterImageMentionItems(
   mentionIndex: ImageMentionItem[],
   query: string,
 ): ImageMentionItem[] {
-  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedQuery = sanitizePromptText(query).trim().toLowerCase();
 
   if (!normalizedQuery) {
     return mentionIndex;
@@ -96,6 +100,22 @@ function getImageMentionItems(editor: Editor, query: string) {
     buildImageMentionIndex(getPromptResources(editor.state.doc)),
     query,
   );
+}
+
+function findImageMentionSuggestionMatch(config: Trigger): SuggestionMatch {
+  const match = defaultFindSuggestionMatch(config);
+
+  if (!match) {
+    return null;
+  }
+
+  const query = sanitizePromptText(match.query);
+
+  return {
+    ...match,
+    query,
+    text: `${config.char}${query}`,
+  };
 }
 
 function shouldAllowImageMention({
@@ -140,7 +160,7 @@ function buildMenuProps(
 
   return {
     items,
-    query: props.query,
+    query: sanitizePromptText(props.query),
     selectedIndex: activeIndex,
     hasReadyImages: mentionIndex.length > 0,
     clientRect: props.clientRect ?? null,
@@ -166,6 +186,7 @@ export const ImageMention = Extension.create<ImageMentionOptions>({
         char: "@",
         allowedPrefixes: null,
         allowSpaces: false,
+        findSuggestionMatch: findImageMentionSuggestionMatch,
         startOfLine: false,
         allow: ({ state, range }) => {
           return shouldAllowImageMention({ state, range });

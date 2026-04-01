@@ -1,5 +1,5 @@
 import { mergeAttributes, Node } from "@tiptap/core";
-import { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, Transaction } from "@tiptap/pm/state";
 import type { CropMetadata, PromptResource } from "../types";
 import {
@@ -9,6 +9,7 @@ import {
   getReferencedResourceIds,
   IMAGE_TAG_NODE_NAME,
   RESOURCE_REGISTRY_NODE_NAME,
+  stripImageTagPairGapSentinels,
 } from "../utils";
 
 export interface PromptDocumentOptions {
@@ -84,6 +85,30 @@ function collectImageTagRanges(doc: ProseMirrorNode, ids: Set<string>) {
 
 function ensureParagraph(doc: ProseMirrorNode) {
   return doc.childCount <= 1;
+}
+
+function normalizeTextblockInlineContent(node: ProseMirrorNode): Fragment {
+  const nextChildren: ProseMirrorNode[] = [];
+  const { schema } = node.type;
+
+  node.forEach((child) => {
+    if (child.isText) {
+      const nextText = stripImageTagPairGapSentinels(child.text ?? "");
+
+      if (!nextText) {
+        return;
+      }
+
+      nextChildren.push(
+        nextText === child.text ? child : schema.text(nextText, child.marks),
+      );
+      return;
+    }
+
+    nextChildren.push(child);
+  });
+
+  return Fragment.fromArray(nextChildren);
 }
 
 const promptDocumentNormalizeKey = new PluginKey("promptDocumentNormalize");
@@ -305,6 +330,36 @@ export const ResourceRegistry = Node.create<PromptDocumentOptions>({
             .sort((a, b) => b.from - a.from)
             .forEach(({ from, to }) => {
               tr.delete(from, to);
+              changed = true;
+            });
+
+          const textblockReplacements: Array<{
+            from: number;
+            to: number;
+            content: Fragment;
+          }> = [];
+
+          tr.doc.descendants((node, pos) => {
+            if (!node.isTextblock || !node.inlineContent) {
+              return;
+            }
+
+            const nextContent = normalizeTextblockInlineContent(node);
+            if (!node.content.eq(nextContent)) {
+              textblockReplacements.push({
+                from: pos + 1,
+                to: pos + node.nodeSize - 1,
+                content: nextContent,
+              });
+            }
+
+            return false;
+          });
+
+          textblockReplacements
+            .sort((a, b) => b.from - a.from)
+            .forEach(({ from, to, content }) => {
+              tr.replaceWith(from, to, content);
               changed = true;
             });
 
