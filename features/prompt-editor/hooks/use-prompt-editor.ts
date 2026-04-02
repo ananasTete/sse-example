@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Editor } from "@tiptap/core";
 import type {
   CropMetadata,
@@ -21,6 +21,7 @@ export interface UsePromptEditorOptions {
 
 export interface UsePromptEditorReturn {
   resources: PromptResource[];
+  replacingResourceIds: string[];
   addImages: (files: File[]) => Promise<void>;
   replaceImage: (id: string, file: File) => Promise<void>;
   removeImage: (id: string) => void;
@@ -46,10 +47,14 @@ export function usePromptEditor({
   maxImages = 4,
 }: UsePromptEditorOptions): UsePromptEditorReturn {
   const [resources, setResources] = useState<PromptResource[]>([]);
+  const [replacingResourceIds, setReplacingResourceIds] = useState<string[]>([]);
+  const replacementOperationIdsRef = useRef(new Map<string, string>());
 
   useEffect(() => {
     if (!editor) {
       setResources([]);
+      setReplacingResourceIds([]);
+      replacementOperationIdsRef.current.clear();
       return;
     }
 
@@ -69,6 +74,30 @@ export function usePromptEditor({
     return resource.kind === "local_image";
   });
   const canAddMore = localResources.length < maxImages;
+
+  const beginReplacement = useCallback((id: string) => {
+    const operationId = crypto.randomUUID();
+    replacementOperationIdsRef.current.set(id, operationId);
+    setReplacingResourceIds((currentIds) => {
+      return currentIds.includes(id) ? currentIds : [...currentIds, id];
+    });
+
+    return operationId;
+  }, []);
+
+  const endReplacement = useCallback((id: string, operationId?: string) => {
+    const currentOperationId = replacementOperationIdsRef.current.get(id);
+    if (operationId && currentOperationId !== operationId) {
+      return false;
+    }
+
+    replacementOperationIdsRef.current.delete(id);
+    setReplacingResourceIds((currentIds) => {
+      return currentIds.filter((currentId) => currentId !== id);
+    });
+
+    return true;
+  }, []);
 
   const getNextSlotNumbers = useCallback(
     (count: number) => {
@@ -138,13 +167,20 @@ export function usePromptEditor({
         placeholders.map(async ({ file, resource }) => {
           try {
             const url = await mockUploadImage(file);
-            editor.commands.updatePromptResource(resource.id, {
-              asset: { url },
-              status: "ready",
-              transform: undefined,
-            });
+            editor.commands.updatePromptResource(
+              resource.id,
+              {
+                asset: { url },
+                status: "ready",
+                transform: undefined,
+              },
+              { addToHistory: false },
+            );
           } catch {
-            editor.commands.removePromptResourcesAndTags([resource.id]);
+            editor.commands.removePromptResourcesAndTags(
+              [resource.id],
+              { addToHistory: false },
+            );
           }
         }),
       );
@@ -156,9 +192,10 @@ export function usePromptEditor({
     (id: string) => {
       if (!editor) return;
 
+      endReplacement(id);
       editor.commands.removePromptResourcesAndTags([id]);
     },
-    [editor],
+    [editor, endReplacement],
   );
 
   const replaceImage = useCallback(
@@ -170,27 +207,35 @@ export function usePromptEditor({
       const currentResource = getPromptResources(editor.state.doc).find(
         (resource) => resource.id === id,
       );
-      if (!currentResource || currentResource.kind !== "local_image") {
+      if (
+        !currentResource ||
+        currentResource.kind !== "local_image" ||
+        currentResource.status !== "ready" ||
+        !currentResource.asset?.url
+      ) {
         return;
       }
 
-      editor.commands.updatePromptResource(id, {
-        asset: undefined,
-        status: "uploading",
-      });
+      const operationId = beginReplacement(id);
 
       try {
         const nextUrl = await mockUploadImage(file);
+        if (replacementOperationIdsRef.current.get(id) !== operationId) {
+          return;
+        }
+
         editor.commands.updatePromptResource(id, {
           asset: { url: nextUrl },
           status: "ready",
           transform: undefined,
         });
       } catch {
-        editor.commands.updatePromptResource(id, currentResource);
+        // Keep the last committed image in the document on replace failure.
+      } finally {
+        endReplacement(id, operationId);
       }
     },
-    [editor],
+    [beginReplacement, editor, endReplacement],
   );
 
   const setImageCrop = useCallback(
@@ -219,6 +264,8 @@ export function usePromptEditor({
     (payload: PromptPayload) => {
       if (!editor) return;
 
+      replacementOperationIdsRef.current.clear();
+      setReplacingResourceIds([]);
       editor.commands.setContent(payloadToContent(payload.text, payload.resources));
     },
     [editor],
@@ -226,6 +273,7 @@ export function usePromptEditor({
 
   return {
     resources,
+    replacingResourceIds,
     addImages,
     replaceImage,
     removeImage,

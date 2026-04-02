@@ -1,7 +1,7 @@
 import { Node, mergeAttributes } from "@tiptap/core";
 import { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
-import { Decoration, DecorationSet, EditorView } from "@tiptap/pm/view";
+import { Decoration, DecorationSet } from "@tiptap/pm/view";
 import {
   IMAGE_TAG_NODE_NAME,
   getPromptResourceMap,
@@ -25,32 +25,132 @@ const dropIndicatorKey = new PluginKey("imageTagDropIndicator");
 const spacingDecorationKey = new PluginKey("imageTagSpacing");
 
 function createBoundaryGapDom(
-  view: EditorView,
-  getPos: (() => number | undefined) | boolean,
+  getPos: () => number | undefined,
   className: string,
 ) {
   const gap = document.createElement("span");
   gap.className = className;
+  gap.setAttribute("data-image-tag-gap", "true");
   gap.setAttribute("aria-hidden", "true");
+  gap.setAttribute("role", "presentation");
   gap.contentEditable = "false";
+  const gapPos = getPos();
+  if (typeof gapPos === "number") {
+    gap.setAttribute("data-gap-pos", String(gapPos));
+  }
 
-  gap.addEventListener("mousedown", (event) => {
-    event.preventDefault();
+  return gap;
+}
 
-    const gapPos = typeof getPos === "function" ? getPos() : null;
-    if (typeof gapPos !== "number") {
+function resolveGapPos(target: EventTarget | null) {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+
+  const gap = target.closest<HTMLElement>("[data-image-tag-gap='true']");
+  if (!gap) {
+    return null;
+  }
+
+  const gapPos = Number(gap.dataset.gapPos);
+  return Number.isInteger(gapPos) ? gapPos : null;
+}
+
+function buildSpacingDecorations(
+  doc: ProseMirrorNode,
+  imageTagName: string,
+) {
+  const decorations: Decoration[] = [];
+
+  doc.descendants((node, pos, parent, index) => {
+    if (!parent?.isTextblock || typeof index !== "number") {
       return;
     }
 
-    view.focus();
-    view.dispatch(
-      view.state.tr.setSelection(
-        TextSelection.create(view.state.doc, gapPos),
-      ),
-    );
+    if (node.type.name !== imageTagName) {
+      return;
+    }
+
+    const previousSibling = index > 0 ? parent.child(index - 1) : null;
+    const nextSibling = index < parent.childCount - 1 ? parent.child(index + 1) : null;
+    const isPreviousTag = previousSibling?.type.name === imageTagName;
+    const isNextTag = nextSibling?.type.name === imageTagName;
+
+    if (!isPreviousTag) {
+      decorations.push(
+        Decoration.widget(
+          pos,
+          (_view, getPos) =>
+            createBoundaryGapDom(
+              getPos,
+              "image-tag-gap image-tag-gap--full image-tag-gap--before",
+            ),
+          {
+            // Positive side keeps this leading gap attached to the tag after it.
+            side: 1,
+            relaxedSide: true,
+            key: `image-tag-gap-before-${pos}`,
+          },
+        ),
+      );
+    }
+
+    if (!isNextTag) {
+      decorations.push(
+        Decoration.widget(
+          pos + node.nodeSize,
+          (_view, getPos) =>
+            createBoundaryGapDom(
+              getPos,
+              "image-tag-gap image-tag-gap--full image-tag-gap--after",
+            ),
+          {
+            // Negative side keeps this trailing gap attached to the tag before it.
+            side: -1,
+            relaxedSide: true,
+            key: `image-tag-gap-after-${pos}`,
+          },
+        ),
+      );
+    }
+
+    if (isNextTag) {
+      decorations.push(
+        Decoration.widget(
+          pos + node.nodeSize,
+          (_view, getPos) =>
+            createBoundaryGapDom(
+              getPos,
+              "image-tag-gap image-tag-gap--half image-tag-gap--before",
+            ),
+          {
+            // Left half of the shared TAG-TAG boundary stays on the left side.
+            side: -1,
+            relaxedSide: true,
+            key: `image-tag-pair-gap-left-${pos}`,
+          },
+        ),
+      );
+      decorations.push(
+        Decoration.widget(
+          pos + node.nodeSize,
+          (_view, getPos) =>
+            createBoundaryGapDom(
+              getPos,
+              "image-tag-gap image-tag-gap--half image-tag-gap--after",
+            ),
+          {
+            // Right half of the shared TAG-TAG boundary stays on the right side.
+            side: 1,
+            relaxedSide: true,
+            key: `image-tag-pair-gap-right-${pos}`,
+          },
+        ),
+      );
+    }
   });
 
-  return gap;
+  return DecorationSet.create(doc, decorations);
 }
 
 export const ImageTag = Node.create<ImageTagOptions>({
@@ -218,99 +318,35 @@ export const ImageTag = Node.create<ImageTagOptions>({
     return [
       new Plugin({
         key: spacingDecorationKey,
+        state: {
+          init(_, state) {
+            return buildSpacingDecorations(state.doc, imageTagName);
+          },
+          apply(tr, decorationSet) {
+            if (!tr.docChanged) {
+              return decorationSet;
+            }
+
+            return buildSpacingDecorations(tr.doc, imageTagName);
+          },
+        },
         props: {
           decorations(state) {
-            const decorations: Decoration[] = [];
+            return spacingDecorationKey.getState(state) ?? DecorationSet.empty;
+          },
+          handleClick(view, _pos, event) {
+            const gapPos = resolveGapPos(event.target);
+            if (gapPos === null) {
+              return false;
+            }
 
-            state.doc.descendants((node, pos, parent, index) => {
-              if (!parent?.isTextblock || typeof index !== "number") {
-                return;
-              }
-
-              if (node.type.name === imageTagName) {
-                const previousSibling = index > 0 ? parent.child(index - 1) : null;
-                const nextSibling =
-                  index < parent.childCount - 1 ? parent.child(index + 1) : null;
-                const isPreviousTag = previousSibling?.type.name === imageTagName;
-                const isNextTag = nextSibling?.type.name === imageTagName;
-
-                if (!isPreviousTag) {
-                  decorations.push(
-                    Decoration.widget(
-                      pos,
-                      (view, getPos) =>
-                        createBoundaryGapDom(
-                          view,
-                          getPos,
-                          "image-tag-gap image-tag-gap--full image-tag-gap--before",
-                        ),
-                      {
-                        side: 1,
-                        ignoreSelection: false,
-                        key: `image-tag-gap-before-${pos}`,
-                      },
-                    ),
-                  );
-                }
-
-                if (!isNextTag) {
-                  decorations.push(
-                    Decoration.widget(
-                      pos + node.nodeSize,
-                      (view, getPos) =>
-                        createBoundaryGapDom(
-                          view,
-                          getPos,
-                          "image-tag-gap image-tag-gap--full image-tag-gap--after",
-                        ),
-                      {
-                        side: -1,
-                        ignoreSelection: false,
-                        key: `image-tag-gap-after-${pos}`,
-                      },
-                    ),
-                  );
-                }
-
-                if (isNextTag) {
-                  decorations.push(
-                    Decoration.widget(
-                      pos + node.nodeSize,
-                      (view, getPos) =>
-                        createBoundaryGapDom(
-                          view,
-                          getPos,
-                          "image-tag-gap image-tag-gap--half image-tag-gap--before",
-                        ),
-                      {
-                        side: -1,
-                        ignoreSelection: false,
-                        key: `image-tag-pair-gap-left-${pos}`,
-                      },
-                    ),
-                  );
-                  decorations.push(
-                    Decoration.widget(
-                      pos + node.nodeSize,
-                      (view, getPos) =>
-                        createBoundaryGapDom(
-                          view,
-                          getPos,
-                          "image-tag-gap image-tag-gap--half image-tag-gap--after",
-                        ),
-                      {
-                        side: 1,
-                        ignoreSelection: false,
-                        key: `image-tag-pair-gap-right-${pos}`,
-                      },
-                    ),
-                  );
-                }
-                return;
-              }
-            });
-
-            return DecorationSet.create(state.doc, decorations);
+            view.focus();
+            view.dispatch(
+              view.state.tr
+                .setSelection(TextSelection.create(view.state.doc, gapPos))
+                .scrollIntoView(),
+            );
+            return true;
           },
         },
       }),

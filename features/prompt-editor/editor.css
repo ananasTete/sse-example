@@ -45,9 +45,7 @@
 }
 
 .image-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.2rem;
+  display: inline-block;
   padding: var(--image-tag-padding-y) var(--image-tag-padding-x);
   font-size: var(--image-tag-font-size);
   line-height: var(--image-tag-line-height);
@@ -58,7 +56,7 @@
   cursor: default;
   user-select: none;
   white-space: nowrap;
-  vertical-align: middle;
+  vertical-align: baseline;
 }
 
 .image-tag:hover {
@@ -90,16 +88,22 @@
 }
 
 .image-tag-gap {
-  display: inline-flex;
-  height: var(--image-tag-outer-height);
-  overflow: hidden;
-  vertical-align: middle;
+  display: inline-block;
+  height: 0;
+  overflow: visible;
+  vertical-align: baseline;
   cursor: text;
-  font-size: 0;
-  line-height: 0;
   box-sizing: border-box;
   position: relative;
+}
+
+.image-tag-gap::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
   top: 0;
+  height: var(--image-tag-outer-height);
+  transform: translateY(-50%);
 }
 
 .image-tag-gap--full {

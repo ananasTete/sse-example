@@ -16,6 +16,10 @@ export interface PromptDocumentOptions {
   HTMLAttributes: Record<string, unknown>;
 }
 
+export interface PromptResourceCommandOptions {
+  addToHistory?: boolean;
+}
+
 function mergePromptResources(
   currentResources: PromptResource[],
   updates: PromptResource[],
@@ -60,6 +64,18 @@ function setRegistryResources(
   });
 
   return true;
+}
+
+function applyCommandMeta(
+  tr: Transaction,
+  options?: PromptResourceCommandOptions,
+) {
+  // Upload completion/failure is async reconciliation, not a user undo step.
+  if (options?.addToHistory === false) {
+    tr.setMeta("addToHistory", false);
+  }
+
+  return tr;
 }
 
 function collectImageTagRanges(doc: ProseMirrorNode, ids: Set<string>) {
@@ -120,8 +136,12 @@ declare module "@tiptap/core" {
       updatePromptResource: (
         id: string,
         patch: Partial<PromptResource>,
+        options?: PromptResourceCommandOptions,
       ) => ReturnType;
-      removePromptResourcesAndTags: (ids: string[]) => ReturnType;
+      removePromptResourcesAndTags: (
+        ids: string[],
+        options?: PromptResourceCommandOptions,
+      ) => ReturnType;
       setPromptResourceCrop: (id: string, crop?: CropMetadata) => ReturnType;
     };
   }
@@ -203,7 +223,7 @@ export const ResourceRegistry = Node.create<PromptDocumentOptions>({
         },
 
       updatePromptResource:
-        (id, patch) =>
+        (id, patch, options) =>
         ({ state, tr, dispatch }) => {
           const currentResources = getPromptResources(state.doc);
           const currentResource = currentResources.find((resource) => resource.id === id);
@@ -217,6 +237,7 @@ export const ResourceRegistry = Node.create<PromptDocumentOptions>({
           });
 
           if (dispatch) {
+            applyCommandMeta(tr, options);
             setRegistryResources(state.doc, tr, nextResources);
             dispatch(tr);
           }
@@ -225,7 +246,7 @@ export const ResourceRegistry = Node.create<PromptDocumentOptions>({
         },
 
       removePromptResourcesAndTags:
-        (ids) =>
+        (ids, options) =>
         ({ state, tr, dispatch }) => {
           if (ids.length === 0) {
             return true;
@@ -238,6 +259,7 @@ export const ResourceRegistry = Node.create<PromptDocumentOptions>({
           const ranges = collectImageTagRanges(state.doc, idSet);
 
           if (dispatch) {
+            applyCommandMeta(tr, options);
             ranges
               .sort((a, b) => b.from - a.from)
               .forEach(({ from, to }) => {

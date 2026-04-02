@@ -39,6 +39,7 @@ const PromptEditor = () => {
 
   const {
     resources,
+    replacingResourceIds,
     addImages,
     replaceImage,
     removeImage,
@@ -71,6 +72,7 @@ const PromptEditor = () => {
             <div className="p-3">
               <ImageCardList
                 resources={resources}
+                replacingResourceIds={replacingResourceIds}
                 onRemove={removeImage}
                 onAdd={addImages}
                 onReplace={replaceImage}

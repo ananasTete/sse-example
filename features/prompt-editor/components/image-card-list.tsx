@@ -11,6 +11,7 @@ import {
 
 export interface ImageCardListProps {
   resources: PromptResource[];
+  replacingResourceIds: string[];
   onRemove: (id: string) => void;
   onAdd: (files: File[]) => Promise<void>;
   onReplace: (id: string, file: File) => Promise<void>;
@@ -21,6 +22,7 @@ export interface ImageCardListProps {
 
 export const ImageCardList = ({
   resources,
+  replacingResourceIds,
   onRemove,
   onAdd,
   onReplace,
@@ -87,7 +89,12 @@ export const ImageCardList = ({
       {resources.map((resource) => {
         const previewUrl = getPromptResourcePreviewUrl(resource);
         const token = getPromptResourceToken(resource);
-        const canReplace = resource.kind === "local_image";
+        const isReplacing = replacingResourceIds.includes(resource.id);
+        const canReplace =
+          resource.kind === "local_image" &&
+          resource.status === "ready" &&
+          Boolean(previewUrl) &&
+          !isReplacing;
 
         return (
           <div
@@ -102,7 +109,19 @@ export const ImageCardList = ({
                   crop={resource.transform?.crop}
                   className="h-full w-full"
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-slate-950/72 via-slate-950/12 to-transparent opacity-0 transition duration-300 group-hover:opacity-100" />
+                <div
+                  className={`absolute inset-0 bg-gradient-to-t from-slate-950/72 via-slate-950/12 to-transparent transition duration-300 ${
+                    isReplacing ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                  }`}
+                />
+                {isReplacing ? (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-950/48 text-white">
+                    <LoaderCircle className="size-4 animate-spin" />
+                    <div className="text-[10px] font-medium uppercase tracking-[0.08em]">
+                      replacing
+                    </div>
+                  </div>
+                ) : null}
               </>
             ) : (
               <div className="flex h-full w-full flex-col items-center justify-center gap-2 bg-slate-50 text-slate-400">
@@ -138,7 +157,7 @@ export const ImageCardList = ({
                   }}
                   className="flex h-7 w-7 items-center justify-center bg-black/45 text-white transition hover:bg-black/60 disabled:cursor-not-allowed disabled:opacity-40"
                   title="裁切图片"
-                  disabled={resource.status !== "ready" || !previewUrl}
+                  disabled={resource.status !== "ready" || !previewUrl || isReplacing}
                 >
                   <Crop className="size-3" />
                 </button>
