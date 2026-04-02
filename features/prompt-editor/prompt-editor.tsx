@@ -8,6 +8,7 @@ import "./editor.css";
 import { PromptDocument, ResourceRegistry } from "./extensions/prompt-document";
 import { ImageTag } from "./extensions/image-tag";
 import { ImageMention } from "./extensions/image-mention";
+import { DisableShiftEnter } from "./extensions/disable-shift-enter";
 import { ImageCardList } from "./components/image-card-list";
 import { ImageCropDialog } from "./components/image-crop-dialog";
 import { usePromptEditor } from "./hooks/use-prompt-editor";
@@ -21,12 +22,30 @@ const PromptEditor = () => {
     () => [
       PromptDocument,
       StarterKit.configure({
+        blockquote: false,
+        bold: false,
+        bulletList: false,
+        code: false,
+        codeBlock: false,
         document: false,
         dropcursor: false,
+        gapcursor: false,
+        hardBreak: false,
+        heading: false,
+        horizontalRule: false,
+        italic: false,
+        listItem: false,
+        listKeymap: false,
+        link: false,
+        orderedList: false,
+        strike: false,
+        trailingNode: false,
+        underline: false,
       }),
       ResourceRegistry,
       ImageTag,
       ImageMention,
+      DisableShiftEnter,
     ],
     [],
   );

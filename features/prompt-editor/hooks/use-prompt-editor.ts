@@ -42,6 +42,23 @@ async function mockUploadImage(file: File): Promise<string> {
   return fileToDataUrl(file);
 }
 
+function getNextLocalResourceSlots(resources: PromptResource[], count: number) {
+  const usedSlots = new Set(getLocalResourceSlots(resources));
+  const nextSlots: number[] = [];
+  let nextSlot = 1;
+
+  while (nextSlots.length < count) {
+    if (!usedSlots.has(nextSlot)) {
+      usedSlots.add(nextSlot);
+      nextSlots.push(nextSlot);
+    }
+
+    nextSlot += 1;
+  }
+
+  return nextSlots;
+}
+
 export function usePromptEditor({
   editor,
   maxImages = 4,
@@ -98,32 +115,12 @@ export function usePromptEditor({
 
     return true;
   }, []);
-
-  const getNextSlotNumbers = useCallback(
-    (count: number) => {
-      const usedSlots = new Set(getLocalResourceSlots(resources));
-      const nextSlots: number[] = [];
-      let nextSlot = 1;
-
-      while (nextSlots.length < count) {
-        if (!usedSlots.has(nextSlot)) {
-          usedSlots.add(nextSlot);
-          nextSlots.push(nextSlot);
-        }
-
-        nextSlot += 1;
-      }
-
-      return nextSlots;
-    },
-    [resources],
-  );
-
   const addImages = useCallback(
     async (files: File[]) => {
       if (!editor) return;
 
-      const currentLocalCount = getPromptResources(editor.state.doc).filter((resource) => {
+      const currentResources = getPromptResources(editor.state.doc);
+      const currentLocalCount = currentResources.filter((resource) => {
         return resource.kind === "local_image";
       }).length;
       const remainingSlots = maxImages - currentLocalCount;
@@ -132,7 +129,7 @@ export function usePromptEditor({
         return;
       }
 
-      const slots = getNextSlotNumbers(acceptedFiles.length);
+      const slots = getNextLocalResourceSlots(currentResources, acceptedFiles.length);
       const placeholders = acceptedFiles.map((file, index) => {
         const slot = slots[index];
 
@@ -185,7 +182,7 @@ export function usePromptEditor({
         }),
       );
     },
-    [editor, getNextSlotNumbers, maxImages],
+    [editor, maxImages],
   );
 
   const removeImage = useCallback(

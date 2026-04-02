@@ -1,11 +1,12 @@
-import { Node, mergeAttributes } from "@tiptap/core";
+import { Node as TiptapNode, mergeAttributes } from "@tiptap/core";
 import { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Plugin, PluginKey, TextSelection } from "@tiptap/pm/state";
-import { Decoration, DecorationSet } from "@tiptap/pm/view";
+import { Decoration, DecorationSet, EditorView } from "@tiptap/pm/view";
 import {
   IMAGE_TAG_NODE_NAME,
   getPromptResourceMap,
   getPromptResourceToken,
+  stripImageTagPairGapSentinels,
 } from "../utils";
 
 export interface ImageTagOptions {
@@ -22,138 +23,96 @@ declare module "@tiptap/core" {
 }
 
 const dropIndicatorKey = new PluginKey("imageTagDropIndicator");
-const spacingDecorationKey = new PluginKey("imageTagSpacing");
+const imageTagLayoutKey = new PluginKey("imageTagLayout");
+const IMAGE_TAG_SELECTOR = '[data-type="image-tag"]';
 
-function createBoundaryGapDom(
-  getPos: () => number | undefined,
-  className: string,
-) {
-  const gap = document.createElement("span");
-  gap.className = className;
-  gap.setAttribute("data-image-tag-gap", "true");
-  gap.setAttribute("aria-hidden", "true");
-  gap.setAttribute("role", "presentation");
-  gap.contentEditable = "false";
-  const gapPos = getPos();
-  if (typeof gapPos === "number") {
-    gap.setAttribute("data-gap-pos", String(gapPos));
-  }
-
-  return gap;
+function isImageTagElement(node: globalThis.Node): node is HTMLElement {
+  return node instanceof HTMLElement && node.matches(IMAGE_TAG_SELECTOR);
 }
 
-function resolveGapPos(target: EventTarget | null) {
-  if (!(target instanceof Element)) {
-    return null;
-  }
-
-  const gap = target.closest<HTMLElement>("[data-image-tag-gap='true']");
-  if (!gap) {
-    return null;
-  }
-
-  const gapPos = Number(gap.dataset.gapPos);
-  return Number.isInteger(gapPos) ? gapPos : null;
+function isIgnorableGapText(text: string) {
+  return stripImageTagPairGapSentinels(text).length === 0;
 }
 
-function buildSpacingDecorations(
+function syncTextblockImageTagGaps(container: HTMLElement) {
+  let previousTag: HTMLElement | null = null;
+
+  Array.from(container.childNodes).forEach((child) => {
+    if (child.nodeType === globalThis.Node.TEXT_NODE) {
+      if (!isIgnorableGapText(child.textContent ?? "")) {
+        previousTag = null;
+      }
+      return;
+    }
+
+    if (!isImageTagElement(child)) {
+      if (child.nodeType === globalThis.Node.ELEMENT_NODE) {
+        previousTag = null;
+      }
+      return;
+    }
+
+    child.dataset.gapBefore = "full";
+    child.dataset.gapAfter = "full";
+
+    if (previousTag) {
+      previousTag.dataset.gapAfter = "half";
+      child.dataset.gapBefore = "half";
+    }
+
+    previousTag = child;
+  });
+}
+
+function getImageTagLabel(
   doc: ProseMirrorNode,
-  imageTagName: string,
+  resourceId: string | null | undefined,
 ) {
-  const decorations: Decoration[] = [];
+  if (!resourceId) {
+    return "";
+  }
 
-  doc.descendants((node, pos, parent, index) => {
-    if (!parent?.isTextblock || typeof index !== "number") {
-      return;
+  const resource = getPromptResourceMap(doc).get(resourceId);
+  return resource ? getPromptResourceToken(resource) : "";
+}
+
+function syncImageTagDom(view: EditorView) {
+  const resourceMap = getPromptResourceMap(view.state.doc);
+  const parents = new Set<HTMLElement>();
+
+  view.dom.querySelectorAll<HTMLElement>(IMAGE_TAG_SELECTOR).forEach((tag) => {
+    const resourceId = tag.dataset.resourceId;
+    const body = tag.querySelector<HTMLElement>(".image-tag-body");
+    const resource = resourceId ? resourceMap.get(resourceId) : undefined;
+
+    if (body) {
+      body.textContent = resource ? getPromptResourceToken(resource) : "";
     }
 
-    if (node.type.name !== imageTagName) {
-      return;
-    }
-
-    const previousSibling = index > 0 ? parent.child(index - 1) : null;
-    const nextSibling = index < parent.childCount - 1 ? parent.child(index + 1) : null;
-    const isPreviousTag = previousSibling?.type.name === imageTagName;
-    const isNextTag = nextSibling?.type.name === imageTagName;
-
-    if (!isPreviousTag) {
-      decorations.push(
-        Decoration.widget(
-          pos,
-          (_view, getPos) =>
-            createBoundaryGapDom(
-              getPos,
-              "image-tag-gap image-tag-gap--full image-tag-gap--before",
-            ),
-          {
-            // Positive side keeps this leading gap attached to the tag after it.
-            side: 1,
-            relaxedSide: true,
-            key: `image-tag-gap-before-${pos}`,
-          },
-        ),
-      );
-    }
-
-    if (!isNextTag) {
-      decorations.push(
-        Decoration.widget(
-          pos + node.nodeSize,
-          (_view, getPos) =>
-            createBoundaryGapDom(
-              getPos,
-              "image-tag-gap image-tag-gap--full image-tag-gap--after",
-            ),
-          {
-            // Negative side keeps this trailing gap attached to the tag before it.
-            side: -1,
-            relaxedSide: true,
-            key: `image-tag-gap-after-${pos}`,
-          },
-        ),
-      );
-    }
-
-    if (isNextTag) {
-      decorations.push(
-        Decoration.widget(
-          pos + node.nodeSize,
-          (_view, getPos) =>
-            createBoundaryGapDom(
-              getPos,
-              "image-tag-gap image-tag-gap--half image-tag-gap--before",
-            ),
-          {
-            // Left half of the shared TAG-TAG boundary stays on the left side.
-            side: -1,
-            relaxedSide: true,
-            key: `image-tag-pair-gap-left-${pos}`,
-          },
-        ),
-      );
-      decorations.push(
-        Decoration.widget(
-          pos + node.nodeSize,
-          (_view, getPos) =>
-            createBoundaryGapDom(
-              getPos,
-              "image-tag-gap image-tag-gap--half image-tag-gap--after",
-            ),
-          {
-            // Right half of the shared TAG-TAG boundary stays on the right side.
-            side: 1,
-            relaxedSide: true,
-            key: `image-tag-pair-gap-right-${pos}`,
-          },
-        ),
-      );
+    if (tag.parentElement) {
+      parents.add(tag.parentElement);
     }
   });
 
-  return DecorationSet.create(doc, decorations);
+  parents.forEach(syncTextblockImageTagGaps);
 }
 
-export const ImageTag = Node.create<ImageTagOptions>({
+function getDropIndicatorPos(view: EditorView) {
+  return (
+    (dropIndicatorKey.getState(view.state) as { pos: number | null } | undefined)?.pos ??
+    null
+  );
+}
+
+function setDropIndicatorPos(view: EditorView, pos: number | null) {
+  if (getDropIndicatorPos(view) === pos) {
+    return;
+  }
+
+  view.dispatch(view.state.tr.setMeta(dropIndicatorKey, pos));
+}
+
+export const ImageTag = TiptapNode.create<ImageTagOptions>({
   name: IMAGE_TAG_NODE_NAME,
   group: "inline",
   inline: true,
@@ -171,9 +130,7 @@ export const ImageTag = Node.create<ImageTagOptions>({
     return {
       resourceId: {
         default: null,
-        parseHTML: (element) =>
-          element.getAttribute("data-resource-id") ??
-          element.getAttribute("data-image-id"),
+        parseHTML: (element) => element.getAttribute("data-resource-id"),
         renderHTML: (attributes) => ({ "data-resource-id": attributes.resourceId }),
       },
     };
@@ -184,6 +141,9 @@ export const ImageTag = Node.create<ImageTagOptions>({
   },
 
   renderHTML({ node, HTMLAttributes }) {
+    const resourceId = node.attrs.resourceId as string | undefined;
+    const currentDoc = this.editor?.state.doc;
+
     return [
       "span",
       mergeAttributes(
@@ -196,7 +156,7 @@ export const ImageTag = Node.create<ImageTagOptions>({
         this.options.HTMLAttributes,
         HTMLAttributes,
       ),
-      node.attrs.resourceId ?? "",
+      currentDoc ? getImageTagLabel(currentDoc, resourceId) : "",
     ];
   },
 
@@ -240,28 +200,52 @@ export const ImageTag = Node.create<ImageTagOptions>({
 
     return ({
       node,
+      getPos,
       HTMLAttributes,
     }: {
       node: ProseMirrorNode;
+      getPos: () => number | undefined;
       HTMLAttributes: Record<string, unknown>;
     }) => {
       const dom = document.createElement("span");
+      const beforeGap = document.createElement("span");
+      const body = document.createElement("span");
+      const afterGap = document.createElement("span");
+
       dom.setAttribute("data-type", "image-tag");
       dom.contentEditable = "false";
       dom.draggable = true;
+      beforeGap.setAttribute("data-image-tag-boundary", "before");
+      beforeGap.setAttribute("aria-hidden", "true");
+      beforeGap.setAttribute("role", "presentation");
+      beforeGap.contentEditable = "false";
+      body.className = "image-tag-body";
+      body.contentEditable = "false";
+      afterGap.setAttribute("data-image-tag-boundary", "after");
+      afterGap.setAttribute("aria-hidden", "true");
+      afterGap.setAttribute("role", "presentation");
+      afterGap.contentEditable = "false";
 
-      const applyDomState = (currentNode: ProseMirrorNode) => {
+      const baseClassName = [dom.className, "image-tag", String(HTMLAttributes.class ?? "")]
+        .filter(Boolean)
+        .join(" ");
+
+      const applyDomState = (
+        currentNode: ProseMirrorNode,
+      ) => {
         const resourceId = currentNode.attrs.resourceId as string | undefined;
-        const resource = resourceId
-          ? getPromptResourceMap(editor.state.doc).get(resourceId)
-          : undefined;
 
-        dom.textContent = resource ? getPromptResourceToken(resource) : "";
+        body.textContent = getImageTagLabel(editor.state.doc, resourceId);
         if (resourceId) {
           dom.setAttribute("data-resource-id", resourceId);
         } else {
           dom.removeAttribute("data-resource-id");
         }
+        dom.className = baseClassName;
+        dom.dataset.gapBefore ||= "full";
+        dom.dataset.gapAfter ||= "full";
+        beforeGap.className = "image-tag-gap image-tag-gap--before";
+        afterGap.className = "image-tag-gap image-tag-gap--after";
       };
 
       Object.entries(HTMLAttributes).forEach(([key, value]) => {
@@ -273,10 +257,37 @@ export const ImageTag = Node.create<ImageTagOptions>({
         }
       });
 
-      const className = [dom.className, "image-tag", String(HTMLAttributes.class ?? "")]
-        .filter(Boolean)
-        .join(" ");
-      dom.className = className;
+      dom.append(beforeGap, body, afterGap);
+
+      dom.addEventListener("mousedown", (event) => {
+        const target = event.target;
+        const pos = getPos();
+        if (!(target instanceof Element) || typeof pos !== "number") {
+          return;
+        }
+
+        if (target.closest("[data-image-tag-boundary='before']")) {
+          event.preventDefault();
+          editor.view.focus();
+          editor.view.dispatch(
+            editor.state.tr
+              .setSelection(TextSelection.create(editor.state.doc, pos))
+              .scrollIntoView(),
+          );
+          return;
+        }
+
+        if (target.closest("[data-image-tag-boundary='after']")) {
+          event.preventDefault();
+          editor.view.focus();
+          editor.view.dispatch(
+            editor.state.tr
+              .setSelection(TextSelection.create(editor.state.doc, pos + node.nodeSize))
+              .scrollIntoView(),
+          );
+        }
+      });
+
       applyDomState(node);
 
       dom.addEventListener("dragstart", (event) => {
@@ -313,41 +324,37 @@ export const ImageTag = Node.create<ImageTagOptions>({
   },
 
   addProseMirrorPlugins() {
-    const imageTagName = this.name;
-
     return [
       new Plugin({
-        key: spacingDecorationKey,
-        state: {
-          init(_, state) {
-            return buildSpacingDecorations(state.doc, imageTagName);
-          },
-          apply(tr, decorationSet) {
-            if (!tr.docChanged) {
-              return decorationSet;
+        key: imageTagLayoutKey,
+        view(view) {
+          let frameId: number | null = null;
+
+          const scheduleDomSync = () => {
+            if (frameId !== null) {
+              cancelAnimationFrame(frameId);
             }
 
-            return buildSpacingDecorations(tr.doc, imageTagName);
-          },
-        },
-        props: {
-          decorations(state) {
-            return spacingDecorationKey.getState(state) ?? DecorationSet.empty;
-          },
-          handleClick(view, _pos, event) {
-            const gapPos = resolveGapPos(event.target);
-            if (gapPos === null) {
-              return false;
-            }
+            frameId = requestAnimationFrame(() => {
+              frameId = null;
+              syncImageTagDom(view);
+            });
+          };
 
-            view.focus();
-            view.dispatch(
-              view.state.tr
-                .setSelection(TextSelection.create(view.state.doc, gapPos))
-                .scrollIntoView(),
-            );
-            return true;
-          },
+          scheduleDomSync();
+
+          return {
+            update(updatedView, prevState) {
+              if (!updatedView.state.doc.eq(prevState.doc)) {
+                scheduleDomSync();
+              }
+            },
+            destroy() {
+              if (frameId !== null) {
+                cancelAnimationFrame(frameId);
+              }
+            },
+          };
         },
       }),
       new Plugin({
@@ -382,27 +389,25 @@ export const ImageTag = Node.create<ImageTagOptions>({
               return false;
             },
             dragover: (view, event) => {
-              const pos = view.posAtCoords({
+              const nextPos = view.posAtCoords({
                 left: event.clientX,
                 top: event.clientY,
-              });
-              if (pos) {
-                view.dispatch(view.state.tr.setMeta(dropIndicatorKey, pos.pos));
-              }
+              })?.pos ?? null;
+              setDropIndicatorPos(view, nextPos);
               return false;
             },
             dragleave: (view) => {
-              view.dispatch(view.state.tr.setMeta(dropIndicatorKey, null));
+              setDropIndicatorPos(view, null);
               return false;
             },
             dragend: (view) => {
               view.dom.classList.remove("dragging");
-              view.dispatch(view.state.tr.setMeta(dropIndicatorKey, null));
+              setDropIndicatorPos(view, null);
               return false;
             },
             drop: (view) => {
               view.dom.classList.remove("dragging");
-              view.dispatch(view.state.tr.setMeta(dropIndicatorKey, null));
+              setDropIndicatorPos(view, null);
               return false;
             },
           },

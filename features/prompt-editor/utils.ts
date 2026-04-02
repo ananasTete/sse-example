@@ -78,18 +78,10 @@ export function getPromptResourcePreviewUrl(resource: PromptResource) {
   return resource.asset?.url ?? null;
 }
 
-function appendTextNodes(text: string, nodes: JSONContent[]) {
-  const lines = text.split("\n");
-
-  lines.forEach((line, index) => {
-    if (line) {
-      nodes.push({ type: "text", text: line });
-    }
-
-    if (index < lines.length - 1) {
-      nodes.push({ type: "hardBreak" });
-    }
-  });
+function appendTextNode(text: string, nodes: JSONContent[]) {
+  if (text) {
+    nodes.push({ type: "text", text });
+  }
 }
 
 function buildResourceTokenMap(resources: PromptResource[]) {
@@ -142,7 +134,7 @@ function buildParagraphContent(
     })();
 
     const textEnd = nextTokenStart === -1 ? normalizedText.length : nextTokenStart;
-    appendTextNodes(normalizedText.slice(cursor, textEnd), content);
+    appendTextNode(normalizedText.slice(cursor, textEnd), content);
     cursor = textEnd;
   }
 
@@ -226,11 +218,6 @@ function serializeInlineContent(
   node.forEach((child) => {
     if (child.isText) {
       parts.push(sanitizePromptText(child.text ?? ""));
-      return;
-    }
-
-    if (child.type.name === "hardBreak") {
-      parts.push("\n");
       return;
     }
 

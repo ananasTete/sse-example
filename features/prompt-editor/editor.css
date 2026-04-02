@@ -1,9 +1,10 @@
 .prompt-editor-surface {
   background: #fff;
-  --image-tag-text-gap: 6px;
-  --image-tag-pair-gap: 3px;
+  --image-tag-text-gap: 4px;
+  --image-tag-adjacent-gap: 4px;
+  --image-tag-adjacent-gap-half: calc(var(--image-tag-adjacent-gap) / 2);
   --image-tag-font-size: 12px;
-  --image-tag-line-height: 1.3;
+  --image-tag-line-height: 1;
   --image-tag-padding-y: 2px;
   --image-tag-padding-x: 8px;
   --image-tag-border-width: 1px;
@@ -45,7 +46,29 @@
 }
 
 .image-tag {
-  display: inline-block;
+  --image-tag-gap-before: var(--image-tag-text-gap);
+  --image-tag-gap-after: var(--image-tag-text-gap);
+  display: inline-flex;
+  align-items: stretch;
+  line-height: 1;
+  vertical-align: text-bottom;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.image-tag[data-gap-before="half"] {
+  --image-tag-gap-before: var(--image-tag-adjacent-gap-half);
+}
+
+.image-tag[data-gap-after="half"] {
+  --image-tag-gap-after: var(--image-tag-adjacent-gap-half);
+}
+
+.image-tag-body {
+  display: inline-flex;
+  align-items: center;
+  box-sizing: border-box;
+  min-height: var(--image-tag-outer-height);
   padding: var(--image-tag-padding-y) var(--image-tag-padding-x);
   font-size: var(--image-tag-font-size);
   line-height: var(--image-tag-line-height);
@@ -54,12 +77,9 @@
   background: #f8fafc;
   border: var(--image-tag-border-width) solid #cbd5e1;
   cursor: default;
-  user-select: none;
-  white-space: nowrap;
-  vertical-align: baseline;
 }
 
-.image-tag:hover {
+.image-tag:hover .image-tag-body {
   border-color: #94a3b8;
   background: #f1f5f9;
 }
@@ -88,30 +108,19 @@
 }
 
 .image-tag-gap {
-  display: inline-block;
-  height: 0;
-  overflow: visible;
-  vertical-align: baseline;
+  display: block;
+  align-self: stretch;
+  min-height: var(--image-tag-outer-height);
   cursor: text;
-  box-sizing: border-box;
-  position: relative;
+  flex: none;
 }
 
-.image-tag-gap::before {
-  content: "";
-  position: absolute;
-  inset-inline: 0;
-  top: 0;
-  height: var(--image-tag-outer-height);
-  transform: translateY(-50%);
+.image-tag-gap--before {
+  width: var(--image-tag-gap-before);
 }
 
-.image-tag-gap--full {
-  width: var(--image-tag-text-gap);
-}
-
-.image-tag-gap--half {
-  width: calc(var(--image-tag-pair-gap));
+.image-tag-gap--after {
+  width: var(--image-tag-gap-after);
 }
 
 .ProseMirror.dragging {

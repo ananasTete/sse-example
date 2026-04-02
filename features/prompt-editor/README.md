@@ -11,12 +11,13 @@
 
 1. 上传图片，编辑器出现TAG
 2. 删除图片，编辑器自动删除 TAG
-3. 编辑器删除 TAG，如果这是编辑器中最后一个表示某个图片的 TAG 则弹窗确认，否则直接删除
+3. 编辑器删除 TAG，如果这是某个图片的最后一个引用，则自动移除对应图片资源
 
 编辑器：
 
 1. TAG 可拖拽改变位置、拖拽时缩略图展示在鼠标指针下方，不影响用户查看光标位置、TAG 两侧与文本之间留有间距增加可读性
 2. 输入 @ 触发气泡菜单，支持鼠标和键盘选择图片
+3. 编辑器只支持段落文本、`Shift+Enter` 换行和图片 TAG，不支持标题、列表、引用等富文本块
 
 ## 实现
 
@@ -67,6 +68,8 @@ export interface PromptImage {
 - images：图片数据
 
 在回显时根据 prompt 和 images 数据，解析为编辑器的 json 数据，再给 tiptap 渲染。
+
+为了保证导出和回显严格可逆，编辑器 schema 只开放 `paragraph + hardBreak + imageTag` 这组语义。这样 payload 中的文本结构和编辑器中的文档结构是一一对应的，不会出现标题、列表等 block 在导出时被静默降级成普通段落。
 
 ### 架构设计
 
@@ -122,9 +125,11 @@ tiptap 中存储数据的三种方式对比：
 
 - 保留 `imageTag` 为原子 inline 节点，并显式设置 `contenteditable="false"`，避免浏览器把光标放进 TAG 盒子内部。
 - `imageTag` 改为 `selectable: false`。这样左右方向键只在真实文本位置之间移动，不会先落进一个不可见的 `NodeSelection`。
-- `TAG-text` 的 6px 间距继续由 `imageTag` 的上下文 decoration class 控制。
-- `TAG-TAG` 不再往文档里塞隐藏字符，而是在两个相邻 TAG 共享的那个真实文档位置上挂一个 3px 的 `Decoration.widget`。
-- 这个 widget 只负责把“原本宽度为 0 的边界位置”渲染成可点击的可视 gap；点击它时，selection 直接落到这两个 TAG 之间那个真实位置，输入文本后也会自然插入在两者之间。
+- 每个 `imageTag` 左右都拥有一份固定的边界间距，这个间距不依赖左右是否有文本。
+- 这份间距不再由外部 widget 承担，而是由 `imageTag` node view 内部的左右 spacer 承担。这样光标只要落在节点前/后，视觉上就一定出现在 spacer 外侧。
+- `TAG-text`、`段首/段尾-TAG`、`Shift+Enter-TAG` 都使用一份完整的 6px spacer。
+- `TAG-TAG` 相邻时，不再让两边各占一整份间距，而是通过 decoration 把左右相邻边界各压成 3px，总宽度仍然等于一份标准间距。
+- 点击左右 spacer 时，node view 会把 selection 映射到节点前/后的真实文档位置，输入文本后也会自然插入在对应位置。
 - 文档本身不再引入新的内部结构字符；序列化层仅保留对历史 `\u200B` 的兼容清理，避免旧数据残留泄漏到对外文本。
 
 结论：

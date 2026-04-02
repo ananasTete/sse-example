@@ -5,10 +5,10 @@
   "private": true,
   "scripts": {
     "predev": "node scripts/prisma-sync.mjs",
-    "dev": "vite dev --port 3000",
+    "dev": "vite dev",
     "prebuild": "node scripts/prisma-sync.mjs",
     "build": "vite build",
-    "start": "vite preview --port 3000",
+    "start": "vite preview",
     "lint": "eslint",
     "postinstall": "prisma generate",
     "prisma:sync": "node scripts/prisma-sync.mjs",
