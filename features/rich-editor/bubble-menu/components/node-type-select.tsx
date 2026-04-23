@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { type Editor } from '@tiptap/react'
 import { FloatingPortal } from '@floating-ui/react'
 import {
@@ -40,7 +41,43 @@ const nodeTypes = [
 
 export type NodeTypeId = (typeof nodeTypes)[number]['id']
 
-export function NodeTypeSelect({
+const nodeTypeCommands: Record<NodeTypeId, (editor: Editor) => void> = {
+  paragraph: (editor) => {
+    editor.chain().focus().setParagraph().run()
+  },
+  heading1: (editor) => {
+    editor.chain().focus().setHeading({ level: 1 }).run()
+  },
+  heading2: (editor) => {
+    editor.chain().focus().setHeading({ level: 2 }).run()
+  },
+  heading3: (editor) => {
+    editor.chain().focus().setHeading({ level: 3 }).run()
+  },
+  heading4: (editor) => {
+    editor.chain().focus().setHeading({ level: 4 }).run()
+  },
+  heading5: (editor) => {
+    editor.chain().focus().setHeading({ level: 5 }).run()
+  },
+  heading6: (editor) => {
+    editor.chain().focus().setHeading({ level: 6 }).run()
+  },
+  bulletList: (editor) => {
+    editor.chain().focus().toggleBulletList().run()
+  },
+  orderedList: (editor) => {
+    editor.chain().focus().toggleOrderedList().run()
+  },
+  codeBlock: (editor) => {
+    editor.chain().focus().toggleCodeBlock().run()
+  },
+  blockquote: (editor) => {
+    editor.chain().focus().toggleBlockquote().run()
+  },
+}
+
+export const NodeTypeSelect = memo(function NodeTypeSelect({
   editor,
   placementDir = 'bottom',
   activeTypeId,
@@ -60,41 +97,7 @@ export function NodeTypeSelect({
   })
 
   const handleSelect = (typeId: NodeTypeId) => {
-    switch (typeId) {
-      case 'paragraph':
-        editor.chain().focus().setParagraph().run()
-        break
-      case 'heading1':
-        editor.chain().focus().setHeading({ level: 1 }).run()
-        break
-      case 'heading2':
-        editor.chain().focus().setHeading({ level: 2 }).run()
-        break
-      case 'heading3':
-        editor.chain().focus().setHeading({ level: 3 }).run()
-        break
-      case 'heading4':
-        editor.chain().focus().setHeading({ level: 4 }).run()
-        break
-      case 'heading5':
-        editor.chain().focus().setHeading({ level: 5 }).run()
-        break
-      case 'heading6':
-        editor.chain().focus().setHeading({ level: 6 }).run()
-        break
-      case 'bulletList':
-        editor.chain().focus().toggleBulletList().run()
-        break
-      case 'orderedList':
-        editor.chain().focus().toggleOrderedList().run()
-        break
-      case 'codeBlock':
-        editor.chain().focus().toggleCodeBlock().run()
-        break
-      case 'blockquote':
-        editor.chain().focus().toggleBlockquote().run()
-        break
-    }
+    nodeTypeCommands[typeId](editor)
     close()
   }
 
@@ -143,4 +146,4 @@ export function NodeTypeSelect({
       )}
     </>
   )
-}
+})

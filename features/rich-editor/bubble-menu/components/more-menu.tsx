@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { type Editor } from '@tiptap/react'
 import { FloatingPortal } from '@floating-ui/react'
 import { MoreVertical, Copy, Trash2 } from 'lucide-react'
@@ -10,7 +11,7 @@ interface MoreMenuProps {
   onRequestPlacement?: () => void
 }
 
-export function MoreMenu({
+export const MoreMenu = memo(function MoreMenu({
   editor,
   placementDir = 'bottom',
   isBlockNode = false,
@@ -91,4 +92,4 @@ export function MoreMenu({
       )}
     </>
   )
-}
+})

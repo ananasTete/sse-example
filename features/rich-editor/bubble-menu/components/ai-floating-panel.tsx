@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { type Editor } from '@tiptap/react'
+import { type Editor, useEditorState } from '@tiptap/react'
 import { Loader2, ArrowRight, Replace } from 'lucide-react'
 import { 
   useFloating, 
@@ -12,22 +12,23 @@ import {
   FloatingPortal 
 } from '@floating-ui/react'
 import { useGeneration } from '@/features/ai-sdk/hooks/use-generation/useGeneration'
+import {
+  resolveSavedSelection,
+  type SavedSelection,
+} from '../selection'
 
-interface SavedSelection {
-  from: number
-  to: number
-  text: string
-}
-
-type AIMode = 'input' | 'result'
+type AIStatus = 'input' | 'loading' | 'result' | 'error' | 'empty'
 
 interface AIFloatingPanelProps {
   editor: Editor
   savedSelection: SavedSelection
-  onClose: () => void
+  onClose: (payload: AIPanelClosePayload) => void
 }
 
-
+export interface AIPanelClosePayload {
+  reason: 'cancel' | 'replace' | 'selection-lost'
+  caretPos?: number
+}
 
 /**
  * 独立的 AI 浮动面板组件
@@ -38,17 +39,44 @@ export function AIFloatingPanel({
   savedSelection, 
   onClose 
 }: AIFloatingPanelProps) {
-  const [mode, setMode] = useState<AIMode>('input')
+  const [status, setStatus] = useState<AIStatus>('input')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [inputValue, setInputValue] = useState('')
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const selectionRange = useEditorState({
+    editor,
+    selector: ({ editor }) => {
+      const resolvedSelection = resolveSavedSelection(editor, savedSelection)
+
+      if (!resolvedSelection) return null
+
+      return {
+        from: resolvedSelection.from,
+        to: resolvedSelection.to,
+      }
+    },
+  })
 
   // 创建虚拟参考元素，基于选区位置
   const virtualReference = useMemo(() => {
     return {
       getBoundingClientRect: () => {
+        if (!selectionRange) {
+          return {
+            top: 0,
+            bottom: 0,
+            left: 0,
+            right: 0,
+            width: 0,
+            height: 0,
+            x: 0,
+            y: 0,
+          }
+        }
+
         // 获取选区的坐标
-        const fromCoords = editor.view.coordsAtPos(savedSelection.from)
-        const toCoords = editor.view.coordsAtPos(savedSelection.to)
+        const fromCoords = editor.view.coordsAtPos(selectionRange.from)
+        const toCoords = editor.view.coordsAtPos(selectionRange.to)
         
         // 计算选区的边界框
         const top = Math.min(fromCoords.top, toCoords.top)
@@ -68,7 +96,7 @@ export function AIFloatingPanel({
         }
       },
     }
-  }, [editor, savedSelection])
+  }, [editor, selectionRange])
 
   // Floating UI 配置
   const { refs, floatingStyles, elements } = useFloating({
@@ -85,7 +113,10 @@ export function AIFloatingPanel({
   })
 
   // 判断是否已定位完成，用于处理首次渲染闪烁
-  const isPositioned = !!elements.floating && floatingStyles.transform
+  const isPositioned =
+    !!selectionRange &&
+    !!elements.floating &&
+    floatingStyles.transform
 
   // 计算安全的浮动样式
   const safeFloatingStyles = useMemo(() => ({
@@ -101,12 +132,23 @@ export function AIFloatingPanel({
   const { generate, isLoading, value: streamingResult } = useGeneration({
     api: '/api/chat',
     onStartStream: () => {
-      // 收到第一个 chunk 时，切换到 result 模式
-      setMode('result')
+      setStatus('result')
+    },
+    onFinish: (fullText) => {
+      if (fullText.trim()) {
+        setStatus('result')
+        return
+      }
+
+      setStatus('empty')
     },
     onError: (error) => {
       console.error('AI generation error:', error)
-    }
+      const message =
+        error instanceof Error ? error.message : '生成失败，请重试。'
+      setErrorMessage(message || '生成失败，请重试。')
+      setStatus('error')
+    },
   })
 
   // 自动聚焦输入框
@@ -116,29 +158,41 @@ export function AIFloatingPanel({
     }
   }, [])
 
+  useEffect(() => {
+    if (!selectionRange) {
+      onClose({ reason: 'selection-lost' })
+    }
+  }, [selectionRange, onClose])
+
   // 处理确定按钮点击
   const handleSubmit = useCallback(() => {
-    if (isLoading) return
+    if (isLoading || !selectionRange) return
+
+    setErrorMessage(null)
+    setStatus('loading')
     
     generate({
       prompt: inputValue,
       text: savedSelection.text,
     })
-  }, [isLoading, generate, inputValue, savedSelection.text])
+  }, [isLoading, selectionRange, generate, inputValue, savedSelection.text])
 
   // 处理替换按钮点击
   const handleReplace = useCallback(() => {
-    if (!streamingResult) return
+    if (!streamingResult || !selectionRange) return
     
-    const { from, to } = savedSelection
+    const { from, to } = selectionRange
+    const caretPos = from + streamingResult.length
+
     editor.chain()
       .focus()
       .deleteRange({ from, to })
       .insertContentAt(from, streamingResult)
+      .setTextSelection(caretPos)
       .run()
     
-    onClose()
-  }, [streamingResult, savedSelection, editor, onClose])
+    onClose({ reason: 'replace', caretPos })
+  }, [streamingResult, selectionRange, editor, onClose])
 
   // 处理键盘事件
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -148,16 +202,35 @@ export function AIFloatingPanel({
     }
     if (e.key === 'Escape') {
       e.preventDefault()
-      onClose()
+      onClose({ reason: 'cancel' })
     }
   }, [handleSubmit, onClose])
 
+  const resultClassName = [
+    'ai-panel-result',
+    status === 'error' ? 'is-error' : '',
+    status === 'empty' ? 'is-empty' : '',
+  ]
+    .filter(Boolean)
+    .join(' ')
+
+  const resultContent =
+    status === 'loading'
+      ? '正在生成...'
+      : status === 'result'
+        ? streamingResult
+        : status === 'error'
+          ? errorMessage || '生成失败，请重试。'
+          : status === 'empty'
+            ? '未生成可替换文本，请调整指令后重试。'
+            : ''
+
   return (
-      <FloatingPortal>
+    <FloatingPortal>
       <div
         className="ai-floating-backdrop"
         style={{ visibility: isPositioned ? 'visible' : 'hidden' }}
-        onPointerDown={() => onClose()}
+        onPointerDown={() => onClose({ reason: 'cancel' })}
       />
       <div
         ref={(node) => refs.setFloating(node)}
@@ -176,10 +249,9 @@ export function AIFloatingPanel({
           rows={2}
         />
 
-        {/* 结果展示框 - 在 result 模式下显示流式内容 */}
-        {mode === 'result' && (
-          <div className="ai-panel-result">
-            {streamingResult || (isLoading ? '正在生成...' : '')}
+        {status !== 'input' && (
+          <div className={resultClassName}>
+            {resultContent}
           </div>
         )}
 
@@ -188,13 +260,12 @@ export function AIFloatingPanel({
           <button
             type="button"
             className="ai-panel-btn ai-panel-btn-cancel"
-            onClick={onClose}
+            onClick={() => onClose({ reason: 'cancel' })}
           >
             取消
           </button>
 
-          {/* 替换按钮 - 只在 result 模式下显示 */}
-          {mode === 'result' && (
+          {status === 'result' && Boolean(streamingResult) && (
             <button
               type="button"
               className="ai-panel-btn ai-panel-btn-replace"
@@ -209,7 +280,7 @@ export function AIFloatingPanel({
             type="button"
             className="ai-panel-btn ai-panel-btn-submit"
             onClick={handleSubmit}
-            disabled={isLoading}
+            disabled={isLoading || !selectionRange}
           >
             {isLoading ? (
               <Loader2 size={14} className="ai-panel-loading" />

@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { type Editor } from '@tiptap/react'
 import { FloatingPortal } from '@floating-ui/react'
 import {
@@ -24,7 +25,7 @@ const alignOptions = [
 
 export type AlignId = (typeof alignOptions)[number]['id']
 
-export function AlignSelect({
+export const AlignSelect = memo(function AlignSelect({
   editor,
   placementDir = 'bottom',
   activeAlignId,
@@ -93,4 +94,4 @@ export function AlignSelect({
       )}
     </>
   )
-}
+})

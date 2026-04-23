@@ -1,10 +1,11 @@
+import { memo } from 'react'
 import { Sparkles } from 'lucide-react'
 
 interface AIButtonProps {
   onClick?: () => void
 }
 
-export function AIButton({ onClick }: AIButtonProps) {
+export const AIButton = memo(function AIButton({ onClick }: AIButtonProps) {
   return (
     <button
       type="button"
@@ -16,4 +17,4 @@ export function AIButton({ onClick }: AIButtonProps) {
       <span>Ask AI</span>
     </button>
   )
-}
+})

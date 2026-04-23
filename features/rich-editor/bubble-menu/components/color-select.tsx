@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { type Editor } from '@tiptap/react'
 import { FloatingPortal } from '@floating-ui/react'
 import { Palette, ChevronDown, Check } from 'lucide-react'
@@ -35,7 +36,7 @@ const backgroundColors = [
   { id: 'grey-bg', label: 'Grey', color: '#e5e7eb' },
 ] as const
 
-export function ColorSelect({
+export const ColorSelect = memo(function ColorSelect({
   editor,
   placementDir = 'bottom',
   activeTextColor,
@@ -149,4 +150,4 @@ export function ColorSelect({
       )}
     </>
   )
-}
+})

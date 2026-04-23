@@ -1,24 +1,30 @@
+import { memo } from 'react'
 import { type Editor } from '@tiptap/react'
 import { Bold, Code, Italic, Strikethrough, Underline } from 'lucide-react'
 
 interface FormatButtonsProps {
   editor: Editor
-  active: {
-    bold: boolean
-    code: boolean
-    italic: boolean
-    strike: boolean
-    underline: boolean
-  }
+  isBold: boolean
+  isCode: boolean
+  isItalic: boolean
+  isStrike: boolean
+  isUnderline: boolean
 }
 
-export function FormatButtons({ editor, active }: FormatButtonsProps) {
+export const FormatButtons = memo(function FormatButtons({
+  editor,
+  isBold,
+  isCode,
+  isItalic,
+  isStrike,
+  isUnderline,
+}: FormatButtonsProps) {
   return (
     <>
       <button
         type="button"
         onClick={() => editor.chain().focus().toggleBold().run()}
-        className={active.bold ? 'is-active' : ''}
+        className={isBold ? 'is-active' : ''}
         title="Bold (⌘B)"
       >
         <Bold size={16} />
@@ -26,7 +32,7 @@ export function FormatButtons({ editor, active }: FormatButtonsProps) {
       <button
         type="button"
         onClick={() => editor.chain().focus().toggleCode().run()}
-        className={active.code ? 'is-active' : ''}
+        className={isCode ? 'is-active' : ''}
         title="Inline Code (⌘E)"
       >
         <Code size={16} />
@@ -34,7 +40,7 @@ export function FormatButtons({ editor, active }: FormatButtonsProps) {
       <button
         type="button"
         onClick={() => editor.chain().focus().toggleItalic().run()}
-        className={active.italic ? 'is-active' : ''}
+        className={isItalic ? 'is-active' : ''}
         title="Italic (⌘I)"
       >
         <Italic size={16} />
@@ -42,7 +48,7 @@ export function FormatButtons({ editor, active }: FormatButtonsProps) {
       <button
         type="button"
         onClick={() => editor.chain().focus().toggleStrike().run()}
-        className={active.strike ? 'is-active' : ''}
+        className={isStrike ? 'is-active' : ''}
         title="Strikethrough (⌘⇧S)"
       >
         <Strikethrough size={16} />
@@ -50,11 +56,11 @@ export function FormatButtons({ editor, active }: FormatButtonsProps) {
       <button
         type="button"
         onClick={() => editor.chain().focus().toggleUnderline().run()}
-        className={active.underline ? 'is-active' : ''}
+        className={isUnderline ? 'is-active' : ''}
         title="Underline (⌘U)"
       >
         <Underline size={16} />
       </button>
     </>
   )
-}
+})

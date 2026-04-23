@@ -4,7 +4,10 @@ import { type Editor, useEditorState } from '@tiptap/react'
 import { useEffect, useState, useCallback, useRef } from 'react'
 
 import { AIButton } from './components/ai-button'
-import { AIFloatingPanel } from './components/ai-floating-panel'
+import {
+  AIFloatingPanel,
+  type AIPanelClosePayload,
+} from './components/ai-floating-panel'
 import './bubble-menu.css'
 import { Divider } from './components/divider'
 import { NodeTypeSelect, type NodeTypeId } from './components/node-type-select'
@@ -12,15 +15,45 @@ import { AlignSelect, type AlignId } from './components/align-select'
 import { ColorSelect } from './components/color-select'
 import { MoreMenu } from './components/more-menu'
 import { FormatButtons } from './components/format-buttons'
-
-interface SavedSelection {
-  from: number
-  to: number
-  text: string
-}
+import {
+  resolveSavedSelection,
+  type SavedSelection,
+} from './selection'
 
 interface BubbleMenuProps {
   editor: Editor
+}
+
+const nodeTypeMatchers: Array<{
+  id: NodeTypeId
+  isActive: (editor: Editor) => boolean
+}> = [
+  { id: 'heading1', isActive: (editor) => editor.isActive('heading', { level: 1 }) },
+  { id: 'heading2', isActive: (editor) => editor.isActive('heading', { level: 2 }) },
+  { id: 'heading3', isActive: (editor) => editor.isActive('heading', { level: 3 }) },
+  { id: 'heading4', isActive: (editor) => editor.isActive('heading', { level: 4 }) },
+  { id: 'heading5', isActive: (editor) => editor.isActive('heading', { level: 5 }) },
+  { id: 'heading6', isActive: (editor) => editor.isActive('heading', { level: 6 }) },
+  { id: 'bulletList', isActive: (editor) => editor.isActive('bulletList') },
+  { id: 'orderedList', isActive: (editor) => editor.isActive('orderedList') },
+  { id: 'codeBlock', isActive: (editor) => editor.isActive('codeBlock') },
+  { id: 'blockquote', isActive: (editor) => editor.isActive('blockquote') },
+]
+
+const alignMatchers: Array<{
+  id: AlignId
+  isActive: (editor: Editor) => boolean
+}> = [
+  { id: 'center', isActive: (editor) => editor.isActive({ textAlign: 'center' }) },
+  { id: 'right', isActive: (editor) => editor.isActive({ textAlign: 'right' }) },
+]
+
+function getActiveNodeTypeId(editor: Editor): NodeTypeId {
+  return nodeTypeMatchers.find((item) => item.isActive(editor))?.id ?? 'paragraph'
+}
+
+function getActiveAlignId(editor: Editor): AlignId {
+  return alignMatchers.find((item) => item.isActive(editor))?.id ?? 'left'
 }
 
 export function BubbleMenu({ editor }: BubbleMenuProps) {
@@ -34,30 +67,14 @@ export function BubbleMenu({ editor }: BubbleMenuProps) {
     selector: ({ editor }) => {
       const selection = editor.state.selection
 
-      let nodeTypeId: NodeTypeId = 'paragraph'
-      if (editor.isActive('heading', { level: 1 })) nodeTypeId = 'heading1'
-      else if (editor.isActive('heading', { level: 2 })) nodeTypeId = 'heading2'
-      else if (editor.isActive('heading', { level: 3 })) nodeTypeId = 'heading3'
-      else if (editor.isActive('heading', { level: 4 })) nodeTypeId = 'heading4'
-      else if (editor.isActive('heading', { level: 5 })) nodeTypeId = 'heading5'
-      else if (editor.isActive('heading', { level: 6 })) nodeTypeId = 'heading6'
-      else if (editor.isActive('bulletList')) nodeTypeId = 'bulletList'
-      else if (editor.isActive('orderedList')) nodeTypeId = 'orderedList'
-      else if (editor.isActive('codeBlock')) nodeTypeId = 'codeBlock'
-      else if (editor.isActive('blockquote')) nodeTypeId = 'blockquote'
-
-      let alignId: AlignId = 'left'
-      if (editor.isActive({ textAlign: 'center' })) alignId = 'center'
-      else if (editor.isActive({ textAlign: 'right' })) alignId = 'right'
-
       const textColor = editor.getAttributes('textStyle').color || null
       const highlightColor = editor.getAttributes('highlight').color || null
 
       return {
         selectionEmpty: selection.empty,
         isNodeSelection: isNodeSelection(selection),
-        nodeTypeId,
-        alignId,
+        nodeTypeId: getActiveNodeTypeId(editor),
+        alignId: getActiveAlignId(editor),
         textColor,
         highlightColor,
         isBold: editor.isActive('bold'),
@@ -85,12 +102,6 @@ export function BubbleMenu({ editor }: BubbleMenuProps) {
 
     setPlacementDir(needsOpenUp ? 'top' : 'bottom')
   }, [editor])
-  
-  // 使用 ref 保存最新的 showAIPanel 状态，避免在 useEffect 中频繁订阅/取消订阅
-  const showAIPanelRef = useRef(showAIPanel)
-  useEffect(() => {
-    showAIPanelRef.current = showAIPanel
-  }, [showAIPanel])
 
   // AI 面板打开期间锁定编辑器，避免选区/位置在替换前发生漂移
   useEffect(() => {
@@ -127,13 +138,29 @@ export function BubbleMenu({ editor }: BubbleMenuProps) {
     }
   }, [showAIPanel, editor])
 
+  const clearAIPanelState = useCallback(
+    (caretPos?: number) => {
+      if (typeof caretPos === 'number') {
+        editor.commands.setTextSelection(caretPos)
+      }
+
+      editor.commands.clearAISelectionHighlight()
+      setSavedSelection(null)
+      setShowAIPanel(false)
+    },
+    [editor],
+  )
+
   // 点击 AI 按钮时，保存选区并激活高亮
   const handleAIButtonClick = useCallback(() => {
     const { from, to } = editor.state.selection
     const text = editor.state.doc.textBetween(from, to, ' ')
     
     // 保存选区
-    setSavedSelection({ from, to, text })
+    setSavedSelection({
+      bookmark: editor.state.selection.getBookmark(),
+      text,
+    })
     
     // 激活高亮装饰（紫色自定义样式）
     editor.commands.setAISelectionHighlight(from, to)
@@ -146,41 +173,20 @@ export function BubbleMenu({ editor }: BubbleMenuProps) {
   }, [editor])
 
   // 关闭 AI 面板时，清除高亮
-  const handleCloseAIPanel = useCallback(() => {
-    // Prevent selectionUpdate listener from double-closing while we collapse selection.
-    showAIPanelRef.current = false
-
-    // Collapse selection so the bubble menu doesn't immediately re-open after dismiss.
-    if (savedSelection) {
-      editor.commands.setTextSelection(savedSelection.to)
+  const handleCloseAIPanel = useCallback((payload: AIPanelClosePayload) => {
+    if (payload.reason === 'replace' && typeof payload.caretPos === 'number') {
+      clearAIPanelState(payload.caretPos)
+      return
     }
 
-    editor.commands.clearAISelectionHighlight()
-    setSavedSelection(null)
-    setShowAIPanel(false)
-  }, [editor, savedSelection])
-
-  /**
-   * Reset AI panel and clear highlight when selection becomes empty
-   * 使用 ref 读取最新状态，这样只需在 editor 变化时订阅一次
-   */
-  useEffect(() => {
-    const handleSelectionChange = () => {
-      // 通过 ref 读取最新的 showAIPanel 状态
-      if (editor.state.selection.empty && showAIPanelRef.current) {
-        // 选区变空时，重置所有状态并清除高亮
-        editor.commands.clearAISelectionHighlight()
-        setSavedSelection(null)
-        setShowAIPanel(false)
-      }
+    if (payload.reason === 'cancel') {
+      const resolvedSelection = resolveSavedSelection(editor, savedSelection)
+      clearAIPanelState(resolvedSelection?.to)
+      return
     }
-
-    editor.on('selectionUpdate', handleSelectionChange)
     
-    return () => {
-      editor.off('selectionUpdate', handleSelectionChange)
-    }
-  }, [editor]) // 只依赖 editor，不再依赖 showAIPanel
+    clearAIPanelState()
+  }, [clearAIPanelState, editor, savedSelection])
 
   return (
     <>
@@ -219,13 +225,11 @@ export function BubbleMenu({ editor }: BubbleMenuProps) {
           {/* Format Buttons */}
           <FormatButtons
             editor={editor}
-            active={{
-              bold: ui.isBold,
-              code: ui.isCode,
-              italic: ui.isItalic,
-              strike: ui.isStrike,
-              underline: ui.isUnderline,
-            }}
+            isBold={ui.isBold}
+            isCode={ui.isCode}
+            isItalic={ui.isItalic}
+            isStrike={ui.isStrike}
+            isUnderline={ui.isUnderline}
           />
 
           <Divider />
