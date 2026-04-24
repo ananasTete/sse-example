@@ -1,61 +1,58 @@
-'use client'
+"use client";
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
-import { type Editor, useEditorState } from '@tiptap/react'
-import { Loader2, ArrowRight, Replace } from 'lucide-react'
-import { 
-  useFloating, 
-  offset, 
-  flip, 
-  shift, 
-  autoUpdate,
-  FloatingPortal 
-} from '@floating-ui/react'
-import { useGeneration } from '@/features/ai-sdk/hooks/use-generation/useGeneration'
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
+import { type Editor, useEditorState } from "@tiptap/react";
+import { Loader2, ArrowRight, Replace } from "lucide-react";
 import {
-  resolveSavedSelection,
-  type SavedSelection,
-} from '../selection'
+  useFloating,
+  offset,
+  flip,
+  shift,
+  autoUpdate,
+  FloatingPortal,
+} from "@floating-ui/react";
+import { useGeneration } from "@/features/ai-sdk/hooks/use-generation/useGeneration";
+import { resolveSavedSelection, type SavedSelection } from "../selection";
 
-type AIStatus = 'input' | 'loading' | 'result' | 'error' | 'empty'
+type AIStatus = "input" | "loading" | "result" | "error" | "empty";
 
 interface AIFloatingPanelProps {
-  editor: Editor
-  savedSelection: SavedSelection
-  onClose: (payload: AIPanelClosePayload) => void
+  editor: Editor;
+  savedSelection: SavedSelection;
+  onClose: (payload: AIPanelClosePayload) => void;
 }
 
 export interface AIPanelClosePayload {
-  reason: 'cancel' | 'replace' | 'selection-lost'
-  caretPos?: number
+  reason: "cancel" | "replace" | "selection-lost";
+  caretPos?: number;
 }
 
 /**
  * 独立的 AI 浮动面板组件
  * 使用 Floating UI 定位到选区位置，独立于 BubbleMenu
  */
-export function AIFloatingPanel({ 
-  editor, 
-  savedSelection, 
-  onClose 
+export function AIFloatingPanel({
+  editor,
+  savedSelection,
+  onClose,
 }: AIFloatingPanelProps) {
-  const [status, setStatus] = useState<AIStatus>('input')
-  const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [inputValue, setInputValue] = useState('')
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [status, setStatus] = useState<AIStatus>("input");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [inputValue, setInputValue] = useState("");
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const selectionRange = useEditorState({
     editor,
     selector: ({ editor }) => {
-      const resolvedSelection = resolveSavedSelection(editor, savedSelection)
+      const resolvedSelection = resolveSavedSelection(editor, savedSelection);
 
-      if (!resolvedSelection) return null
+      if (!resolvedSelection) return null;
 
       return {
         from: resolvedSelection.from,
         to: resolvedSelection.to,
-      }
+      };
     },
-  })
+  });
 
   // 创建虚拟参考元素，基于选区位置
   const virtualReference = useMemo(() => {
@@ -71,19 +68,19 @@ export function AIFloatingPanel({
             height: 0,
             x: 0,
             y: 0,
-          }
+          };
         }
 
         // 获取选区的坐标
-        const fromCoords = editor.view.coordsAtPos(selectionRange.from)
-        const toCoords = editor.view.coordsAtPos(selectionRange.to)
-        
+        const fromCoords = editor.view.coordsAtPos(selectionRange.from);
+        const toCoords = editor.view.coordsAtPos(selectionRange.to);
+
         // 计算选区的边界框
-        const top = Math.min(fromCoords.top, toCoords.top)
-        const bottom = Math.max(fromCoords.bottom, toCoords.bottom)
-        const left = Math.min(fromCoords.left, toCoords.left)
-        const right = Math.max(fromCoords.right, toCoords.right)
-        
+        const top = Math.min(fromCoords.top, toCoords.top);
+        const bottom = Math.max(fromCoords.bottom, toCoords.bottom);
+        const left = Math.min(fromCoords.left, toCoords.left);
+        const right = Math.max(fromCoords.right, toCoords.right);
+
         return {
           top,
           bottom,
@@ -93,144 +90,155 @@ export function AIFloatingPanel({
           height: bottom - top,
           x: left,
           y: top,
-        }
+        };
       },
-    }
-  }, [editor, selectionRange])
+    };
+  }, [editor, selectionRange]);
 
   // Floating UI 配置
   const { refs, floatingStyles, elements } = useFloating({
-    placement: 'bottom-start',
+    placement: "bottom-start",
     middleware: [
       offset(8), // 与选区保持 8px 距离
       flip({
-        fallbackPlacements: ['top-start', 'bottom-end', 'top-end'],
+        fallbackPlacements: ["top-start", "bottom-end", "top-end"],
         padding: 16,
       }),
       shift({ padding: 16 }), // 防止超出视口
     ],
     whileElementsMounted: autoUpdate,
-  })
+  });
 
   // 判断是否已定位完成，用于处理首次渲染闪烁
   const isPositioned =
-    !!selectionRange &&
-    !!elements.floating &&
-    floatingStyles.transform
+    !!selectionRange && !!elements.floating && floatingStyles.transform;
 
   // 计算安全的浮动样式
-  const safeFloatingStyles = useMemo(() => ({
-    ...floatingStyles,
-    visibility: isPositioned ? 'visible' : 'hidden',
-  } as React.CSSProperties), [floatingStyles, isPositioned])
+  const safeFloatingStyles = useMemo(
+    () =>
+      ({
+        ...floatingStyles,
+        visibility: isPositioned ? "visible" : "hidden",
+      }) as React.CSSProperties,
+    [floatingStyles, isPositioned],
+  );
 
   // 将虚拟参考元素设置为 reference
   useEffect(() => {
-    refs.setReference(virtualReference)
-  }, [refs, virtualReference])
+    refs.setReference(virtualReference);
+  }, [refs, virtualReference]);
 
-  const { generate, isLoading, value: streamingResult } = useGeneration({
-    api: '/api/chat',
+  const {
+    generate,
+    isLoading,
+    value: streamingResult,
+  } = useGeneration({
+    api: "/api/chat",
     onStartStream: () => {
-      setStatus('result')
+      setStatus("result");
     },
     onFinish: (fullText) => {
       if (fullText.trim()) {
-        setStatus('result')
-        return
+        setStatus("result");
+        return;
       }
 
-      setStatus('empty')
+      setStatus("empty");
     },
     onError: (error) => {
-      console.error('AI generation error:', error)
+      console.error("AI generation error:", error);
       const message =
-        error instanceof Error ? error.message : '生成失败，请重试。'
-      setErrorMessage(message || '生成失败，请重试。')
-      setStatus('error')
+        error instanceof Error ? error.message : "生成失败，请重试。";
+      setErrorMessage(message || "生成失败，请重试。");
+      setStatus("error");
     },
-  })
+  });
 
   // 自动聚焦输入框
   useEffect(() => {
     if (textareaRef.current) {
-      textareaRef.current.focus()
+      textareaRef.current.focus();
     }
-  }, [])
+  }, []);
 
   useEffect(() => {
     if (!selectionRange) {
-      onClose({ reason: 'selection-lost' })
+      onClose({ reason: "selection-lost" });
     }
-  }, [selectionRange, onClose])
+  }, [selectionRange, onClose]);
 
   // 处理确定按钮点击
   const handleSubmit = useCallback(() => {
-    if (isLoading || !selectionRange) return
+    if (isLoading || !selectionRange) return;
 
-    setErrorMessage(null)
-    setStatus('loading')
-    
+    setErrorMessage(null);
+    setStatus("loading");
+
     generate({
       prompt: inputValue,
       text: savedSelection.text,
-    })
-  }, [isLoading, selectionRange, generate, inputValue, savedSelection.text])
+    });
+  }, [isLoading, selectionRange, generate, inputValue, savedSelection.text]);
 
   // 处理替换按钮点击
   const handleReplace = useCallback(() => {
-    if (!streamingResult || !selectionRange) return
-    
-    const { from, to } = selectionRange
-    const caretPos = from + streamingResult.length
+    if (!streamingResult || !selectionRange) return;
 
-    editor.chain()
+    const { from, to } = selectionRange;
+    const caretPos = from + streamingResult.length;
+
+    editor
+      .chain()
       .focus()
       .deleteRange({ from, to })
       .insertContentAt(from, streamingResult)
       .setTextSelection(caretPos)
-      .run()
-    
-    onClose({ reason: 'replace', caretPos })
-  }, [streamingResult, selectionRange, editor, onClose])
+      .run();
+
+    onClose({ reason: "replace", caretPos });
+  }, [streamingResult, selectionRange, editor, onClose]);
 
   // 处理键盘事件
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault()
-      handleSubmit()
-    }
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      onClose({ reason: 'cancel' })
-    }
-  }, [handleSubmit, onClose])
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        handleSubmit();
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onClose({ reason: "cancel" });
+      }
+    },
+    [handleSubmit, onClose],
+  );
 
   const resultClassName = [
-    'ai-panel-result',
-    status === 'error' ? 'is-error' : '',
-    status === 'empty' ? 'is-empty' : '',
+    "ai-panel-result",
+    status === "error" ? "is-error" : "",
+    status === "empty" ? "is-empty" : "",
   ]
     .filter(Boolean)
-    .join(' ')
+    .join(" ");
 
   const resultContent =
-    status === 'loading'
-      ? '正在生成...'
-      : status === 'result'
+    status === "loading"
+      ? "正在生成..."
+      : status === "result"
         ? streamingResult
-        : status === 'error'
-          ? errorMessage || '生成失败，请重试。'
-          : status === 'empty'
-            ? '未生成可替换文本，请调整指令后重试。'
-            : ''
+        : status === "error"
+          ? errorMessage || "生成失败，请重试。"
+          : status === "empty"
+            ? "未生成可替换文本，请调整指令后重试。"
+            : "";
 
   return (
     <FloatingPortal>
+      {/* 使用 fixed 遮盖整个屏幕，其中的作为气泡菜单定位到 virtualReference  */}
       <div
         className="ai-floating-backdrop"
-        style={{ visibility: isPositioned ? 'visible' : 'hidden' }}
-        onPointerDown={() => onClose({ reason: 'cancel' })}
+        style={{ visibility: isPositioned ? "visible" : "hidden" }}
+        onPointerDown={() => onClose({ reason: "cancel" })}
       />
       <div
         ref={(node) => refs.setFloating(node)}
@@ -249,10 +257,8 @@ export function AIFloatingPanel({
           rows={2}
         />
 
-        {status !== 'input' && (
-          <div className={resultClassName}>
-            {resultContent}
-          </div>
+        {status !== "input" && (
+          <div className={resultClassName}>{resultContent}</div>
         )}
 
         {/* 按钮组 */}
@@ -260,12 +266,12 @@ export function AIFloatingPanel({
           <button
             type="button"
             className="ai-panel-btn ai-panel-btn-cancel"
-            onClick={() => onClose({ reason: 'cancel' })}
+            onClick={() => onClose({ reason: "cancel" })}
           >
             取消
           </button>
 
-          {status === 'result' && Boolean(streamingResult) && (
+          {status === "result" && Boolean(streamingResult) && (
             <button
               type="button"
               className="ai-panel-btn ai-panel-btn-replace"
@@ -291,5 +297,5 @@ export function AIFloatingPanel({
         </div>
       </div>
     </FloatingPortal>
-  )
+  );
 }

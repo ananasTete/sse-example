@@ -1,6 +1,7 @@
 import { BubbleMenu as TiptapBubbleMenu } from '@tiptap/react/menus'
 import { isNodeSelection } from '@tiptap/core'
 import { type Editor, useEditorState } from '@tiptap/react'
+import type { Transaction } from '@tiptap/pm/state'
 import { useEffect, useState, useCallback, useRef } from 'react'
 
 import { AIButton } from './components/ai-button'
@@ -124,6 +125,33 @@ export function BubbleMenu({ editor }: BubbleMenuProps) {
       }
     }
   }, [showAIPanel, editor])
+
+  useEffect(() => {
+    if (!showAIPanel) return
+
+    const handleTransaction = ({
+      transaction,
+    }: {
+      transaction: Transaction
+    }) => {
+      if (!transaction.docChanged) return
+
+      setSavedSelection((selection) => {
+        if (!selection) return selection
+
+        return {
+          ...selection,
+          bookmark: selection.bookmark.map(transaction.mapping),
+        }
+      })
+    }
+
+    editor.on('transaction', handleTransaction)
+
+    return () => {
+      editor.off('transaction', handleTransaction)
+    }
+  }, [editor, showAIPanel])
 
   // 当 AI 面板显示时，在编辑器容器上添加类名，配合 CSS 隐藏原生选区
   useEffect(() => {
