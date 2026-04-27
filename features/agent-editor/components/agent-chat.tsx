@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useChat } from "@/features/ai-sdk/hooks/use-chat/useChat";
 import type { ToolCallPart } from "@/features/ai-sdk/hooks/use-chat/types";
 import type {
@@ -15,21 +15,20 @@ import { MessageList } from "./message-list";
 import {
   createCancelAllUpdater,
   createApplySuggestionUpdater,
-  createCheckSuggestionUpdater,
   createFailSuggestionUpdater,
-  createCancelSuggestionUpdater,
 } from "../utils/suggestion-utils";
+import {
+  applyEditorAIPatch,
+  type EditorAIPatchResult,
+} from "../services/editor-ai-context";
 
 interface AgentChatProps {
   editorAgent: UseEditorAgentReturn;
-  diffCallbacksRef?: React.MutableRefObject<{
-    onAccept?: (suggestionId: string) => void;
-    onReject?: (suggestionId: string) => void;
-  }>;
 }
 
-export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
+export function AgentChat({ editorAgent }: AgentChatProps) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [patchError, setPatchError] = useState<string | null>(null);
 
   const {
     messages,
@@ -140,6 +139,49 @@ export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
     });
   }, [messages, editorAgent]);
 
+  const processedPatchCallsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    messages.forEach((msg) => {
+      if (msg.role !== "assistant") return;
+
+      msg.parts.forEach((part) => {
+        if (part.type !== "tool-call") return;
+        const toolPart = part as ToolCallPart;
+
+        if (toolPart.toolName !== "suggest_patch") return;
+        if (
+          toolPart.state !== "input-available" &&
+          toolPart.state !== "output-available"
+        )
+          return;
+        if (processedPatchCallsRef.current.has(toolPart.toolCallId)) return;
+
+        processedPatchCallsRef.current.add(toolPart.toolCallId);
+
+        const input = toolPart.input as
+          | { patches?: EditorAIPatchResult[] }
+          | undefined;
+        const patches = input?.patches ?? [];
+
+        queueMicrotask(() => {
+          const editor = editorAgent.editor;
+          if (!editor) {
+            setPatchError("编辑器未准备好，请稍后重试。");
+            return;
+          }
+
+          for (const patch of patches) {
+            const result = applyEditorAIPatch(editor, patch);
+            if (result.status === "stale") {
+              setPatchError(result.reason);
+            }
+          }
+        });
+      });
+    });
+  }, [messages, editorAgent]);
+
   // 应用建议 - 更新 message part 中的状态
   const handleApplySuggestion = useCallback(
     (
@@ -171,89 +213,10 @@ export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
         return;
       }
 
-      // 全文模式：插入 diff 节点，让用户在编辑器中确认
-      if (suggestion.type === "edit") {
-        let success = false;
-
-        if (suggestion.position) {
-          success = editorAgent.insertDiffNode(
-            suggestion.position.from,
-            suggestion.position.to,
-            suggestion.newText,
-            suggestion.id,
-          );
-        } else if (suggestion.originalText) {
-          success = editorAgent.insertDiffByText(
-            suggestion.originalText,
-            suggestion.newText,
-            suggestion.id,
-          );
-        }
-
-        if (!success) {
-          updateMessageParts(
-            messageId,
-            createFailSuggestionUpdater(toolCallId, index),
-          );
-          return;
-        }
-
-        // 不立即更新状态为 checked，等用户在编辑器中确认
-        // 状态会在 handleDiffAccept/handleDiffReject 中更新
-      }
+      // 全文编辑建议由编辑器 diffBlock 负责接受和拒绝。
     },
     [editorAgent, updateMessageParts],
   );
-
-  // 处理编辑器中的 diff 接受回调
-  const handleDiffAccept = useCallback(
-    (suggestionId: string) => {
-      // 解析 suggestionId 获取 toolCallId 和 index
-      const lastDashIndex = suggestionId.lastIndexOf("-");
-      const toolCallId = suggestionId.substring(0, lastDashIndex);
-      const index = parseInt(suggestionId.substring(lastDashIndex + 1), 10);
-
-      // 找到对应的消息并更新状态（使用 Check 而非 Apply，不影响其他建议）
-      const assistantMsg = messages.findLast((msg) => msg.role === "assistant");
-      if (assistantMsg) {
-        updateMessageParts(
-          assistantMsg.id,
-          createCheckSuggestionUpdater(toolCallId, index),
-        );
-      }
-    },
-    [messages, updateMessageParts],
-  );
-
-  // 处理编辑器中的 diff 拒绝回调
-  const handleDiffReject = useCallback(
-    (suggestionId: string) => {
-      // 解析 suggestionId 获取 toolCallId 和 index
-      const lastDashIndex = suggestionId.lastIndexOf("-");
-      const toolCallId = suggestionId.substring(0, lastDashIndex);
-      const index = parseInt(suggestionId.substring(lastDashIndex + 1), 10);
-
-      // 找到对应的消息并更新状态为 canceled
-      const assistantMsg = messages.findLast((msg) => msg.role === "assistant");
-      if (assistantMsg) {
-        updateMessageParts(
-          assistantMsg.id,
-          createCancelSuggestionUpdater(toolCallId, index),
-        );
-      }
-    },
-    [messages, updateMessageParts],
-  );
-
-  // 将 diff 回调暴露给父组件
-  useEffect(() => {
-    if (diffCallbacksRef) {
-      diffCallbacksRef.current = {
-        onAccept: handleDiffAccept,
-        onReject: handleDiffReject,
-      };
-    }
-  }, [diffCallbacksRef, handleDiffAccept, handleDiffReject]);
 
   // 定位建议
   const handleLocateSuggestion = useCallback(
@@ -265,56 +228,7 @@ export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
     [editorAgent],
   );
 
-  // ============ Chat 中的接受/拒绝建议（全文模式） ============
-
-  // 在 chat 中接受建议
-  const handleAcceptSuggestion = useCallback(
-    (
-      messageId: string,
-      toolCallId: string,
-      index: number,
-      suggestion: Suggestion,
-    ) => {
-      // 调用编辑器的 acceptDiff
-      const success = editorAgent.acceptDiff(suggestion.id);
-      if (success) {
-        // 更新 message part 状态（使用 Check 而非 Apply，不影响其他建议）
-        updateMessageParts(
-          messageId,
-          createCheckSuggestionUpdater(toolCallId, index),
-        );
-      }
-    },
-    [editorAgent, updateMessageParts],
-  );
-
-  // 在 chat 中拒绝建议
-  const handleRejectSuggestion = useCallback(
-    (
-      messageId: string,
-      toolCallId: string,
-      index: number,
-      suggestion: Suggestion,
-    ) => {
-      // 调用编辑器的 rejectDiff
-      const success = editorAgent.rejectDiff(suggestion.id);
-      if (success) {
-        // 更新 message part 状态
-        updateMessageParts(
-          messageId,
-          createCancelSuggestionUpdater(toolCallId, index),
-        );
-      }
-    },
-    [editorAgent, updateMessageParts],
-  );
-
   // ============ 激活与取消选中模式 ============
-
-  // 输入框聚焦时激活选中模式
-  const handleInputFocus = useCallback(() => {
-    editorAgent.activateSelectionMode();
-  }, [editorAgent]);
 
   // 清除选中模式，用于快捷键和 context-bar 的取消按钮
   const handleClearSelection = useCallback(() => {
@@ -337,7 +251,8 @@ export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
   // 发送消息时附加上下文
   const handleSendMessage = useCallback(
     async (text: string) => {
-      const context = editorAgent.getContext();
+      const request = editorAgent.createAIRequest(text);
+      setPatchError(null);
 
       // 发送新消息前，使最近一条 assistant 消息中的建议失效
       const lastAssistantMsg = messages.findLast(
@@ -347,9 +262,7 @@ export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
         cancelAllSuggestionsInMessage(lastAssistantMsg.id);
       }
 
-      // 发送结构化上下文（通过特殊格式，让 API 能解析）
-      const payload = JSON.stringify({ context, userRequest: text });
-      await sendMessage(payload);
+      await sendMessage(request ? JSON.stringify(request) : text);
     },
     [editorAgent, messages, cancelAllSuggestionsInMessage, sendMessage],
   );
@@ -384,8 +297,6 @@ export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
       <MessageList
         messages={messages}
         onApplySuggestion={handleApplySuggestion}
-        onAcceptSuggestion={handleAcceptSuggestion}
-        onRejectSuggestion={handleRejectSuggestion}
         onLocateSuggestion={handleLocateSuggestion}
       />
 
@@ -398,6 +309,12 @@ export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
         />
       )}
 
+      {patchError && (
+        <div className="border-t border-[#f0d5d5] bg-[#fff5f5] px-3 py-2 text-xs text-[#a34242]">
+          {patchError}
+        </div>
+      )}
+
       {/* 输入区域 */}
       <form
         onSubmit={handleFormSubmit}
@@ -408,7 +325,6 @@ export function AgentChat({ editorAgent, diffCallbacksRef }: AgentChatProps) {
             ref={inputRef}
             value={input}
             onChange={handleInputChange}
-            onFocus={handleInputFocus}
             onKeyDown={handleKeyDown}
             placeholder={
               editorAgent.mode === "selection"

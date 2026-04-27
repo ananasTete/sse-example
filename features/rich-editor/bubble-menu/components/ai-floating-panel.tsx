@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { type Editor, useEditorState } from "@tiptap/react";
-import { Loader2, ArrowRight, Replace } from "lucide-react";
+import { type Editor } from "@tiptap/react";
+import { Loader2, ArrowRight } from "lucide-react";
+import { createParser } from "eventsource-parser";
 import {
   useFloating,
   offset,
@@ -11,14 +12,17 @@ import {
   autoUpdate,
   FloatingPortal,
 } from "@floating-ui/react";
-import { useGeneration } from "@/features/ai-sdk/hooks/use-generation/useGeneration";
-import { resolveSavedSelection, type SavedSelection } from "../selection";
+import { getAISelectionRange } from "../../extensions/ai-selection-highlight";
+import {
+  applyEditorAIPatch,
+  createEditorAIRequest,
+  type EditorAIPatchResult,
+} from "@/features/agent-editor/services/editor-ai-context";
 
 type AIStatus = "input" | "loading" | "result" | "error" | "empty";
 
 interface AIFloatingPanelProps {
   editor: Editor;
-  savedSelection: SavedSelection;
   onClose: (payload: AIPanelClosePayload) => void;
 }
 
@@ -31,28 +35,38 @@ export interface AIPanelClosePayload {
  * 独立的 AI 浮动面板组件
  * 使用 Floating UI 定位到选区位置，独立于 BubbleMenu
  */
-export function AIFloatingPanel({
-  editor,
-  savedSelection,
-  onClose,
-}: AIFloatingPanelProps) {
+export function AIFloatingPanel({ editor, onClose }: AIFloatingPanelProps) {
   const [status, setStatus] = useState<AIStatus>("input");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [transactionVersion, setTransactionVersion] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const selectionRange = useEditorState({
-    editor,
-    selector: ({ editor }) => {
-      const resolvedSelection = resolveSavedSelection(editor, savedSelection);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-      if (!resolvedSelection) return null;
+  useEffect(() => {
+    const handleTransaction = () => {
+      setTransactionVersion((version) => version + 1);
+    };
 
-      return {
-        from: resolvedSelection.from,
-        to: resolvedSelection.to,
-      };
-    },
-  });
+    editor.on("transaction", handleTransaction);
+
+    return () => {
+      editor.off("transaction", handleTransaction);
+    };
+  }, [editor]);
+
+  const selectionRange = useMemo(() => {
+    const range = getAISelectionRange(editor.state);
+    if (!range) return null;
+    if (range.from >= range.to) return null;
+    if (range.to > editor.state.doc.content.size) return null;
+
+    return {
+      from: range.from,
+      to: range.to,
+    };
+  }, [editor, transactionVersion]);
 
   // 创建虚拟参考元素，基于选区位置
   const virtualReference = useMemo(() => {
@@ -128,31 +142,11 @@ export function AIFloatingPanel({
     refs.setReference(virtualReference);
   }, [refs, virtualReference]);
 
-  const {
-    generate,
-    isLoading,
-    value: streamingResult,
-  } = useGeneration({
-    api: "/api/chat",
-    onStartStream: () => {
-      setStatus("result");
-    },
-    onFinish: (fullText) => {
-      if (fullText.trim()) {
-        setStatus("result");
-        return;
-      }
-
-      setStatus("empty");
-    },
-    onError: (error) => {
-      console.error("AI generation error:", error);
-      const message =
-        error instanceof Error ? error.message : "生成失败，请重试。";
-      setErrorMessage(message || "生成失败，请重试。");
-      setStatus("error");
-    },
-  });
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   // 自动聚焦输入框
   useEffect(() => {
@@ -168,35 +162,84 @@ export function AIFloatingPanel({
   }, [selectionRange, onClose]);
 
   // 处理确定按钮点击
-  const handleSubmit = useCallback(() => {
+  const handleSubmit = useCallback(async () => {
     if (isLoading || !selectionRange) return;
 
     setErrorMessage(null);
     setStatus("loading");
+    setIsLoading(true);
 
-    generate({
-      prompt: inputValue,
-      text: savedSelection.text,
-    });
-  }, [isLoading, selectionRange, generate, inputValue, savedSelection.text]);
+    const bundle = createEditorAIRequest(editor, inputValue);
+    if (!bundle) {
+      setErrorMessage("请先选择需要处理的文本。");
+      setStatus("error");
+      setIsLoading(false);
+      return;
+    }
 
-  // 处理替换按钮点击
-  const handleReplace = useCallback(() => {
-    if (!streamingResult || !selectionRange) return;
+    abortControllerRef.current?.abort();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
-    const { from, to } = selectionRange;
-    const caretPos = from + streamingResult.length;
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(bundle.request),
+        signal: controller.signal,
+      });
 
-    editor
-      .chain()
-      .focus()
-      .deleteRange({ from, to })
-      .insertContentAt(from, streamingResult)
-      .setTextSelection(caretPos)
-      .run();
+      if (!response.ok) throw new Error(`Request failed: ${response.status}`);
+      if (!response.body) throw new Error("No response body");
 
-    onClose({ reason: "replace", caretPos });
-  }, [streamingResult, selectionRange, editor, onClose]);
+      let patch: EditorAIPatchResult | null = null;
+      const parser = createParser({
+        onEvent: (event) => {
+          if (event.data === "[DONE]") return;
+          const parsed = JSON.parse(event.data) as {
+            type?: string;
+            patch?: EditorAIPatchResult;
+          };
+          if (parsed.type === "patch" && parsed.patch) {
+            patch = parsed.patch;
+          }
+        },
+      });
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parser.feed(decoder.decode(value, { stream: true }));
+      }
+
+      if (!patch) {
+        setStatus("empty");
+        return;
+      }
+
+      const result = applyEditorAIPatch(editor, patch);
+      if (result.status === "stale") {
+        setErrorMessage(result.reason);
+        setStatus("error");
+        return;
+      }
+
+      onClose({ reason: "cancel" });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return;
+      console.error("AI patch error:", error);
+      const message =
+        error instanceof Error ? error.message : "生成失败，请重试。";
+      setErrorMessage(message || "生成失败，请重试。");
+      setStatus("error");
+    } finally {
+      setIsLoading(false);
+      abortControllerRef.current = null;
+    }
+  }, [editor, inputValue, isLoading, onClose, selectionRange]);
 
   // 处理键盘事件
   const handleKeyDown = useCallback(
@@ -225,7 +268,7 @@ export function AIFloatingPanel({
     status === "loading"
       ? "正在生成..."
       : status === "result"
-        ? streamingResult
+        ? "已生成修改建议。"
         : status === "error"
           ? errorMessage || "生成失败，请重试。"
           : status === "empty"
@@ -270,17 +313,6 @@ export function AIFloatingPanel({
           >
             取消
           </button>
-
-          {status === "result" && Boolean(streamingResult) && (
-            <button
-              type="button"
-              className="ai-panel-btn ai-panel-btn-replace"
-              onClick={handleReplace}
-            >
-              <Replace size={14} />
-              替换
-            </button>
-          )}
 
           <button
             type="button"

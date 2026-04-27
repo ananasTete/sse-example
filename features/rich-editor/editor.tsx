@@ -1,11 +1,13 @@
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
+import type { JSONContent } from "@tiptap/core";
 import { StarterKit } from "@tiptap/starter-kit";
 import { TextAlign } from "@tiptap/extension-text-align";
 import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Highlight } from "@tiptap/extension-highlight";
 import { AISelectionHighlight } from "./extensions/ai-selection-highlight";
-import { InlineDiff } from "./extensions/inline-diff";
+import { AISelectionReference } from "./extensions/ai-selection-reference";
+import { DiffBlock, DiffChange } from "./extensions/diff-block";
 import { Underline } from "./extensions/underline";
 import { SlashCommand } from "./extensions/slash-command";
 import { BubbleMenu } from "./bubble-menu";
@@ -42,17 +44,15 @@ export interface TiptapEditorRef {
 }
 
 interface TiptapEditorProps {
-  initialContent?: string;
+  initialContent?: string | JSONContent;
   onEditorReady?: (editor: Editor) => void;
-  onDiffAccept?: (suggestionId: string) => void;
-  onDiffReject?: (suggestionId: string) => void;
+  onDocumentChange?: (snapshot: { raw: JSONContent; html: string }) => void;
 }
 
 const TiptapEditor = ({
   initialContent,
   onEditorReady,
-  onDiffAccept,
-  onDiffReject,
+  onDocumentChange,
 }: TiptapEditorProps) => {
   const editor = useEditor({
     extensions: [
@@ -70,10 +70,9 @@ const TiptapEditor = ({
         multicolor: true,
       }),
       AISelectionHighlight,
-      InlineDiff.configure({
-        onAccept: onDiffAccept,
-        onReject: onDiffReject,
-      }),
+      AISelectionReference,
+      DiffChange,
+      DiffBlock,
     ],
     content: initialContent || DEFAULT_EDITOR_CONTENT || "",
     immediatelyRender: false,
@@ -85,6 +84,34 @@ const TiptapEditor = ({
       onEditorReady(editor);
     }
   }, [editor, onEditorReady]);
+
+  useEffect(() => {
+    if (!editor || !onDocumentChange) return;
+
+    let saveTimer: number | null = null;
+
+    const handleUpdate = () => {
+      if (saveTimer) {
+        window.clearTimeout(saveTimer);
+      }
+
+      saveTimer = window.setTimeout(() => {
+        onDocumentChange({
+          raw: editor.getJSON(),
+          html: editor.getHTML(),
+        });
+      }, 300);
+    };
+
+    editor.on("update", handleUpdate);
+
+    return () => {
+      if (saveTimer) {
+        window.clearTimeout(saveTimer);
+      }
+      editor.off("update", handleUpdate);
+    };
+  }, [editor, onDocumentChange]);
 
   if (!editor) {
     return null;

@@ -1,75 +1,69 @@
-import { BubbleMenu as TiptapBubbleMenu } from '@tiptap/react/menus'
-import { isNodeSelection } from '@tiptap/core'
-import { type Editor, useEditorState } from '@tiptap/react'
-import type { Transaction } from '@tiptap/pm/state'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { BubbleMenu as TiptapBubbleMenu } from "@tiptap/react/menus";
+import { isNodeSelection } from "@tiptap/core";
+import { type Editor, useEditorState } from "@tiptap/react";
+import {
+  computePosition,
+  flip,
+  offset,
+  shift,
+  size,
+  type VirtualElement,
+} from "@floating-ui/react";
+import { useState, useCallback } from "react";
 
-import { AIButton } from './components/ai-button'
+import { AIButton } from "./components/ai-button";
 import {
   AIFloatingPanel,
   type AIPanelClosePayload,
-} from './components/ai-floating-panel'
-import './bubble-menu.css'
-import { Divider } from './components/divider'
-import { NodeTypeSelect, type NodeTypeId } from './components/node-type-select'
-import { AlignSelect, type AlignId } from './components/align-select'
-import { ColorSelect } from './components/color-select'
-import { MoreMenu } from './components/more-menu'
-import { FormatButtons } from './components/format-buttons'
-import {
-  resolveSavedSelection,
-  type SavedSelection,
-} from './selection'
+} from "./components/ai-floating-panel";
+import "./bubble-menu.css";
+import { Divider } from "./components/divider";
+import { NodeTypeSelect } from "./components/node-type-select";
+import { AlignSelect, type AlignId } from "./components/align-select";
+import { ColorSelect } from "./components/color-select";
+import { MoreMenu } from "./components/more-menu";
+import { FormatButtons } from "./components/format-buttons";
+import { getAISelectionRange } from "../extensions/ai-selection-highlight";
+import { getActiveNodeTypeId } from "./bubble-menu-config";
 
 interface BubbleMenuProps {
-  editor: Editor
+  editor: Editor;
 }
 
-const nodeTypeMatchers: Array<{
-  id: NodeTypeId
-  isActive: (editor: Editor) => boolean
-}> = [
-  { id: 'heading1', isActive: (editor) => editor.isActive('heading', { level: 1 }) },
-  { id: 'heading2', isActive: (editor) => editor.isActive('heading', { level: 2 }) },
-  { id: 'heading3', isActive: (editor) => editor.isActive('heading', { level: 3 }) },
-  { id: 'heading4', isActive: (editor) => editor.isActive('heading', { level: 4 }) },
-  { id: 'heading5', isActive: (editor) => editor.isActive('heading', { level: 5 }) },
-  { id: 'heading6', isActive: (editor) => editor.isActive('heading', { level: 6 }) },
-  { id: 'bulletList', isActive: (editor) => editor.isActive('bulletList') },
-  { id: 'orderedList', isActive: (editor) => editor.isActive('orderedList') },
-  { id: 'codeBlock', isActive: (editor) => editor.isActive('codeBlock') },
-  { id: 'blockquote', isActive: (editor) => editor.isActive('blockquote') },
-]
+const DROPDOWN_OFFSET = 8;
+const DROPDOWN_VIEWPORT_PADDING = 16;
+const MAX_DROPDOWN_HEIGHT = 420;
+const DROPDOWN_PROBE_WIDTH = 220;
 
 const alignMatchers: Array<{
-  id: AlignId
-  isActive: (editor: Editor) => boolean
+  id: AlignId;
+  isActive: (editor: Editor) => boolean;
 }> = [
-  { id: 'center', isActive: (editor) => editor.isActive({ textAlign: 'center' }) },
-  { id: 'right', isActive: (editor) => editor.isActive({ textAlign: 'right' }) },
-]
-
-function getActiveNodeTypeId(editor: Editor): NodeTypeId {
-  return nodeTypeMatchers.find((item) => item.isActive(editor))?.id ?? 'paragraph'
-}
+  {
+    id: "center",
+    isActive: (editor) => editor.isActive({ textAlign: "center" }),
+  },
+  {
+    id: "right",
+    isActive: (editor) => editor.isActive({ textAlign: "right" }),
+  },
+];
 
 function getActiveAlignId(editor: Editor): AlignId {
-  return alignMatchers.find((item) => item.isActive(editor))?.id ?? 'left'
+  return alignMatchers.find((item) => item.isActive(editor))?.id ?? "left";
 }
 
 export function BubbleMenu({ editor }: BubbleMenuProps) {
-  const [placementDir, setPlacementDir] = useState<'top' | 'bottom'>('bottom')
-  const [showAIPanel, setShowAIPanel] = useState(false)
-  const [savedSelection, setSavedSelection] = useState<SavedSelection | null>(null)
-  const prevEditableRef = useRef<boolean | null>(null)
+  const [placementDir, setPlacementDir] = useState<"top" | "bottom">("bottom");
+  const [showAIPanel, setShowAIPanel] = useState(false);
 
   const ui = useEditorState({
     editor,
     selector: ({ editor }) => {
-      const selection = editor.state.selection
+      const selection = editor.state.selection;
 
-      const textColor = editor.getAttributes('textStyle').color || null
-      const highlightColor = editor.getAttributes('highlight').color || null
+      const textColor = editor.getAttributes("textStyle").color || null;
+      const highlightColor = editor.getAttributes("highlight").color || null;
 
       return {
         selectionEmpty: selection.empty,
@@ -78,143 +72,114 @@ export function BubbleMenu({ editor }: BubbleMenuProps) {
         alignId: getActiveAlignId(editor),
         textColor,
         highlightColor,
-        isBold: editor.isActive('bold'),
-        isCode: editor.isActive('code'),
-        isItalic: editor.isActive('italic'),
-        isStrike: editor.isActive('strike'),
-        isUnderline: editor.isActive('underline'),
-      }
+        isBold: editor.isActive("bold"),
+        isCode: editor.isActive("code"),
+        isItalic: editor.isActive("italic"),
+        isStrike: editor.isActive("strike"),
+        isUnderline: editor.isActive("underline"),
+      };
     },
-  })
+  });
 
   const requestDropdownPlacement = useCallback(() => {
-    const { selection } = editor.state
-    if (isNodeSelection(selection) || selection.empty) return
+    const { selection } = editor.state;
+    if (isNodeSelection(selection) || selection.empty) return;
 
-    // Use a conservative max dropdown height so all dropdowns share the same direction.
-    // ColorSelect can be up to ~400px, plus padding and offset.
-    const MAX_PANEL_HEIGHT = 420
-    const VIEWPORT_PADDING = 16
+    const coords = editor.view.coordsAtPos(selection.from);
+    const reference: VirtualElement = {
+      getBoundingClientRect: () =>
+        new DOMRect(
+          coords.left,
+          coords.top,
+          Math.max(1, coords.right - coords.left),
+          Math.max(1, coords.bottom - coords.top),
+        ),
+    };
 
-    const coords = editor.view.coordsAtPos(selection.from)
-    const availableBottom = window.innerHeight - coords.bottom
-    const needsOpenUp =
-      availableBottom < MAX_PANEL_HEIGHT + VIEWPORT_PADDING
+    const probe = document.createElement("div");
+    Object.assign(probe.style, {
+      position: "fixed",
+      width: `${DROPDOWN_PROBE_WIDTH}px`,
+      height: `${MAX_DROPDOWN_HEIGHT}px`,
+      visibility: "hidden",
+      pointerEvents: "none",
+    });
 
-    setPlacementDir(needsOpenUp ? 'top' : 'bottom')
-  }, [editor])
+    document.body.appendChild(probe);
 
-  // AI 面板打开期间锁定编辑器，避免选区/位置在替换前发生漂移
-  useEffect(() => {
-    if (showAIPanel) {
-      if (prevEditableRef.current === null) {
-        prevEditableRef.current = editor.isEditable
-      }
-      editor.setEditable(false)
-    } else {
-      if (prevEditableRef.current !== null) {
-        editor.setEditable(prevEditableRef.current)
-        prevEditableRef.current = null
-      }
-    }
-
-    return () => {
-      if (prevEditableRef.current !== null) {
-        editor.setEditable(prevEditableRef.current)
-        prevEditableRef.current = null
-      }
-    }
-  }, [showAIPanel, editor])
-
-  useEffect(() => {
-    if (!showAIPanel) return
-
-    const handleTransaction = ({
-      transaction,
-    }: {
-      transaction: Transaction
-    }) => {
-      if (!transaction.docChanged) return
-
-      setSavedSelection((selection) => {
-        if (!selection) return selection
-
-        return {
-          ...selection,
-          bookmark: selection.bookmark.map(transaction.mapping),
-        }
+    void computePosition(reference, probe, {
+      strategy: "fixed",
+      placement: "bottom-start",
+      middleware: [
+        offset(DROPDOWN_OFFSET),
+        flip({
+          padding: DROPDOWN_VIEWPORT_PADDING,
+          fallbackPlacements: ["top-start"],
+        }),
+        size({
+          padding: DROPDOWN_VIEWPORT_PADDING,
+          apply({ availableHeight, elements }) {
+            elements.floating.style.maxHeight = `${Math.max(
+              0,
+              Math.min(MAX_DROPDOWN_HEIGHT, availableHeight),
+            )}px`;
+          },
+        }),
+        shift({ padding: DROPDOWN_VIEWPORT_PADDING }),
+      ],
+    })
+      .then(({ placement }) => {
+        setPlacementDir(placement.startsWith("top") ? "top" : "bottom");
       })
-    }
-
-    editor.on('transaction', handleTransaction)
-
-    return () => {
-      editor.off('transaction', handleTransaction)
-    }
-  }, [editor, showAIPanel])
-
-  // 当 AI 面板显示时，在编辑器容器上添加类名，配合 CSS 隐藏原生选区
-  useEffect(() => {
-    if (showAIPanel) {
-      editor.view.dom.classList.add('ai-panel-active')
-    } else {
-      editor.view.dom.classList.remove('ai-panel-active')
-    }
-    
-    return () => {
-      editor.view.dom.classList.remove('ai-panel-active')
-    }
-  }, [showAIPanel, editor])
+      .finally(() => {
+        probe.remove();
+      });
+  }, [editor]);
 
   const clearAIPanelState = useCallback(
     (caretPos?: number) => {
-      if (typeof caretPos === 'number') {
-        editor.commands.setTextSelection(caretPos)
+      if (typeof caretPos === "number") {
+        editor.commands.setTextSelection(caretPos);
       }
 
-      editor.commands.clearAISelectionHighlight()
-      setSavedSelection(null)
-      setShowAIPanel(false)
+      editor.commands.clearAISelectionHighlight();
+      setShowAIPanel(false);
     },
     [editor],
-  )
+  );
 
-  // 点击 AI 按钮时，保存选区并激活高亮
+  // 点击 AI 按钮时，将当前选区写入统一的高亮插件状态
   const handleAIButtonClick = useCallback(() => {
-    const { from, to } = editor.state.selection
-    const text = editor.state.doc.textBetween(from, to, ' ')
-    
-    // 保存选区
-    setSavedSelection({
-      bookmark: editor.state.selection.getBookmark(),
-      text,
-    })
-    
-    // 激活高亮装饰（紫色自定义样式）
-    editor.commands.setAISelectionHighlight(from, to)
+    const { from, to, empty } = editor.state.selection;
+    if (empty) return;
 
-    // 我们不再使用 removeAllRanges() 来清除选区，因为这会破坏作为 source of truth 的选区状态
-    // 相反，我们通过在 editor.view.dom 上添加 class 并配合 CSS ::selection transparent 来视觉上隐藏它
-    
-    // 显示独立的 AI 面板
-    setShowAIPanel(true)
-  }, [editor])
+    const text = editor.state.doc.textBetween(from, to, " ");
+    if (!text.trim()) return;
+
+    editor.commands.setAISelectionHighlight(from, to);
+    setShowAIPanel(true);
+  }, [editor]);
 
   // 关闭 AI 面板时，清除高亮
-  const handleCloseAIPanel = useCallback((payload: AIPanelClosePayload) => {
-    if (payload.reason === 'replace' && typeof payload.caretPos === 'number') {
-      clearAIPanelState(payload.caretPos)
-      return
-    }
+  const handleCloseAIPanel = useCallback(
+    (payload: AIPanelClosePayload) => {
+      if (
+        payload.reason === "replace" &&
+        typeof payload.caretPos === "number"
+      ) {
+        clearAIPanelState(payload.caretPos);
+        return;
+      }
 
-    if (payload.reason === 'cancel') {
-      const resolvedSelection = resolveSavedSelection(editor, savedSelection)
-      clearAIPanelState(resolvedSelection?.to)
-      return
-    }
-    
-    clearAIPanelState()
-  }, [clearAIPanelState, editor, savedSelection])
+      if (payload.reason === "cancel") {
+        clearAIPanelState(getAISelectionRange(editor.state)?.to);
+        return;
+      }
+
+      clearAIPanelState();
+    },
+    [clearAIPanelState, editor],
+  );
 
   return (
     <>
@@ -222,9 +187,36 @@ export function BubbleMenu({ editor }: BubbleMenuProps) {
       {!showAIPanel && (
         <TiptapBubbleMenu
           editor={editor}
+          pluginKey="richEditorBubbleMenu"
           className="bubble-menu"
+          updateDelay={100}
+          resizeDelay={80}
+          appendTo={() => document.body}
+          options={{
+            strategy: "fixed",
+            placement: "top",
+            offset: 8,
+            flip: {
+              padding: 12,
+              fallbackPlacements: ["bottom", "top-start", "bottom-start"],
+            },
+            shift: {
+              padding: 12,
+            },
+            inline: true,
+          }}
           shouldShow={({ state }) => {
-            return !isNodeSelection(state.selection) && !state.selection.empty
+            const { selection, doc } = state;
+            const selectedText = doc
+              .textBetween(selection.from, selection.to)
+              .trim();
+
+            return (
+              editor.isEditable &&
+              !isNodeSelection(selection) &&
+              !selection.empty &&
+              selectedText.length > 0
+            );
           }}
         >
           {/* AI Button */}
@@ -283,13 +275,12 @@ export function BubbleMenu({ editor }: BubbleMenuProps) {
       )}
 
       {/* 独立的 AI 浮动面板 */}
-      {showAIPanel && savedSelection && (
+      {showAIPanel && (
         <AIFloatingPanel
           editor={editor}
-          savedSelection={savedSelection}
           onClose={handleCloseAIPanel}
         />
       )}
     </>
-  )
+  );
 }

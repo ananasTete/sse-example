@@ -1,10 +1,14 @@
-import { useState, useRef, useCallback } from "react";
+import { useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import type { Editor } from "@tiptap/react";
 import TiptapEditor from "@/features/rich-editor/editor";
 import { AgentChat } from "@/features/agent-editor/components/agent-chat";
 import { useEditorAgent } from "@/features/agent-editor/hooks/use-editor-agent";
 import { ErrorBoundary } from "@/features/agent-editor/components/error-boundary";
+import {
+  loadAgentEditorDocument,
+  saveAgentEditorDocument,
+} from "@/features/agent-editor/services/document-storage";
 
 export const Route = createFileRoute("/agent-editor")({
   component: AgentEditorPage,
@@ -12,24 +16,14 @@ export const Route = createFileRoute("/agent-editor")({
 
 function AgentEditorPage() {
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [initialContent] = useState(
+    () => loadAgentEditorDocument()?.raw,
+  );
   const editorAgent = useEditorAgent({ editor });
-
-  const diffCallbacksRef = useRef<{
-    onAccept?: (suggestionId: string) => void;
-    onReject?: (suggestionId: string) => void;
-  }>({});
 
   const handleEditorReady = (editorInstance: Editor) => {
     setEditor(editorInstance);
   };
-
-  const handleDiffAccept = useCallback((suggestionId: string) => {
-    diffCallbacksRef.current.onAccept?.(suggestionId);
-  }, []);
-
-  const handleDiffReject = useCallback((suggestionId: string) => {
-    diffCallbacksRef.current.onReject?.(suggestionId);
-  }, []);
 
   return (
     <div className="h-screen p-4 bg-[#fbf7f2]">
@@ -38,9 +32,9 @@ function AgentEditorPage() {
           <div className="w-200 mx-auto">
             <ErrorBoundary>
               <TiptapEditor
+                initialContent={initialContent}
                 onEditorReady={handleEditorReady}
-                onDiffAccept={handleDiffAccept}
-                onDiffReject={handleDiffReject}
+                onDocumentChange={saveAgentEditorDocument}
               />
             </ErrorBoundary>
           </div>
@@ -48,10 +42,7 @@ function AgentEditorPage() {
 
         <div className="rounded-sm w-150 overflow-hidden">
           <ErrorBoundary>
-            <AgentChat
-              editorAgent={editorAgent}
-              diffCallbacksRef={diffCallbacksRef}
-            />
+            <AgentChat editorAgent={editorAgent} />
           </ErrorBoundary>
         </div>
       </div>

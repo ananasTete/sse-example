@@ -5,21 +5,33 @@ import {
   useDismiss,
   useInteractions,
   offset,
-  flip,
   shift,
+  size,
   autoUpdate,
   type Placement,
 } from "@floating-ui/react";
 
+const DEFAULT_MAX_HEIGHT = 420;
+const DEFAULT_VIEWPORT_PADDING = 8;
+
 interface UseFloatingSelectOptions {
   placement?: Placement;
   offsetValue?: number;
+  maxHeight?: number;
+  viewportPadding?: number;
   onOpen?: () => void;
   onClose?: () => void;
 }
 
 export function useFloatingSelect(options: UseFloatingSelectOptions = {}) {
-  const { placement = "bottom-start", offsetValue = 8, onOpen, onClose } = options;
+  const {
+    placement = "bottom-start",
+    offsetValue = 8,
+    maxHeight = DEFAULT_MAX_HEIGHT,
+    viewportPadding = DEFAULT_VIEWPORT_PADDING,
+    onOpen,
+    onClose,
+  } = options;
   const [isOpen, setIsOpen] = useState(false);
 
   const { refs, floatingStyles, context, elements } = useFloating({
@@ -30,7 +42,19 @@ export function useFloatingSelect(options: UseFloatingSelectOptions = {}) {
       setIsOpen(nextOpen);
     },
     placement,
-    middleware: [offset(offsetValue), flip(), shift({ padding: 8 })],
+    middleware: [
+      offset(offsetValue),
+      size({
+        padding: viewportPadding,
+        apply({ availableHeight, elements }) {
+          Object.assign(elements.floating.style, {
+            maxHeight: `${Math.max(0, Math.min(maxHeight, availableHeight))}px`,
+            overflowY: "auto",
+          });
+        },
+      }),
+      shift({ padding: viewportPadding }),
+    ],
     whileElementsMounted: autoUpdate,
   });
 

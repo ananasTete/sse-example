@@ -1,4 +1,5 @@
 import type { Editor } from "@tiptap/react";
+import type { EditorAIRequest } from "./services/editor-ai-context";
 
 // 交互模式
 export type EditorMode = "fulltext" | "selection";
@@ -56,15 +57,16 @@ export interface UseEditorAgentOptions {
 
 // useEditorAgent 返回值
 export interface UseEditorAgentReturn {
+  editor: Editor | null;
   mode: EditorMode;
   selectionInfo: SelectionInfo | null;
-  activateSelectionMode: () => boolean;
   clearSelectionMode: () => void;
   replaceSelection: (newText: string) => boolean;
   replaceAt: (from: number, to: number, newText: string) => boolean;
   replaceText: (originalText: string, newText: string) => boolean;
   scrollToPosition: (from: number) => void;
   getContext: () => ChatContext;
+  createAIRequest: (message: string) => EditorAIRequest | null;
   // Inline Diff 相关
   insertDiffNode: (
     from: number,

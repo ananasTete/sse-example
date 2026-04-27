@@ -8,7 +8,7 @@ export const Route = createFileRoute("/api/chat")({
   server: {
     handlers: {
       GET: () => simpleChatGetHandler(),
-      POST: () => simpleChatPostHandler(),
+      POST: ({ request }) => simpleChatPostHandler(request),
     },
   },
 });

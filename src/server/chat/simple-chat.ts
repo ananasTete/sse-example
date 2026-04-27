@@ -1,4 +1,8 @@
 import { createSseResponse, sendSseEvent } from "@/src/server/http/sse";
+import {
+  createMockPatchResult,
+  parseEditorAIRequest,
+} from "@/src/server/chat/editor-ai-protocol";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -19,7 +23,34 @@ function createSimpleSseStream(text: string) {
   return createSseResponse(stream);
 }
 
-export async function simpleChatPostHandler() {
+function createPatchSseStream(request: unknown) {
+  const editorAIRequest = parseEditorAIRequest(request);
+  if (!editorAIRequest) {
+    return createSimpleSseStream("这是一段优化后的非常专业的文本 (POST)。");
+  }
+
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      await delay(300);
+      sendSseEvent(controller, encoder, {
+        type: "patch",
+        patch: createMockPatchResult(editorAIRequest),
+      });
+      sendSseEvent(controller, encoder, "[DONE]");
+      controller.close();
+    },
+  });
+
+  return createSseResponse(stream);
+}
+
+export async function simpleChatPostHandler(request: Request) {
+  const body = await request.json().catch(() => null);
+  return createPatchSseStream(body);
+}
+
+export async function legacySimpleChatPostHandler() {
   return createSimpleSseStream("这是一段优化后的非常专业的文本 (POST)。");
 }
 

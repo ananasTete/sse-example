@@ -1,10 +1,21 @@
 import { Extension } from "@tiptap/core";
-import { Plugin, PluginKey } from "@tiptap/pm/state";
+import {
+  Plugin,
+  PluginKey,
+  TextSelection,
+  type EditorState,
+} from "@tiptap/pm/state";
 import { Decoration, DecorationSet } from "@tiptap/pm/view";
+
+export type AISelectionRange = { from: number; to: number } | null;
 
 export const AISelectionHighlightPluginKey = new PluginKey(
   "aiSelectionHighlight"
 );
+
+export function getAISelectionRange(state: EditorState): AISelectionRange {
+  return AISelectionHighlightPluginKey.getState(state) ?? null;
+}
 
 export const AISelectionHighlight = Extension.create<
   Record<string, never>,
@@ -38,33 +49,59 @@ export const AISelectionHighlight = Extension.create<
 
   addProseMirrorPlugins() {
     return [
-      new Plugin({
+      new Plugin<AISelectionRange>({
         key: AISelectionHighlightPluginKey,
         state: {
           init() {
-            return DecorationSet.empty;
+            return null;
           },
-          apply(tr, oldSet) {
+          apply(tr, range) {
+            if (tr.docChanged) {
+              return null;
+            }
+
             const meta = tr.getMeta(AISelectionHighlightPluginKey);
             if (meta) {
               if (meta.from !== null && meta.to !== null) {
-                const decoration = Decoration.inline(meta.from, meta.to, {
-                  class: "ai-selection-highlight",
-                });
-                return DecorationSet.create(tr.doc, [decoration]);
-              } else {
-                return DecorationSet.empty;
+                return { from: meta.from, to: meta.to };
               }
+              return null;
             }
-            if (tr.docChanged) {
-              return oldSet.map(tr.mapping, tr.doc);
-            }
-            return oldSet;
+
+            return range;
           },
         },
         props: {
+          handleDOMEvents: {
+            mousedown(view, event) {
+              const range = getAISelectionRange(view.state);
+              if (!range) return false;
+
+              event.preventDefault();
+
+              view.dispatch(
+                view.state.tr
+                  .setMeta(AISelectionHighlightPluginKey, {
+                    from: null,
+                    to: null,
+                  })
+                  .setSelection(TextSelection.create(view.state.doc, range.to))
+                  .scrollIntoView()
+              );
+              view.focus();
+
+              return true;
+            },
+          },
           decorations(state) {
-            return this.getState(state);
+            const range = this.getState(state);
+            if (!range) return DecorationSet.empty;
+
+            const decoration = Decoration.inline(range.from, range.to, {
+              class: "ai-selection-highlight",
+            });
+
+            return DecorationSet.create(state.doc, [decoration]);
           },
         },
       }),

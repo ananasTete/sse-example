@@ -6,16 +6,12 @@ import type { Suggestion } from "../types";
 interface SuggestionCardProps {
   suggestion: Suggestion;
   onApply: (suggestion: Suggestion) => void;
-  onAccept?: (suggestion: Suggestion) => void;
-  onReject?: (suggestion: Suggestion) => void;
   onLocate?: (suggestion: Suggestion) => void;
 }
 
 export function SuggestionCard({
   suggestion,
   onApply,
-  onAccept,
-  onReject,
   onLocate,
 }: SuggestionCardProps) {
   const { label, originalText, newText, status, type } = suggestion;
@@ -31,18 +27,6 @@ export function SuggestionCard({
     }
   }, [isIdle, onApply, suggestion]);
 
-  const handleAccept = useCallback(() => {
-    if (isIdle && onAccept) {
-      onAccept(suggestion);
-    }
-  }, [isIdle, onAccept, suggestion]);
-
-  const handleReject = useCallback(() => {
-    if (isIdle && onReject) {
-      onReject(suggestion);
-    }
-  }, [isIdle, onReject, suggestion]);
-
   const handleCopy = useCallback(() => {
     navigator.clipboard.writeText(newText);
   }, [newText]);
@@ -56,20 +40,18 @@ export function SuggestionCard({
   // 卡片样式
   const cardClassName = [
     "border rounded-md p-3 mb-2 shadow-[0_1px_0_rgba(15,23,42,0.05)]",
-    isChecked && "border-[#6bbf7a] bg-[#f1fbf4]",
-    isCanceled && "opacity-60 border-[#e0d6ca] bg-[#f7f2ec]",
-    isFailed && "border-[#e16b6b] bg-[#fff1f1]",
-    isIdle && "border-[#e6ddd1] bg-[#fffaf4]",
+    type === "rewrite" && isChecked && "border-[#6bbf7a] bg-[#f1fbf4]",
+    type === "rewrite" &&
+      isCanceled &&
+      "opacity-60 border-[#e0d6ca] bg-[#f7f2ec]",
+    type === "rewrite" && isFailed && "border-[#e16b6b] bg-[#fff1f1]",
+    (type === "edit" || isIdle) && "border-[#e6ddd1] bg-[#fffaf4]",
   ]
     .filter(Boolean)
     .join(" ");
 
   const ghostButtonClass =
     "px-3 py-1 text-[11px] font-medium rounded-md border border-[#e1d7c9] text-[#6f6258] bg-white/80 hover:bg-white hover:text-[#463d34] transition-colors";
-  const acceptButtonClass =
-    "px-3 py-1 text-[11px] font-medium rounded-md bg-[#1f7a5b] text-white shadow-[0_2px_6px_rgba(31,122,91,0.22)] hover:bg-[#17624a] transition-colors";
-  const rejectButtonClass =
-    "px-3 py-1 text-[11px] font-medium rounded-md bg-[#b24a4a] text-white shadow-[0_2px_6px_rgba(178,74,74,0.22)] hover:bg-[#9f3e3e] transition-colors";
 
   return (
     <div className={cardClassName}>
@@ -121,43 +103,7 @@ export function SuggestionCard({
           复制
         </button>
 
-        {type === "edit" ? (
-          // 全文模式：显示接受/拒绝按钮
-          <>
-            {isIdle && (
-              <>
-                <button
-                  onClick={handleReject}
-                  className={rejectButtonClass}
-                >
-                  ✗ 拒绝
-                </button>
-                <button
-                  onClick={handleAccept}
-                  className={acceptButtonClass}
-                >
-                  ✓ 接受
-                </button>
-              </>
-            )}
-            {isChecked && (
-              <span className="px-3 py-1 text-[11px] font-medium rounded-md bg-[#1f7a5b] text-white">
-                ✓ 已接受
-              </span>
-            )}
-            {isCanceled && (
-              <span className="px-3 py-1 text-[11px] font-medium rounded-md bg-[#e1d9cf] text-[#6f6258]">
-                已拒绝
-              </span>
-            )}
-            {isFailed && (
-              <span className="px-3 py-1 text-[11px] font-medium rounded-md bg-[#b23a3a] text-white">
-                ✗ 失败
-              </span>
-            )}
-          </>
-        ) : (
-          // 选中模式：显示应用按钮
+        {type === "rewrite" && (
           <button
             onClick={handleApply}
             disabled={!isIdle}
@@ -172,7 +118,7 @@ export function SuggestionCard({
               .filter(Boolean)
               .join(" ")}
           >
-            {isChecked ? "✓ 已应用" : isFailed ? "✗ 应用失败" : "应用"}
+            {isChecked ? "✓ 已选择" : isFailed ? "✗ 选择失败" : "选择"}
           </button>
         )}
       </div>

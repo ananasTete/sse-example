@@ -18,26 +18,12 @@ interface MessageListProps {
     index: number,
     suggestion: Suggestion,
   ) => void;
-  onAcceptSuggestion?: (
-    messageId: string,
-    toolCallId: string,
-    index: number,
-    suggestion: Suggestion,
-  ) => void;
-  onRejectSuggestion?: (
-    messageId: string,
-    toolCallId: string,
-    index: number,
-    suggestion: Suggestion,
-  ) => void;
   onLocateSuggestion?: (suggestion: Suggestion) => void;
 }
 
 export function MessageList({
   messages,
   onApplySuggestion,
-  onAcceptSuggestion,
-  onRejectSuggestion,
   onLocateSuggestion,
 }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -71,8 +57,6 @@ export function MessageList({
           key={message.id}
           message={message}
           onApplySuggestion={onApplySuggestion}
-          onAcceptSuggestion={onAcceptSuggestion}
-          onRejectSuggestion={onRejectSuggestion}
           onLocateSuggestion={onLocateSuggestion}
         />
       ))}
@@ -89,26 +73,12 @@ interface MessageItemProps {
     index: number,
     suggestion: Suggestion,
   ) => void;
-  onAcceptSuggestion?: (
-    messageId: string,
-    toolCallId: string,
-    index: number,
-    suggestion: Suggestion,
-  ) => void;
-  onRejectSuggestion?: (
-    messageId: string,
-    toolCallId: string,
-    index: number,
-    suggestion: Suggestion,
-  ) => void;
   onLocateSuggestion?: (suggestion: Suggestion) => void;
 }
 
 function MessageItem({
   message,
   onApplySuggestion,
-  onAcceptSuggestion,
-  onRejectSuggestion,
   onLocateSuggestion,
 }: MessageItemProps) {
   const isUser = message.role === "user";
@@ -145,8 +115,6 @@ function MessageItem({
               messageId={message.id}
               part={part}
               onApplySuggestion={onApplySuggestion}
-              onAcceptSuggestion={onAcceptSuggestion}
-              onRejectSuggestion={onRejectSuggestion}
               onLocateSuggestion={onLocateSuggestion}
             />
           ))}
@@ -165,18 +133,6 @@ interface MessagePartRendererProps {
     index: number,
     suggestion: Suggestion,
   ) => void;
-  onAcceptSuggestion?: (
-    messageId: string,
-    toolCallId: string,
-    index: number,
-    suggestion: Suggestion,
-  ) => void;
-  onRejectSuggestion?: (
-    messageId: string,
-    toolCallId: string,
-    index: number,
-    suggestion: Suggestion,
-  ) => void;
   onLocateSuggestion?: (suggestion: Suggestion) => void;
 }
 
@@ -184,8 +140,6 @@ function MessagePartRenderer({
   messageId,
   part,
   onApplySuggestion,
-  onAcceptSuggestion,
-  onRejectSuggestion,
   onLocateSuggestion,
 }: MessagePartRendererProps) {
   switch (part.type) {
@@ -209,8 +163,6 @@ function MessagePartRenderer({
           messageId={messageId}
           part={part}
           onApplySuggestion={onApplySuggestion}
-          onAcceptSuggestion={onAcceptSuggestion}
-          onRejectSuggestion={onRejectSuggestion}
           onLocateSuggestion={onLocateSuggestion}
         />
       );
@@ -227,18 +179,6 @@ interface ToolCallRendererProps {
   messageId: string;
   part: ToolCallPart;
   onApplySuggestion: (
-    messageId: string,
-    toolCallId: string,
-    index: number,
-    suggestion: Suggestion,
-  ) => void;
-  onAcceptSuggestion?: (
-    messageId: string,
-    toolCallId: string,
-    index: number,
-    suggestion: Suggestion,
-  ) => void;
-  onRejectSuggestion?: (
     messageId: string,
     toolCallId: string,
     index: number,
@@ -304,8 +244,6 @@ function ToolCallRenderer({
   messageId,
   part,
   onApplySuggestion,
-  onAcceptSuggestion,
-  onRejectSuggestion,
   onLocateSuggestion,
 }: ToolCallRendererProps) {
   const { toolName, state, toolCallId } = part;
@@ -331,16 +269,6 @@ function ToolCallRenderer({
                 onApply={(s) =>
                   onApplySuggestion(messageId, toolCallId, s.index, s)
                 }
-                onAccept={
-                  onAcceptSuggestion
-                    ? (s) => onAcceptSuggestion(messageId, toolCallId, s.index, s)
-                    : undefined
-                }
-                onReject={
-                  onRejectSuggestion
-                    ? (s) => onRejectSuggestion(messageId, toolCallId, s.index, s)
-                    : undefined
-                }
                 onLocate={
                   suggestion.type === "edit" ? onLocateSuggestion : undefined
                 }
@@ -350,6 +278,14 @@ function ToolCallRenderer({
         );
       }
     }
+  }
+
+  if (toolName === "suggest_patch") {
+    return (
+      <div className="text-xs text-[#7b6f64] bg-white/70 border border-[#e3dacd] rounded-md p-2 my-1">
+        {state === "streaming-input" ? "正在生成修改建议..." : "修改建议已插入编辑器。"}
+      </div>
+    );
   }
 
   // 其他工具调用显示默认样式

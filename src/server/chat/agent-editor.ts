@@ -1,15 +1,8 @@
 import { createSseResponse, sendSseEvent } from "@/src/server/http/sse";
-
-interface ChatContext {
-  mode: "fulltext" | "selection";
-  content: string;
-  selection?: { from: number; to: number; text: string };
-}
-
-interface ChatPayload {
-  context: ChatContext;
-  userRequest: string;
-}
+import {
+  createMockPatchResult,
+  parseEditorAIRequest,
+} from "@/src/server/chat/editor-ai-protocol";
 
 interface MessagePart {
   type: string;
@@ -30,34 +23,6 @@ const generateId = () =>
   `${Date.now().toString(36)}_${Math.random().toString(36).substring(2, 15)}`;
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-const parsePayload = (text: string): ChatPayload | null => {
-  try {
-    return JSON.parse(text) as ChatPayload;
-  } catch {
-    return null;
-  }
-};
-
-const generateRewriteSuggestions = (originalText: string) => {
-  return [
-    {
-      label: "更简洁",
-      newText: `${originalText.slice(0, Math.floor(originalText.length * 0.7))}...（简化版）`,
-      status: "idle",
-    },
-    {
-      label: "更正式",
-      newText: `尊敬的读者，${originalText}（正式版）`,
-      status: "idle",
-    },
-    {
-      label: "更生动",
-      newText: `${originalText}！这真是太棒了！（生动版）`,
-      status: "idle",
-    },
-  ];
-};
 
 const generateEditSuggestions = (fullText: string) => {
   const sentences = fullText.split(/[。！？\n]/).filter((s) => s.trim());
@@ -91,15 +56,16 @@ export async function agentEditorStreamHandler(request: Request, chatId: string)
   const lastMsg = messages[messages.length - 1];
   const userText = lastMsg?.parts?.find((p) => p.type === "text")?.text || "";
 
-  const payload = parsePayload(userText);
-
-  const context = payload?.context;
-  const userRequest = payload?.userRequest || userText;
-  const selectionMode = context?.mode === "selection";
-  const selectedContent = context?.content || "";
+  const editorAIRequest = parseEditorAIRequest(userText);
+  const patchResult = editorAIRequest
+    ? createMockPatchResult(editorAIRequest)
+    : null;
+  const userRequest = editorAIRequest?.message || userText;
+  const selectionMode = Boolean(editorAIRequest);
+  const selectedContent = patchResult?.oldText || "";
 
   console.log(
-    `[Agent Editor ${chatId}] Mode: ${context?.mode}, Request: ${userRequest}`,
+    `[Agent Editor ${chatId}] Mode: ${selectionMode ? "selection" : "fulltext"}, Request: ${userRequest}`,
   );
 
   const messageId = generateId();
@@ -146,8 +112,8 @@ export async function agentEditorStreamHandler(request: Request, chatId: string)
 
       if (selectionMode) {
         const toolCallId = `call_${generateId()}`;
-        const toolName = "suggest_rewrite";
-        const suggestions = generateRewriteSuggestions(selectedContent);
+        const toolName = "suggest_patch";
+        const input = { patches: patchResult ? [patchResult] : [] };
 
         sendSseEvent(controller, encoder, {
           type: "tool-input-start",
@@ -156,7 +122,7 @@ export async function agentEditorStreamHandler(request: Request, chatId: string)
         });
         await delay(50);
 
-        const inputJson = JSON.stringify({ suggestions });
+        const inputJson = JSON.stringify(input);
         for (const char of inputJson) {
           sendSseEvent(controller, encoder, {
             type: "tool-input-delta",
@@ -171,21 +137,24 @@ export async function agentEditorStreamHandler(request: Request, chatId: string)
           type: "tool-input-available",
           toolCallId,
           toolName,
-          input: { suggestions },
+          input,
         });
         await delay(200);
 
         sendSseEvent(controller, encoder, {
           type: "tool-output-available",
           toolCallId,
-          output: { success: true, count: suggestions.length },
+          output: { success: true, count: input.patches.length },
         });
         await delay(100);
 
         sendSseEvent(controller, encoder, { type: "text-start", id: textId });
         await delay(30);
 
-        const responseText = `我为你生成了 ${suggestions.length} 个改写方案，请选择一个应用到编辑器中：`;
+        const responseText =
+          input.patches.length > 0
+            ? "已生成修改建议，并插入到编辑器中。"
+            : "未能从选区中生成修改建议。";
 
         for (const char of responseText) {
           sendSseEvent(controller, encoder, {
