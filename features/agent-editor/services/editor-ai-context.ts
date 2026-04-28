@@ -114,16 +114,15 @@ export function createEditorAIRequest(
   const oldText = editor.state.doc.textBetween(range.from, range.to, "\n\n");
   if (!oldText.trim()) return null;
 
-  const referenceMark = editor.state.schema.marks.aiSelectionReference;
-  if (!referenceMark) {
-    throw new Error("aiSelectionReference mark is not registered");
+  const startBoundary = editor.state.schema.nodes.selectionStartBoundary;
+  const endBoundary = editor.state.schema.nodes.selectionEndBoundary;
+  if (!startBoundary || !endBoundary) {
+    throw new Error("selection boundary nodes are not registered");
   }
 
-  const tr = editor.state.tr.addMark(
-    range.from,
-    range.to,
-    referenceMark.create(),
-  );
+  const tr = editor.state.tr
+    .insert(range.to, endBoundary.create())
+    .insert(range.from, startBoundary.create());
   const requestId = nanoid();
   const snapshot: EditorAIPendingSnapshot = {
     requestId,

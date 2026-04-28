@@ -6,7 +6,10 @@ import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Highlight } from "@tiptap/extension-highlight";
 import { AISelectionHighlight } from "./extensions/ai-selection-highlight";
-import { AISelectionReference } from "./extensions/ai-selection-reference";
+import {
+  SelectionEndBoundary,
+  SelectionStartBoundary,
+} from "./extensions/ai-selection-boundary";
 import { DiffBlock, DiffChange } from "./extensions/diff-block";
 import { Underline } from "./extensions/underline";
 import { SlashCommand } from "./extensions/slash-command";
@@ -70,7 +73,8 @@ const TiptapEditor = ({
         multicolor: true,
       }),
       AISelectionHighlight,
-      AISelectionReference,
+      SelectionStartBoundary,
+      SelectionEndBoundary,
       DiffChange,
       DiffBlock,
     ],

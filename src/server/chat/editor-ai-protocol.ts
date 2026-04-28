@@ -57,32 +57,21 @@ function htmlToText(html: string) {
   return decodeHtmlEntities(html.replace(/<[^>]*>/g, ""));
 }
 
-function hasBlockBoundaryBetween(html: string) {
-  return /<\/(?:p|h[1-6]|li|blockquote)>\s*<(?:p|h[1-6]|li|blockquote)\b/i.test(
-    html,
+function selectionHtmlToText(html: string) {
+  return htmlToText(
+    html
+      .replace(/<\/(?:p|h[1-6]|li|blockquote)>\s*<(?:p|h[1-6]|li|blockquote)\b[^>]*>/gi, "\n\n")
+      .replace(/<(?:p|h[1-6]|li|blockquote)\b[^>]*>/gi, "")
+      .replace(/<\/(?:p|h[1-6]|li|blockquote)>/gi, ""),
   );
 }
 
 export function extractSelectionText(contentWithSelection: string) {
-  const pattern =
-    /<span\b(?=[^>]*\bdata-ai-selection=(?:"true"|'true'))[^>]*>([\s\S]*?)<\/span>/gi;
-  const parts: string[] = [];
-  let previousEnd = 0;
-  let match: RegExpExecArray | null;
+  const match = contentWithSelection.match(
+    /<selection-start><\/selection-start>([\s\S]*?)<selection-end><\/selection-end>/i,
+  );
 
-  while ((match = pattern.exec(contentWithSelection))) {
-    if (
-      parts.length > 0 &&
-      hasBlockBoundaryBetween(contentWithSelection.slice(previousEnd, match.index))
-    ) {
-      parts.push("\n\n");
-    }
-
-    parts.push(htmlToText(match[1]));
-    previousEnd = pattern.lastIndex;
-  }
-
-  return parts.join("");
+  return match ? selectionHtmlToText(match[1]) : "";
 }
 
 export function createMockPatchResult(

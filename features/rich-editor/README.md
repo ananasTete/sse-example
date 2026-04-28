@@ -153,15 +153,41 @@ onClose({ reason: "replace", caretPos });
 1. 监听 selectionUpdate 事件，调用 setAISelectionHighlight 命令，更新 Plugin.state from/to 数据作为唯一事实来源。
 2. 使用 useEditorState 来订阅 from/to 并计算 text 支持 UI 显示“正在讨论 xxx“。
 
-## 如何实现编辑器 DIFF 视图？
+## AI 交互模型
+
+### 传给 AI 的参数
+
+```ts
+type EditorAIRequest = {
+  requestId: string;
+  message: string;
+  selection: {
+    contentWithSelection: string;
+  };
+};
+```
+
+**`contentWithSelection` 是完整 HTML 正文，当前划词内容用临时内联标记包住。**
+
+> <selection-start></selection-start>对这个当年自己一手引进黄枫谷的小丫头，韩立印象极深，但紧接而来的，自然就是小老头马师兄的样子，在心中一闪即过，苍凉之意顿生。<selection-end></selection-end>\n\n以小老头的年纪决没可能结成金丹了，这位黄枫谷中和他最谈得来之人，恐怕已化为一抔黄土了。
+
+**为什么参数不是 from/to/text 信息，而是在文档中插入自定义标签？或者为什么不直接利用划词后的 `<span class="ai-selection-highlight">Select some text to see the formatting options!</span>` 表示？**
+
+1. 为什么不用 from/to/text？因为导出的是 HTML 会有标签 ，后端没法通过 from/to 定位位置，并且 text 不能保证只有一处。
+2. 不用 `class="ai-selection-highlight"` 是因为这是装饰器实现的，导出时没有
+3. 不能在导出 HTML 后插入标签同样因为导出后无法通过 from/to 定位，只能在通过将自定义标签定义为 Node，并使用 tr 插入 from/to 的位置。但是不 dispatch 因为不能改变原文结构，可以使用 Tiptap 的 Schema 解析器解析 tr.doc ，根据临时新文档来解析 HTML 字符串获得 contentWithSelection 的值。
+
+**为什么不能使用 `<selection>xx</selection>` 的方式包裹完整内容，而是要分开标记 start 和 end ?**
+
+因为选区可能跨段落
+
+### AI 返回响应
+
+服务端流式返回 `{ requestId, oldText, newText }`，前端用运行时 pending snapshot 定位当前编辑器内容，并插入段落级 `diffBlock`。
 
 # 划词 AI 上下文与段落级 Diff 统一重构计划
 
 ## Summary
-
-Bubble Menu AI 面板和右侧 AgentChat 统一使用最小划词协议：`requestId + message + selection.contentWithSelection`。`contentWithSelection` 是完整 HTML 正文，当前划词内容用临时内联标记包住。服务端流式返回 `{ requestId, oldText, newText }`，前端用运行时 pending snapshot 定位当前编辑器内容，并插入段落级 `diffBlock`。
-
-`origin.id`、`origin.type`、`atReferences.type`、`originId`、`originType`、`isContentEqualFullText` 当前没有消费点，全部删除。
 
 ## Protocol
 
