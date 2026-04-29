@@ -175,15 +175,83 @@ type EditorAIRequest = {
 
 1. 为什么不用 from/to/text？因为导出的是 HTML 会有标签 ，后端没法通过 from/to 定位位置，并且 text 不能保证只有一处。
 2. 不用 `class="ai-selection-highlight"` 是因为这是装饰器实现的，导出时没有
-3. 不能在导出 HTML 后插入标签同样因为导出后无法通过 from/to 定位，只能在通过将自定义标签定义为 Node，并使用 tr 插入 from/to 的位置。但是不 dispatch 因为不能改变原文结构，可以使用 Tiptap 的 Schema 解析器解析 tr.doc ，根据临时新文档来解析 HTML 字符串获得 contentWithSelection 的值。
+3. 不能在导出 HTML 后插入标签同样因为导出后前端也无法通过 from/to 定位，只能在通过将自定义标签定义为 Node，并使用 tr 插入 from/to 的位置。但是不 dispatch 因为不能改变原文结构，可以使用 Tiptap 的 Schema 解析器解析 tr.doc ，根据临时新文档来解析出 HTML 字符串。
 
 **为什么不能使用 `<selection>xx</selection>` 的方式包裹完整内容，而是要分开标记 start 和 end ?**
 
-因为选区可能跨段落
+因为选区可能跨段落，自定义节点是行内节点还是块级节点都不能包裹跨段内容，都是不合法的 HTML 结构。即使不渲染在编辑器上也不行吗？
 
 ### AI 返回响应
 
 服务端流式返回 `{ requestId, oldText, newText }`，前端用运行时 pending snapshot 定位当前编辑器内容，并插入段落级 `diffBlock`。
+
+## toolCall、自定义标签、:::rewrite-card
+
+tool call 主要表示“模型请求系统执行一个外部动作”，比如查数据、写文件、改编辑器、调用 API、生成 Diff、保存记录。
+
+tool call 适合：
+
+需要执行副作用：插入 diff、应用 patch、保存文档、调用后端接口。
+需要外部数据：搜索、读文件、查数据库、读取编辑器全文。
+需要可审计动作：模型要调用 suggest_patch，系统执行后返回结果。
+结果是机器协议：{ requestId, oldText, newText } 这类动作参数。
+
+:::rewrite-card 适合：
+
+结果主要用于展示：多个改写版本、摘要卡片、分镜卡片、提纲卡片。
+用户要二次编辑：卡片内容可改、字段可选、顺序可调整。
+用户操作再触发动作：点击“应用”后才进入 patch/diff 管线。
+内容要和 Markdown 混排：前面有解释，后面有结构化卡片。
+
+会改变外部环境的用 tool call；需要渲染成可交互内容的用 structured output。
+
+**自定义标签和 :::rewrite-card 该如何选择？**
+
+- 只需要整体样式包裹：用自定义标签。
+- 需要更多的交互：用:::rewrite-card
+- 还是有点疑问，为什么后者更适合交互
+
+方法一更适合交互，因为它是“块级 DSL”，字段边界清楚，解析后天然能映射成组件树和表单控件。
+
+比如：
+
+```
+:::shot{name="分镜1"}
+* :label[画面描述] :editable[...]
+* :label[配音角色] :selectable[糯米]
+:::
+```
+
+它表达了：
+
+- shot 是一个块组件
+- name 是组件属性
+- editable/selectable/label 是子组件
+- [] 内是字段值
+- 每一行是稳定字段
+- 前端解析后可以直接变成：
+
+```ts
+{
+  type: "shot",
+  props: { name: "分镜1" },
+  fields: [
+    { type: "editable", label: "画面描述", value: "..." },
+    { type: "selectable", label: "配音角色", value: "糯米" }
+  ]
+}
+```
+
+方法二更像“语义 HTML 容器”：
+
+```
+<outline-card>
+  **亮点1：...**
+  说明...
+</outline-card>
+```
+
+它容易识别“这里是一个卡片”，但内部字段结构依赖文本排版。要做编辑、删除、选择、排序，就得再解析 **亮点1**、换行、缩进等弱结构，稳定性差。
 
 # 划词 AI 上下文与段落级 Diff 统一重构计划
 

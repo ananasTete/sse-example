@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Message,
   MessagePart,
+  StructuredOutputPart,
   ToolCallPart,
 } from "@/features/ai-sdk/hooks/use-chat/types";
 import type { Suggestion, SuggestionToolInput } from "../types";
@@ -19,12 +20,16 @@ interface MessageListProps {
     suggestion: Suggestion,
   ) => void;
   onLocateSuggestion?: (suggestion: Suggestion) => void;
+  onEditStructuredOutput: (messageId: string, partId: string, itemId: string, content: string) => void;
+  onApplyStructuredOutput: (messageId: string, partId: string, itemId: string, content: string) => void;
 }
 
 export function MessageList({
   messages,
   onApplySuggestion,
   onLocateSuggestion,
+  onEditStructuredOutput,
+  onApplyStructuredOutput,
 }: MessageListProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -58,6 +63,8 @@ export function MessageList({
           message={message}
           onApplySuggestion={onApplySuggestion}
           onLocateSuggestion={onLocateSuggestion}
+          onEditStructuredOutput={onEditStructuredOutput}
+          onApplyStructuredOutput={onApplyStructuredOutput}
         />
       ))}
       {messagesEndRef && <div ref={messagesEndRef} />}
@@ -74,12 +81,16 @@ interface MessageItemProps {
     suggestion: Suggestion,
   ) => void;
   onLocateSuggestion?: (suggestion: Suggestion) => void;
+  onEditStructuredOutput: (messageId: string, partId: string, itemId: string, content: string) => void;
+  onApplyStructuredOutput: (messageId: string, partId: string, itemId: string, content: string) => void;
 }
 
 function MessageItem({
   message,
   onApplySuggestion,
   onLocateSuggestion,
+  onEditStructuredOutput,
+  onApplyStructuredOutput,
 }: MessageItemProps) {
   const isUser = message.role === "user";
 
@@ -116,6 +127,8 @@ function MessageItem({
               part={part}
               onApplySuggestion={onApplySuggestion}
               onLocateSuggestion={onLocateSuggestion}
+              onEditStructuredOutput={onEditStructuredOutput}
+              onApplyStructuredOutput={onApplyStructuredOutput}
             />
           ))}
         </div>
@@ -134,6 +147,8 @@ interface MessagePartRendererProps {
     suggestion: Suggestion,
   ) => void;
   onLocateSuggestion?: (suggestion: Suggestion) => void;
+  onEditStructuredOutput: (messageId: string, partId: string, itemId: string, content: string) => void;
+  onApplyStructuredOutput: (messageId: string, partId: string, itemId: string, content: string) => void;
 }
 
 function MessagePartRenderer({
@@ -141,6 +156,8 @@ function MessagePartRenderer({
   part,
   onApplySuggestion,
   onLocateSuggestion,
+  onEditStructuredOutput,
+  onApplyStructuredOutput,
 }: MessagePartRendererProps) {
   switch (part.type) {
     case "text":
@@ -167,12 +184,196 @@ function MessagePartRenderer({
         />
       );
 
+    case "structured-output":
+      return (
+        <StructuredOutputRenderer
+          messageId={messageId}
+          part={part}
+          onEdit={onEditStructuredOutput}
+          onApply={onApplyStructuredOutput}
+        />
+      );
+
     case "step-start":
       return null;
 
     default:
       return null;
   }
+}
+
+interface RewriteCardBlock {
+  id: string;
+  title: string;
+  requestId?: string;
+  content: string;
+}
+
+const rewriteCardPattern =
+  /:::rewrite-card\{([^}]*)\}\s*\n([\s\S]*?)\n:::/g;
+
+function parseDirectiveAttrs(source: string) {
+  const attrs: Record<string, string> = {};
+  const pattern = /(\w+)="([^"]*)"/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(source))) {
+    attrs[match[1]] = match[2];
+  }
+
+  return attrs;
+}
+
+function parseRewriteCards(content: string): RewriteCardBlock[] {
+  const cards: RewriteCardBlock[] = [];
+  let match: RegExpExecArray | null;
+  rewriteCardPattern.lastIndex = 0;
+
+  while ((match = rewriteCardPattern.exec(content))) {
+    const attrs = parseDirectiveAttrs(match[1]);
+    if (!attrs.id) continue;
+
+    cards.push({
+      id: attrs.id,
+      title: attrs.title || attrs.id,
+      requestId: attrs.requestId,
+      content: match[2].trim(),
+    });
+  }
+
+  return cards;
+}
+
+function StructuredOutputRenderer({
+  messageId,
+  part,
+  onEdit,
+  onApply,
+}: {
+  messageId: string;
+  part: StructuredOutputPart;
+  onEdit: (messageId: string, partId: string, itemId: string, content: string) => void;
+  onApply: (messageId: string, partId: string, itemId: string, content: string) => void;
+}) {
+  if (part.format !== "rewrite-candidates") return null;
+
+  const cards = parseRewriteCards(part.content);
+  const appliedItemId = part.uiState?.appliedItemId;
+  const savingItemIds = part.uiState?.savingItemIds ?? [];
+  const failedItemIds = part.uiState?.failedItemIds ?? [];
+
+  if (cards.length === 0) {
+    return (
+      <div className="whitespace-pre-wrap text-[13px] leading-6">
+        {part.content}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-2">
+      {cards.map((card) => (
+        <RewriteCandidateCard
+          key={card.id}
+          card={card}
+          isApplied={appliedItemId === card.id}
+          isSuperseded={Boolean(appliedItemId && appliedItemId !== card.id)}
+          isSaving={savingItemIds.includes(card.id)}
+          isFailed={failedItemIds.includes(card.id)}
+          onEdit={(content) => onEdit(messageId, part.id, card.id, content)}
+          onApply={() => onApply(messageId, part.id, card.id, card.content)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function RewriteCandidateCard({
+  card,
+  isApplied,
+  isSuperseded,
+  isSaving,
+  isFailed,
+  onEdit,
+  onApply,
+}: {
+  card: RewriteCardBlock;
+  isApplied: boolean;
+  isSuperseded: boolean;
+  isSaving: boolean;
+  isFailed: boolean;
+  onEdit: (content: string) => void;
+  onApply: () => void;
+}) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState(card.content);
+
+  useEffect(() => {
+    setDraft(card.content);
+  }, [card.content]);
+
+  const statusText = useMemo(() => {
+    if (isSaving) return "保存中";
+    if (isFailed) return "保存失败";
+    if (isApplied) return "已应用";
+    if (isSuperseded) return "已取消";
+    return "";
+  }, [isApplied, isFailed, isSaving, isSuperseded]);
+
+  return (
+    <div
+      className={[
+        "rounded-md border p-3 shadow-[0_1px_0_rgba(15,23,42,0.05)]",
+        isApplied ? "border-[#6bbf7a] bg-[#f1fbf4]" : "border-[#e6ddd1] bg-[#fffaf4]",
+        isSuperseded ? "opacity-60" : "",
+        isFailed ? "border-[#e16b6b] bg-[#fff1f1]" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="text-xs font-semibold text-[#6f6258]">{card.title}</div>
+        {statusText && <div className="text-[11px] text-[#8e8074]">{statusText}</div>}
+      </div>
+
+      {isEditing ? (
+        <textarea
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          className="min-h-28 w-full resize-y rounded-md border border-[#e1d7c9] bg-white px-3 py-2 text-[13px] leading-6 text-[#2f2a24] focus:border-[#c9b89d] focus:outline-none focus:ring-2 focus:ring-[#c9b89d]"
+        />
+      ) : (
+        <div className="rounded-md border border-[#ede4d9] bg-[#fffdf9] px-3 py-2 text-[13px] leading-6 text-[#2f2a24] whitespace-pre-wrap">
+          {card.content}
+        </div>
+      )}
+
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            if (isEditing) {
+              onEdit(draft);
+              setIsEditing(false);
+              return;
+            }
+            setIsEditing(true);
+          }}
+          className="rounded-md border border-[#e1d7c9] bg-white/80 px-3 py-1 text-[11px] font-medium text-[#6f6258] transition-colors hover:bg-white hover:text-[#463d34]"
+        >
+          {isEditing ? "保存编辑" : "编辑"}
+        </button>
+        <button
+          type="button"
+          disabled={isSuperseded}
+          onClick={onApply}
+          className="rounded-md bg-[#1f2a44] px-3 py-1 text-[11px] font-medium text-white shadow-[0_2px_6px_rgba(31,42,68,0.25)] transition-colors hover:bg-[#162036] disabled:bg-[#e1d9cf] disabled:text-[#7e746a]"
+        >
+          应用
+        </button>
+      </div>
+    </div>
+  );
 }
 
 interface ToolCallRendererProps {

@@ -53,6 +53,21 @@ export interface ToolCallPart {
   output?: unknown;
 }
 
+export type StructuredOutputFormat = "rewrite-candidates";
+
+export interface StructuredOutputPart {
+  type: "structured-output";
+  id: string;
+  format: StructuredOutputFormat;
+  content: string;
+  state: PartState;
+  uiState?: {
+    appliedItemId?: string;
+    savingItemIds?: string[];
+    failedItemIds?: string[];
+  };
+}
+
 export type MessagePart =
   | { type: "step-start" }
   | { type: "reasoning"; text: string; state: PartState }
@@ -60,6 +75,7 @@ export type MessagePart =
   | { type: "image"; imageUrl: string }
   | { type: "source-url"; title: string; url: string }
   | { type: "file"; mediaType: string; filename: string; url: string }
+  | StructuredOutputPart
   | ToolCallPart;
 
 export interface Message {

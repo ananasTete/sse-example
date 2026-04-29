@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useChat } from "@/features/ai-sdk/hooks/use-chat/useChat";
-import type { ToolCallPart } from "@/features/ai-sdk/hooks/use-chat/types";
+import type {
+  MessagePart,
+  StructuredOutputPart,
+  ToolCallPart,
+} from "@/features/ai-sdk/hooks/use-chat/types";
 import type {
   UseEditorAgentReturn,
   Suggestion,
@@ -21,9 +25,73 @@ import {
   applyEditorAIPatch,
   type EditorAIPatchResult,
 } from "../services/editor-ai-context";
+import { saveStructuredOutputAction } from "../services/structured-output-actions";
 
 interface AgentChatProps {
   editorAgent: UseEditorAgentReturn;
+}
+
+const rewriteCardPattern =
+  /:::rewrite-card\{([^}]*)\}\s*\n([\s\S]*?)\n:::/g;
+
+function parseDirectiveAttrs(source: string) {
+  const attrs: Record<string, string> = {};
+  const pattern = /(\w+)="([^"]*)"/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(source))) {
+    attrs[match[1]] = match[2];
+  }
+
+  return attrs;
+}
+
+function replaceRewriteCardContent(
+  content: string,
+  itemId: string,
+  nextContent: string,
+) {
+  return content.replace(rewriteCardPattern, (fullMatch, attrsText: string) => {
+    const attrs = parseDirectiveAttrs(attrsText);
+    if (attrs.id !== itemId) return fullMatch;
+    return `:::rewrite-card{${attrsText}}\n${nextContent}\n:::`;
+  });
+}
+
+function findRewriteCard(content: string, itemId: string) {
+  let match: RegExpExecArray | null;
+  rewriteCardPattern.lastIndex = 0;
+
+  while ((match = rewriteCardPattern.exec(content))) {
+    const attrs = parseDirectiveAttrs(match[1]);
+    if (attrs.id === itemId) {
+      return {
+        requestId: attrs.requestId,
+        content: match[2].trim(),
+      };
+    }
+  }
+
+  return null;
+}
+
+function updateStructuredOutputPart(
+  parts: MessagePart[],
+  partId: string,
+  updater: (part: StructuredOutputPart) => StructuredOutputPart,
+) {
+  return parts.map((part) => {
+    if (part.type !== "structured-output" || part.id !== partId) return part;
+    return updater(part);
+  });
+}
+
+function uniqueAdd(items: string[] = [], item: string) {
+  return items.includes(item) ? items : [...items, item];
+}
+
+function removeItem(items: string[] = [], item: string) {
+  return items.filter((current) => current !== item);
 }
 
 export function AgentChat({ editorAgent }: AgentChatProps) {
@@ -228,6 +296,120 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
     [editorAgent],
   );
 
+  const markStructuredOutputSaved = useCallback(
+    (messageId: string, partId: string, itemId: string) => {
+      updateMessageParts(messageId, (parts) =>
+        updateStructuredOutputPart(parts, partId, (part) => ({
+          ...part,
+          uiState: {
+            ...part.uiState,
+            savingItemIds: removeItem(part.uiState?.savingItemIds, itemId),
+          },
+        })),
+      );
+    },
+    [updateMessageParts],
+  );
+
+  const markStructuredOutputFailed = useCallback(
+    (messageId: string, partId: string, itemId: string) => {
+      updateMessageParts(messageId, (parts) =>
+        updateStructuredOutputPart(parts, partId, (part) => ({
+          ...part,
+          uiState: {
+            ...part.uiState,
+            savingItemIds: removeItem(part.uiState?.savingItemIds, itemId),
+            failedItemIds: uniqueAdd(part.uiState?.failedItemIds, itemId),
+          },
+        })),
+      );
+    },
+    [updateMessageParts],
+  );
+
+  const handleEditStructuredOutput = useCallback(
+    (messageId: string, partId: string, itemId: string, content: string) => {
+      updateMessageParts(messageId, (parts) =>
+        updateStructuredOutputPart(parts, partId, (part) => ({
+          ...part,
+          content: replaceRewriteCardContent(part.content, itemId, content),
+          uiState: {
+            ...part.uiState,
+            savingItemIds: uniqueAdd(part.uiState?.savingItemIds, itemId),
+            failedItemIds: removeItem(part.uiState?.failedItemIds, itemId),
+          },
+        })),
+      );
+
+      void saveStructuredOutputAction({
+        messageId,
+        partId,
+        itemId,
+        action: "edit",
+        content,
+      })
+        .then(() => markStructuredOutputSaved(messageId, partId, itemId))
+        .catch(() => markStructuredOutputFailed(messageId, partId, itemId));
+    },
+    [markStructuredOutputFailed, markStructuredOutputSaved, updateMessageParts],
+  );
+
+  const handleApplyStructuredOutput = useCallback(
+    (messageId: string, partId: string, itemId: string, content: string) => {
+      const part = messages
+        .find((message) => message.id === messageId)
+        ?.parts.find(
+          (messagePart): messagePart is StructuredOutputPart =>
+            messagePart.type === "structured-output" && messagePart.id === partId,
+        );
+      const card = part ? findRewriteCard(part.content, itemId) : null;
+      const editor = editorAgent.editor;
+
+      updateMessageParts(messageId, (parts) =>
+        updateStructuredOutputPart(parts, partId, (currentPart) => ({
+          ...currentPart,
+          uiState: {
+            ...currentPart.uiState,
+            appliedItemId: itemId,
+            savingItemIds: uniqueAdd(currentPart.uiState?.savingItemIds, itemId),
+            failedItemIds: removeItem(currentPart.uiState?.failedItemIds, itemId),
+          },
+        })),
+      );
+
+      if (!editor || !card?.requestId) {
+        setPatchError("缺少可应用的选区上下文，请重新选择后生成。");
+      } else {
+        const result = applyEditorAIPatch(editor, {
+          requestId: card.requestId,
+          oldText: "",
+          newText: content,
+        });
+
+        if (result.status === "stale") {
+          setPatchError(result.reason);
+        }
+      }
+
+      void saveStructuredOutputAction({
+        messageId,
+        partId,
+        itemId,
+        action: "apply",
+        content,
+      })
+        .then(() => markStructuredOutputSaved(messageId, partId, itemId))
+        .catch(() => markStructuredOutputFailed(messageId, partId, itemId));
+    },
+    [
+      editorAgent.editor,
+      markStructuredOutputFailed,
+      markStructuredOutputSaved,
+      messages,
+      updateMessageParts,
+    ],
+  );
+
   // ============ 激活与取消选中模式 ============
 
   // 清除选中模式，用于快捷键和 context-bar 的取消按钮
@@ -253,6 +435,11 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
     async (text: string) => {
       const request = editorAgent.createAIRequest(text);
       setPatchError(null);
+
+      if (editorAgent.mode === "selection" && !request) {
+        setPatchError("选区已失效，请重新选择后生成。");
+        return;
+      }
 
       // 发送新消息前，使最近一条 assistant 消息中的建议失效
       const lastAssistantMsg = messages.findLast(
@@ -298,6 +485,8 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
         messages={messages}
         onApplySuggestion={handleApplySuggestion}
         onLocateSuggestion={handleLocateSuggestion}
+        onEditStructuredOutput={handleEditStructuredOutput}
+        onApplyStructuredOutput={handleApplyStructuredOutput}
       />
 
       {/* 上下文提示条（选中模式） */}

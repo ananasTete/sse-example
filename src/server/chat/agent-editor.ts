@@ -24,6 +24,31 @@ const generateId = () =>
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+function createRewriteCandidateOutput(input: {
+  requestId: string;
+  oldText: string;
+  newText: string;
+}) {
+  const shorter =
+    input.newText === input.oldText ? `${input.oldText}（简洁版）` : input.newText;
+  const formal = `尊敬的读者，${input.oldText}`;
+  const vivid = `${input.oldText}这让人物的情绪更清晰。`;
+
+  return [
+    `:::rewrite-card{id="rewrite-1" requestId="${input.requestId}" title="更简洁"}`,
+    shorter,
+    ":::",
+    "",
+    `:::rewrite-card{id="rewrite-2" requestId="${input.requestId}" title="更正式"}`,
+    formal,
+    ":::",
+    "",
+    `:::rewrite-card{id="rewrite-3" requestId="${input.requestId}" title="更生动"}`,
+    vivid,
+    ":::",
+  ].join("\n");
+}
+
 const generateEditSuggestions = (fullText: string) => {
   const sentences = fullText.split(/[。！？\n]/).filter((s) => s.trim());
   const edits = [];
@@ -111,40 +136,11 @@ export async function agentEditorStreamHandler(request: Request, chatId: string)
       await delay(50);
 
       if (selectionMode) {
-        const toolCallId = `call_${generateId()}`;
-        const toolName = "suggest_patch";
-        const input = { patches: patchResult ? [patchResult] : [] };
-
         sendSseEvent(controller, encoder, {
-          type: "tool-input-start",
-          toolCallId,
-          toolName,
-        });
-        await delay(50);
-
-        const inputJson = JSON.stringify(input);
-        for (const char of inputJson) {
-          sendSseEvent(controller, encoder, {
-            type: "tool-input-delta",
-            toolCallId,
-            inputTextDelta: char,
-          });
-          await delay(10);
-        }
-        await delay(100);
-
-        sendSseEvent(controller, encoder, {
-          type: "tool-input-available",
-          toolCallId,
-          toolName,
-          input,
-        });
-        await delay(200);
-
-        sendSseEvent(controller, encoder, {
-          type: "tool-output-available",
-          toolCallId,
-          output: { success: true, count: input.patches.length },
+          type: "structured-output",
+          id: `structured_${generateId()}`,
+          format: "rewrite-candidates",
+          content: patchResult ? createRewriteCandidateOutput(patchResult) : "",
         });
         await delay(100);
 
@@ -152,8 +148,8 @@ export async function agentEditorStreamHandler(request: Request, chatId: string)
         await delay(30);
 
         const responseText =
-          input.patches.length > 0
-            ? "已生成修改建议，并插入到编辑器中。"
+          patchResult
+            ? "已生成多个改写候选，可编辑后应用到编辑器。"
             : "未能从选区中生成修改建议。";
 
         for (const char of responseText) {
@@ -168,42 +164,45 @@ export async function agentEditorStreamHandler(request: Request, chatId: string)
         sendSseEvent(controller, encoder, { type: "text-end", id: textId });
       } else {
         const fullText = selectedContent;
-        const toolCallId = `call_${generateId()}`;
-        const toolName = "suggest_edit";
         const edits = generateEditSuggestions(fullText);
 
-        sendSseEvent(controller, encoder, {
-          type: "tool-input-start",
-          toolCallId,
-          toolName,
-        });
-        await delay(50);
+        if (edits.length > 0) {
+          const toolCallId = `call_${generateId()}`;
+          const toolName = "suggest_edit";
 
-        const inputJson = JSON.stringify({ suggestions: edits });
-        for (const char of inputJson) {
           sendSseEvent(controller, encoder, {
-            type: "tool-input-delta",
+            type: "tool-input-start",
             toolCallId,
-            inputTextDelta: char,
+            toolName,
           });
-          await delay(10);
+          await delay(50);
+
+          const inputJson = JSON.stringify({ suggestions: edits });
+          for (const char of inputJson) {
+            sendSseEvent(controller, encoder, {
+              type: "tool-input-delta",
+              toolCallId,
+              inputTextDelta: char,
+            });
+            await delay(10);
+          }
+          await delay(100);
+
+          sendSseEvent(controller, encoder, {
+            type: "tool-input-available",
+            toolCallId,
+            toolName,
+            input: { suggestions: edits },
+          });
+          await delay(200);
+
+          sendSseEvent(controller, encoder, {
+            type: "tool-output-available",
+            toolCallId,
+            output: { success: true, count: edits.length },
+          });
+          await delay(100);
         }
-        await delay(100);
-
-        sendSseEvent(controller, encoder, {
-          type: "tool-input-available",
-          toolCallId,
-          toolName,
-          input: { suggestions: edits },
-        });
-        await delay(200);
-
-        sendSseEvent(controller, encoder, {
-          type: "tool-output-available",
-          toolCallId,
-          output: { success: true, count: edits.length },
-        });
-        await delay(100);
 
         sendSseEvent(controller, encoder, { type: "text-start", id: textId });
         await delay(30);

@@ -260,6 +260,22 @@ export function createSSEParser(context: ParserContext): ParserResult {
             });
             break;
 
+          case "structured-output":
+            if (parsed.id && parsed.format && typeof parsed.content === "string") {
+              updateAiMessageParts((parts) => [
+                ...parts,
+                {
+                  type: "structured-output",
+                  id: parsed.id,
+                  format: parsed.format,
+                  content: parsed.content,
+                  state: "done",
+                  uiState: {},
+                },
+              ]);
+            }
+            break;
+
           default:
             // 未知事件类型，忽略
             break;
