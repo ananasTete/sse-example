@@ -76,3 +76,28 @@ model ChatRunEvent {
   @@index([runId, createdAt])
   @@unique([runId, seq])
 }
+
+model ChatSession {
+  id               String    @id
+  seqId            Int       @unique
+  agent            String    @default("chat")
+  modelType        String    @default("default")
+  title            String?
+  titleType        String    @default("WIP")
+  version          Int       @default(0)
+  currentMessageId Int?
+  pinned           Boolean   @default(false)
+  isEmpty          Boolean   @default(true)
+  expiresAt        DateTime?
+  insertedAt       DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([updatedAt])
+  @@index([pinned, updatedAt])
+  @@index([expiresAt])
+}
+
+model ChatSequence {
+  name  String @id
+  value Int
+}

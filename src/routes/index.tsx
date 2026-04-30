@@ -45,6 +45,12 @@ function HomePage() {
         >
           Prompt Editor Demo
         </Link>
+        <Link
+          to="/deepseek-test"
+          className="bg-slate-900 hover:bg-slate-800 text-white px-6 py-3 rounded transition-colors"
+        >
+          DeepSeek Test
+        </Link>
       </div>
     </div>
   );
