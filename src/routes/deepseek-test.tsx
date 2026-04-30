@@ -5,20 +5,43 @@ export const Route = createFileRoute("/deepseek-test")({
   component: DeepSeekTestPage,
 });
 
+interface CreateSessionResponse {
+  data?: {
+    biz_data?: {
+      chat_session?: {
+        id?: string;
+      };
+    };
+  };
+}
+
 function DeepSeekTestPage() {
   const didCreateSessionRef = useRef(false);
+  const chatSessionIdRef = useRef<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">(
     "idle",
   );
 
+  async function createSession() {
+    const response = await fetch("/api/v0/chat_session/create", {
+      method: "POST",
+    });
+    if (!response.ok) return null;
+
+    const body = (await response.json()) as CreateSessionResponse;
+    const sessionId = body.data?.biz_data?.chat_session?.id;
+    if (!sessionId) return null;
+
+    chatSessionIdRef.current = sessionId;
+    return sessionId;
+  }
+
   useEffect(() => {
     if (didCreateSessionRef.current) return;
     didCreateSessionRef.current = true;
 
-    void fetch("/api/v0/chat_session/create", {
-      method: "POST",
-    });
+    void createSession();
   }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -29,12 +52,27 @@ function DeepSeekTestPage() {
     setStatus("sending");
 
     try {
-      const response = await fetch("/api/chat/completion", {
+      const chatSessionId = chatSessionIdRef.current ?? (await createSession());
+      if (!chatSessionId) {
+        setStatus("error");
+        return;
+      }
+
+      const response = await fetch("/chat/completion", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ prompt: trimmedPrompt }),
+        body: JSON.stringify({
+          chat_session_id: chatSessionId,
+          parent_message_id: null,
+          model_type: "default",
+          prompt: trimmedPrompt,
+          ref_file_ids: [],
+          thinking_enabled: false,
+          search_enabled: false,
+          preempt: false,
+        }),
       });
 
       if (!response.ok) {
@@ -47,6 +85,20 @@ function DeepSeekTestPage() {
     } catch {
       setStatus("error");
     }
+  }
+
+  async function handleFetchHistory() {
+    const chatSessionId = chatSessionIdRef.current ?? (await createSession());
+    if (!chatSessionId) {
+      setStatus("error");
+      return;
+    }
+
+    await fetch(
+      `/api/v0/chat/history_messages?chat_session_id=${encodeURIComponent(
+        chatSessionId,
+      )}`,
+    );
   }
 
   return (
@@ -67,6 +119,13 @@ function DeepSeekTestPage() {
           className="rounded bg-gray-900 px-5 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-gray-400"
         >
           {status === "sending" ? "提交中" : "提交"}
+        </button>
+        <button
+          type="button"
+          onClick={handleFetchHistory}
+          className="rounded border border-gray-300 bg-white px-5 py-3 text-sm font-medium text-gray-900"
+        >
+          获取详情
         </button>
       </form>
       <div className="mx-auto mt-3 w-full max-w-2xl text-sm text-gray-600">

@@ -91,6 +91,7 @@ model ChatSession {
   expiresAt        DateTime?
   insertedAt       DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+  messages         ChatMessage[]
 
   @@index([updatedAt])
   @@index([pinned, updatedAt])
@@ -100,4 +101,47 @@ model ChatSession {
 model ChatSequence {
   name  String @id
   value Int
+}
+
+model ChatMessage {
+  id                    Int       @id @default(autoincrement())
+  chatSessionId         String
+  parentId              Int?
+  model                 String    @default("")
+  role                  String
+  thinkingEnabled       Boolean   @default(false)
+  banEdit               Boolean   @default(false)
+  banRegenerate         Boolean   @default(false)
+  status                String
+  incompleteMessage     String?
+  accumulatedTokenUsage Int       @default(0)
+  feedback              Json?
+  searchEnabled         Boolean   @default(false)
+  conversationMode      String    @default("DEFAULT")
+  hasPendingFragment    Boolean   @default(false)
+  autoContinue          Boolean   @default(false)
+  insertedAt            DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+  chatSession           ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  fragments             MessageFragment[]
+
+  @@index([chatSessionId, insertedAt])
+  @@index([chatSessionId, parentId])
+}
+
+model MessageFragment {
+  id             Int         @id @default(autoincrement())
+  messageId      Int
+  type           String
+  status         String?
+  content        String?
+  queriesJson    Json?
+  resultsJson    Json?
+  referencesJson Json?
+  stageId        Int?
+  insertedAt     DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  message        ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId, id])
 }

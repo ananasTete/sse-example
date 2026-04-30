@@ -1,3 +1,10 @@
+# 需求分析
+
+```
+WHEN 进入新页面 THEN 检查是否存在 chat_session_id 缓存，不存在调用 /create 接口预先创建会话
+WHEN 点击发送按钮 THEN 1. 调用 /chat/completion 触发 SSE 响应 2. 检查是否存在 chat_session_id 缓存，否则调用 /create 接口用于下次会话
+```
+
 `/api/v0/chat_session/create`
 
 - 进入新会话时调用，用于预先创建会话，返回会话 ID

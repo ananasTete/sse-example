@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 const CHAT_SESSION_TTL_SECONDS = 259_200;
 const CHAT_SESSION_SEQUENCE_NAME = "chat_session";
+const DEFAULT_FETCH_PAGE_LIMIT = 30;
 
 const toEpochSeconds = (date: Date) => date.getTime() / 1000;
 
@@ -93,6 +95,81 @@ export async function createChatSessionHandler() {
         data: {
           biz_code: 500,
           biz_msg: "Failed to create chat session",
+          biz_data: null,
+        },
+      },
+      { status: 500 },
+    );
+  }
+}
+
+function toChatSessionListItem(session: {
+  id: string;
+  title: string | null;
+  titleType: string;
+  pinned: boolean;
+  modelType: string;
+  updatedAt: Date;
+}) {
+  return {
+    id: session.id,
+    title: session.title,
+    title_type: session.titleType,
+    pinned: session.pinned,
+    model_type: session.modelType,
+    updated_at: toEpochSeconds(session.updatedAt),
+  };
+}
+
+export async function fetchChatSessionsPageHandler(request: Request) {
+  try {
+    const url = new URL(request.url);
+    const pinnedParam = url.searchParams.get("lte_cursor.pinned");
+    const updatedAtParam = url.searchParams.get("lte_cursor.updated_at");
+    const limitParam = Number(url.searchParams.get("limit"));
+
+    const pinned = pinnedParam === "true";
+    const limit = Number.isFinite(limitParam)
+      ? Math.min(Math.max(limitParam, 1), 100)
+      : DEFAULT_FETCH_PAGE_LIMIT;
+    const updatedAtCursor = updatedAtParam ? Number(updatedAtParam) : null;
+    const where: Prisma.ChatSessionWhereInput = {
+      pinned,
+      isEmpty: false,
+    };
+
+    if (updatedAtCursor !== null && Number.isFinite(updatedAtCursor)) {
+      where.updatedAt = {
+        lte: new Date(updatedAtCursor * 1000),
+      };
+    }
+
+    const sessions = await prisma.chatSession.findMany({
+      where,
+      orderBy: [{ updatedAt: "desc" }, { seqId: "desc" }],
+      take: limit,
+    });
+
+    return Response.json({
+      code: 0,
+      msg: "",
+      data: {
+        biz_code: 0,
+        biz_msg: "",
+        biz_data: {
+          chat_sessions: sessions.map(toChatSessionListItem),
+        },
+      },
+    });
+  } catch (error) {
+    console.error("GET /api/v0/chat_session/fetch_page failed", error);
+    return Response.json(
+      {
+        code: 500,
+        msg: "Failed to fetch chat sessions",
+        data: {
+          biz_code: 500,
+          biz_msg: "Failed to fetch chat sessions",
           biz_data: null,
         },
       },
