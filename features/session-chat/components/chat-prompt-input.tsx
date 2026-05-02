@@ -4,18 +4,23 @@ import { useRef, useState } from "react";
 import {
   PromptInput,
   PromptInputBody,
+  PromptInputButton,
   PromptInputFooter,
   PromptInputSubmit,
   PromptInputTextarea,
 } from "@/src/components/ai-elements/prompt-input";
 import { cn } from "@/lib/utils";
+import { Globe2 } from "lucide-react";
 
 interface ChatPromptInputProps {
   disabled?: boolean;
   isSending?: boolean;
   className?: string;
   placeholder?: string;
-  onSubmit: (prompt: string) => void | Promise<void>;
+  onSubmit: (
+    prompt: string,
+    options: { searchEnabled: boolean },
+  ) => void | Promise<void>;
 }
 
 function getSubmitErrorMessage(error: unknown) {
@@ -30,6 +35,7 @@ export function ChatPromptInput({
   onSubmit,
 }: ChatPromptInputProps) {
   const [input, setInput] = useState("");
+  const [searchEnabled, setSearchEnabled] = useState(true);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const isSubmittingRef = useRef(false);
   const isSubmitting = isSending || isSubmittingRef.current;
@@ -43,7 +49,7 @@ export function ChatPromptInput({
         isSubmittingRef.current = true;
         setInput("");
         setSubmitError(null);
-        void Promise.resolve(onSubmit(prompt))
+        void Promise.resolve(onSubmit(prompt, { searchEnabled }))
           .catch((error) => {
             setInput(prompt);
             setSubmitError(getSubmitErrorMessage(error));
@@ -78,7 +84,23 @@ export function ChatPromptInput({
         </div>
       ) : null}
       <PromptInputFooter className="border-t border-black/[0.04] px-3 py-2">
-        <div className="text-xs text-[#969891]">Chat</div>
+        <div className="flex items-center gap-2">
+          <PromptInputButton
+            aria-label="网络搜索"
+            aria-pressed={searchEnabled}
+            disabled={disabled || isSubmitting}
+            tooltip="网络搜索"
+            onClick={() => setSearchEnabled((value) => !value)}
+            className={cn(
+              "rounded-full border border-transparent text-[#70736b]",
+              searchEnabled &&
+                "border-[#84a98c]/50 bg-[#e8f2e7] text-[#2f6f3e] hover:bg-[#dcebdc]",
+            )}
+          >
+            <Globe2 className="size-4" />
+          </PromptInputButton>
+          <div className="text-xs text-[#969891]">Chat</div>
+        </div>
         <PromptInputSubmit
           status={isSubmitting ? "submitted" : "ready"}
           disabled={!input.trim() || disabled || isSubmitting}

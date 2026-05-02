@@ -1,4 +1,7 @@
-import { createOpenAI } from "@ai-sdk/openai";
+import {
+  createDeepSeek,
+  type DeepSeekLanguageModelOptions,
+} from "@ai-sdk/deepseek";
 import { streamText } from "ai";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
@@ -13,10 +16,14 @@ import {
 const MODEL_API_KEY_ENV = ["DEEP", "SEEK_API_KEY"].join("");
 const MODEL_API_BASE_URL_ENV = ["DEEP", "SEEK_API_BASE_URL"].join("");
 const MODEL_NAME_ENV = ["DEEP", "SEEK_MODEL"].join("");
+const TAVILY_API_KEY_ENV = "TAVILY_API_KEY";
+const TAVILY_API_BASE_URL_ENV = "TAVILY_API_BASE_URL";
 const DEFAULT_MODEL_API_BASE_URL = ["https://api.", "deep", "seek.com"].join(
   "",
 );
 const DEFAULT_MODEL_NAME = ["deep", "seek-v4-flash"].join("");
+const DEFAULT_TAVILY_API_BASE_URL = "https://api.tavily.com";
+const DEFAULT_TAVILY_MAX_RESULTS = 10;
 
 interface CompletionRequestBody {
   chat_session_id: string;
@@ -31,6 +38,7 @@ interface CompletionRequestBody {
 
 interface ChatCompletionHandlerOptions {
   streamText?: typeof streamText;
+  webSearch?: WebSearchFn;
 }
 
 class CompletionHttpError extends Error {
@@ -54,6 +62,185 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 const toEpochSeconds = (date: Date) => date.getTime() / 1000;
+
+interface SearchQueryPayload {
+  query: string;
+}
+
+interface SearchResultPayload {
+  url: string;
+  title: string;
+  snippet: string;
+  cite_index: number;
+  published_at?: number | null;
+  site_icon?: string;
+  site_name?: string;
+  query_indexes?: number[];
+}
+
+interface WebSearchPayload {
+  queries: SearchQueryPayload[];
+  results: SearchResultPayload[];
+}
+
+type WebSearchFn = (
+  query: string,
+  options?: { signal?: AbortSignal },
+) => Promise<WebSearchPayload>;
+
+function getStringField(value: unknown, key: string) {
+  if (!isRecord(value)) return "";
+  const field = value[key];
+  return typeof field === "string" ? field : "";
+}
+
+function getNumberField(value: unknown, key: string) {
+  if (!isRecord(value)) return null;
+  const field = value[key];
+  return typeof field === "number" ? field : null;
+}
+
+function getArrayField(value: unknown, key: string) {
+  if (!isRecord(value)) return [];
+  const field = value[key];
+  return Array.isArray(field) ? field : [];
+}
+
+function toSearchQueryPayload(query: string): SearchQueryPayload | null {
+  const normalizedQuery = query.trim();
+  return normalizedQuery ? { query: normalizedQuery } : null;
+}
+
+function getSiteName(url: string) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function getEpochSeconds(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string" || !value.trim()) return null;
+
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? null : time / 1000;
+}
+
+function toSearchResultPayload(
+  value: unknown,
+  citeIndex: number,
+): SearchResultPayload | null {
+  if (!isRecord(value)) return null;
+
+  const url = getStringField(value, "url");
+  if (!url) return null;
+
+  const title = getStringField(value, "title") || url;
+  const snippet =
+    getStringField(value, "content") ||
+    getStringField(value, "snippet") ||
+    getStringField(value, "text");
+  const publishedAt =
+    getEpochSeconds(value.published_at) ??
+    getEpochSeconds(value.publishedAt) ??
+    getEpochSeconds(value.published_date) ??
+    getEpochSeconds(value.publishedDate);
+  const siteIcon =
+    getStringField(value, "favicon") ||
+    getStringField(value, "site_icon") ||
+    getStringField(value, "siteIcon");
+  const siteName =
+    getStringField(value, "site_name") ||
+    getStringField(value, "siteName") ||
+    getStringField(value, "source") ||
+    getSiteName(url);
+
+  return {
+    url,
+    title,
+    snippet,
+    cite_index: getNumberField(value, "cite_index") ?? citeIndex,
+    ...(publishedAt !== null ? { published_at: publishedAt } : {}),
+    ...(siteIcon ? { site_icon: siteIcon } : {}),
+    ...(siteName ? { site_name: siteName } : {}),
+    query_indexes: [0],
+  } satisfies SearchResultPayload;
+}
+
+async function runTavilySearch(
+  queryText: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<WebSearchPayload> {
+  const query = toSearchQueryPayload(queryText);
+  if (!query) {
+    return { queries: [], results: [] };
+  }
+
+  const apiKey = process.env[TAVILY_API_KEY_ENV];
+  if (!apiKey) {
+    throw new Error(`Missing ${TAVILY_API_KEY_ENV} environment variable`);
+  }
+
+  const baseURL =
+    process.env[TAVILY_API_BASE_URL_ENV] ?? DEFAULT_TAVILY_API_BASE_URL;
+  const response = await fetch(`${baseURL.replace(/\/$/, "")}/search`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query: query.query,
+      topic: "general",
+      search_depth: "basic",
+      max_results: DEFAULT_TAVILY_MAX_RESULTS,
+      include_answer: false,
+      include_raw_content: false,
+    }),
+    signal: options.signal,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new Error(
+      `Tavily search failed: ${response.status}${errorText ? ` ${errorText.slice(0, 300)}` : ""}`,
+    );
+  }
+
+  const data = (await response.json()) as unknown;
+  const results = getArrayField(data, "results")
+    .map((item, index) => toSearchResultPayload(item, index + 1))
+    .filter((item): item is SearchResultPayload => item !== null);
+
+  return {
+    queries: [query],
+    results,
+  };
+}
+
+function buildSearchSystemPrompt(searchResults: SearchResultPayload[]) {
+  if (searchResults.length === 0) return undefined;
+
+  return [
+    "你可以使用以下搜索结果回答用户问题。",
+    "回答必须基于搜索结果；引用来源时使用 [citation:N]，N 对应搜索结果编号。",
+    "搜索结果无法支持的内容，直接说明当前搜索结果未提供。",
+    "",
+    ...searchResults.map((result) =>
+      [
+        `[${result.cite_index}] ${result.title}`,
+        `URL: ${result.url}`,
+        result.published_at
+          ? `Published at: ${new Date(result.published_at * 1000).toISOString()}`
+          : null,
+        `Snippet: ${result.snippet}`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    ),
+  ].join("\n\n");
+}
 
 function parseCompletionRequestBody(body: unknown): CompletionRequestBody {
   if (!isRecord(body)) {
@@ -168,11 +355,9 @@ async function createCompletionTurn(body: CompletionRequestBody) {
       where: { id: body.chat_session_id },
       data: {
         nextMessageId: { increment: 2 },
-        nextFragmentId: { increment: 1 },
       },
       select: {
         nextMessageId: true,
-        nextFragmentId: true,
       },
     });
 
@@ -221,7 +406,6 @@ async function createCompletionTurn(body: CompletionRequestBody) {
 
     const userMessageLocalId = reservedSession.nextMessageId - 1;
     const assistantMessageLocalId = reservedSession.nextMessageId;
-    const requestFragmentLocalId = reservedSession.nextFragmentId;
 
     const userMessage = await tx.chatMessage.create({
       data: {
@@ -234,7 +418,7 @@ async function createCompletionTurn(body: CompletionRequestBody) {
         searchEnabled: body.search_enabled,
         fragments: {
           create: {
-            localId: requestFragmentLocalId,
+            localId: 1,
             type: "REQUEST",
             content: body.prompt,
           },
@@ -339,23 +523,23 @@ export async function chatCompletionHandler(
     { once: true },
   );
 
-  const modelProvider = createOpenAI({
-    name: "model-provider",
+  const modelProvider = createDeepSeek({
     apiKey,
     baseURL: process.env[MODEL_API_BASE_URL_ENV] ?? DEFAULT_MODEL_API_BASE_URL,
   });
 
   const streamTextFn = options.streamText ?? streamText;
-  const result = streamTextFn({
-    model: modelProvider.chat(process.env[MODEL_NAME_ENV] ?? DEFAULT_MODEL_NAME),
-    prompt: body.prompt,
-    abortSignal: completionController.signal,
-  });
+  const webSearch = options.webSearch ?? runTavilySearch;
 
   const stream = new ReadableStream({
     async start(controller) {
       const encoder = new TextEncoder();
       let fragmentId: number | null = null;
+      let searchFragmentId: number | null = null;
+      let searchFragmentLocalId: number | null = null;
+      let searchStatus = "WIP";
+      let searchQueries: SearchQueryPayload[] = [];
+      let searchResults: SearchResultPayload[] = [];
       let content = "";
       let lastPersistedContent = "";
       let lastPersistedAt = 0;
@@ -363,6 +547,7 @@ export async function chatCompletionHandler(
       let lastPatchPath: string | null = null;
       let lastPatchOperation: string | null = null;
       let responseInitialized = false;
+      let nextAssistantFragmentLocalId = 1;
 
       const resetPatchContext = () => {
         lastPatchPath = null;
@@ -415,26 +600,54 @@ export async function chatCompletionHandler(
         lastPersistedAt = now;
       };
 
-      const createResponseFragment = async (initialContent: string) => {
-        const fragment = await prisma.$transaction(async (tx) => {
-          const session = await tx.chatSession.update({
-            where: { id: body.chat_session_id },
-            data: {
-              nextFragmentId: { increment: 1 },
-            },
-            select: { nextFragmentId: true },
-          });
-          const localId = session.nextFragmentId;
+      const persistSearchFragment = async () => {
+        if (searchFragmentId === null) return;
 
-          return tx.messageFragment.create({
-            data: {
-              localId,
-              messageId: turn.assistantMessage.id,
-              type: "RESPONSE",
-              content: initialContent,
-              referencesJson: [] as Prisma.InputJsonArray,
-            },
-          });
+        await prisma.messageFragment.update({
+          where: { id: searchFragmentId },
+          data: {
+            status: searchStatus,
+            queriesJson: searchQueries as unknown as Prisma.InputJsonArray,
+            resultsJson: searchResults as unknown as Prisma.InputJsonArray,
+          },
+        });
+      };
+
+      const createSearchFragment = async () => {
+        const localId = nextAssistantFragmentLocalId;
+        nextAssistantFragmentLocalId += 1;
+
+        const fragment = await prisma.messageFragment.create({
+          data: {
+            localId,
+            messageId: turn.assistantMessage.id,
+            type: "SEARCH",
+            status: searchStatus,
+            content: null,
+            queriesJson: searchQueries as unknown as Prisma.InputJsonArray,
+            resultsJson: searchResults as unknown as Prisma.InputJsonArray,
+          },
+        });
+
+        searchFragmentId = fragment.id;
+        searchFragmentLocalId = fragment.localId;
+
+        return fragment;
+      };
+
+      const createResponseFragment = async (initialContent: string) => {
+        const localId = nextAssistantFragmentLocalId;
+        nextAssistantFragmentLocalId += 1;
+
+        const fragment = await prisma.messageFragment.create({
+          data: {
+            localId,
+            messageId: turn.assistantMessage.id,
+            type: "RESPONSE",
+            content: initialContent,
+            referencesJson: [] as Prisma.InputJsonArray,
+            stageId: body.search_enabled ? searchFragmentLocalId : null,
+          },
         });
 
         fragmentId = fragment.id;
@@ -447,8 +660,92 @@ export async function chatCompletionHandler(
       const ensureResponseInitialized = async () => {
         if (responseInitialized) return;
 
+        if (body.search_enabled) {
+          const searchFragment = await createSearchFragment();
+          sendInitialSearchResponse(searchFragment);
+          return;
+        }
+
         const fragment = await createResponseFragment("");
         sendInitialResponse(fragment);
+      };
+
+      const finishSearchFragment = async () => {
+        if (!body.search_enabled || searchStatus === "FINISHED") return;
+
+        searchStatus = "FINISHED";
+        await persistSearchFragment();
+        sendPatch({
+          p: `response/fragments/${fragmentId === null ? "-1" : "0"}/status`,
+          o: "SET",
+          v: searchStatus,
+        });
+      };
+
+      const ensureResponseFragmentInitialized = async () => {
+        if (fragmentId !== null) return;
+
+        if (body.search_enabled) {
+          await ensureResponseInitialized();
+          await finishSearchFragment();
+          const fragment = await createResponseFragment("");
+          sendFullData({
+            p: "response",
+            o: "BATCH",
+            v: [
+              {
+                p: "fragments",
+                o: "APPEND",
+                v: {
+                  id: fragment.localId,
+                  type: "RESPONSE",
+                  content: fragment.content ?? "",
+                  references: [],
+                  stage_id: searchFragmentLocalId,
+                },
+              },
+              {
+                p: "has_pending_fragment",
+                o: "SET",
+                v: false,
+              },
+            ],
+          });
+          return;
+        }
+
+        const fragment = await createResponseFragment("");
+        sendInitialResponse(fragment);
+      };
+
+      const sendInitialSearchResponse = (fragment: {
+        localId: number;
+        content: string | null;
+        status: string | null;
+      }) => {
+        responseInitialized = true;
+        sendFullData({
+          v: {
+            response: toResponseMessagePayload({
+              messageId: turn.assistantMessage.localId,
+              parentId: turn.userMessage.localId,
+              thinkingEnabled: body.thinking_enabled,
+              searchEnabled: body.search_enabled,
+              insertedAt: turn.assistantMessage.insertedAt,
+              fragments: [
+                {
+                  id: fragment.localId,
+                  type: "SEARCH",
+                  status: fragment.status ?? searchStatus,
+                  content: fragment.content,
+                  queries: searchQueries,
+                  results: searchResults,
+                },
+              ],
+              hasPendingFragment: false,
+            }),
+          },
+        });
       };
 
       const sendInitialResponse = (fragment: {
@@ -479,6 +776,61 @@ export async function chatCompletionHandler(
         });
       };
 
+      const upsertSearchQuery = async (queryText: string) => {
+        if (!body.search_enabled) return;
+
+        const query = toSearchQueryPayload(queryText);
+        if (!query) return;
+
+        if (searchQueries.some((item) => item.query === query.query)) return;
+
+        const wasInitialized = responseInitialized;
+        searchQueries = [...searchQueries, query];
+        await ensureResponseInitialized();
+        await persistSearchFragment();
+        if (wasInitialized) {
+          sendPatch({
+            p: `response/fragments/${fragmentId === null ? "-1" : "0"}/queries`,
+            o: "SET",
+            v: searchQueries,
+          });
+        }
+      };
+
+      const appendSearchResult = async (value: unknown) => {
+        if (!body.search_enabled) return;
+        await ensureResponseInitialized();
+
+        const result = toSearchResultPayload(value, searchResults.length + 1);
+        if (!result) return;
+
+        if (searchResults.some((item) => item.url === result.url)) return;
+
+        searchResults = [...searchResults, result];
+        await persistSearchFragment();
+        sendPatch({
+          p: `response/fragments/${fragmentId === null ? "-1" : "0"}/results`,
+          v: searchResults,
+        });
+      };
+
+      const performWebSearch = async () => {
+        if (!body.search_enabled) return;
+
+        await upsertSearchQuery(body.prompt);
+        const searchPayload = await webSearch(body.prompt, {
+          signal: completionController.signal,
+        });
+
+        for (const query of searchPayload.queries) {
+          await upsertSearchQuery(query.query);
+        }
+
+        for (const result of searchPayload.results) {
+          await appendSearchResult(result);
+        }
+      };
+
       sendEventFrame({
         event: "ready",
         data: {
@@ -496,10 +848,30 @@ export async function chatCompletionHandler(
       });
 
       try {
-        await ensureResponseInitialized();
+        await performWebSearch();
+
+        const searchSystemPrompt = body.search_enabled
+          ? buildSearchSystemPrompt(searchResults)
+          : undefined;
+        const result = streamTextFn({
+          model: modelProvider.chat(
+            process.env[MODEL_NAME_ENV] ?? DEFAULT_MODEL_NAME,
+          ),
+          ...(searchSystemPrompt ? { system: searchSystemPrompt } : {}),
+          prompt: body.prompt,
+          abortSignal: completionController.signal,
+          providerOptions: {
+            deepseek: {
+              thinking: {
+                type: body.thinking_enabled ? "enabled" : "disabled",
+              },
+            } satisfies DeepSeekLanguageModelOptions,
+          },
+        });
 
         for await (const part of result.fullStream) {
           if (part.type === "text-delta") {
+            await ensureResponseFragmentInitialized();
             content += part.text;
 
             await persistContent();
@@ -517,8 +889,7 @@ export async function chatCompletionHandler(
         }
 
         if (fragmentId === null) {
-          const fragment = await createResponseFragment("");
-          sendInitialResponse(fragment);
+          await ensureResponseFragmentInitialized();
         }
 
         await persistContent(true);
@@ -608,6 +979,10 @@ export async function chatCompletionHandler(
           },
         });
       } catch (error) {
+        if (!responseInitialized) {
+          await ensureResponseInitialized();
+        }
+
         try {
           await persistContent(true);
         } catch (persistError) {
@@ -618,6 +993,16 @@ export async function chatCompletionHandler(
           ? "Completion aborted"
           : "Completion failed";
         console.error("Chat completion stream failed", error);
+
+        if (searchFragmentId !== null && searchStatus !== "FINISHED") {
+          searchStatus = "FINISHED";
+          await persistSearchFragment();
+          sendPatch({
+            p: `response/fragments/${fragmentId === null ? "-1" : "0"}/status`,
+            o: "SET",
+            v: searchStatus,
+          });
+        }
 
         await prisma.chatMessage.updateMany({
           where: { id: turn.assistantMessage.id, status: "WIP" },

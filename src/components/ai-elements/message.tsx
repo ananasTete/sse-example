@@ -319,24 +319,243 @@ export const MessageBranchPage = ({
   );
 };
 
-export type MessageResponseProps = ComponentProps<typeof Streamdown>;
+export interface MessageCitation {
+  cite_index: number;
+  url: string;
+  title?: string;
+  site_name?: string;
+}
+
+type CitationMarkdownNode =
+  | { type: "text"; value: string }
+  | { type: "html"; value: string };
+
+export function createCitationMarkdownNodes(
+  value: string,
+  citationIndexes: ReadonlySet<number>
+): CitationMarkdownNode[] {
+  const nodes: CitationMarkdownNode[] = [];
+  const citationPattern = /\[citation:(\d+)\]/g;
+  let lastIndex = 0;
+  const pushText = (text: string) => {
+    if (!text) return;
+    const lastNode = nodes.at(-1);
+    if (lastNode?.type === "text") {
+      lastNode.value += text;
+      return;
+    }
+    nodes.push({ type: "text", value: text });
+  };
+
+  for (const match of value.matchAll(citationPattern)) {
+    const matchIndex = match.index ?? 0;
+    const citationIndex = Number(match[1]);
+    const rawCitation = match[0];
+
+    if (matchIndex > lastIndex) {
+      pushText(value.slice(lastIndex, matchIndex));
+    }
+
+    if (citationIndexes.has(citationIndex)) {
+      nodes.push({
+        type: "html",
+        value: `<citation cite_index="${citationIndex}">[${citationIndex}]</citation>`,
+      });
+    } else {
+      pushText(rawCitation);
+    }
+
+    lastIndex = matchIndex + rawCitation.length;
+  }
+
+  if (lastIndex < value.length) {
+    pushText(value.slice(lastIndex));
+  }
+
+  return nodes.length > 0 ? nodes : [{ type: "text", value }];
+}
+
+function createCitationRemarkPlugin(citationIndexes: ReadonlySet<number>) {
+  return function remarkCitationTags() {
+    return function transform(tree: unknown) {
+      transformCitationTextNodes(tree, citationIndexes);
+    };
+  };
+}
+
+function isMarkdownParent(value: unknown): value is { children: unknown[] } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    Array.isArray((value as { children?: unknown }).children)
+  );
+}
+
+function getMarkdownNodeType(value: unknown) {
+  if (typeof value !== "object" || value === null) return "";
+  const type = (value as { type?: unknown }).type;
+  return typeof type === "string" ? type : "";
+}
+
+function isTextNode(value: unknown): value is { type: "text"; value: string } {
+  return (
+    getMarkdownNodeType(value) === "text" &&
+    typeof (value as { value?: unknown }).value === "string"
+  );
+}
+
+export function transformCitationTextNodes(
+  node: unknown,
+  citationIndexes: ReadonlySet<number>,
+  blocked = false
+) {
+  if (!isMarkdownParent(node)) return;
+
+  const children = node.children;
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index];
+    const childType = getMarkdownNodeType(child);
+    const childBlocked =
+      blocked ||
+      childType === "link" ||
+      childType === "linkReference" ||
+      childType === "html" ||
+      childType === "code" ||
+      childType === "inlineCode";
+
+    if (!childBlocked && isTextNode(child)) {
+      const replacement = createCitationMarkdownNodes(
+        child.value,
+        citationIndexes
+      );
+
+      if (replacement.length !== 1 || replacement[0].value !== child.value) {
+        children.splice(index, 1, ...replacement);
+        index += replacement.length - 1;
+      }
+
+      continue;
+    }
+
+    transformCitationTextNodes(child, citationIndexes, childBlocked);
+  }
+}
+
+function getCitationTitle(citation: MessageCitation) {
+  return [citation.title, citation.site_name].filter(Boolean).join(" - ");
+}
+
+export type MessageResponseProps = ComponentProps<typeof Streamdown> & {
+  citations?: MessageCitation[];
+};
 
 const streamdownPlugins = { cjk, code, math, mermaid };
 
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
-    <Streamdown
-      className={cn(
-        "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-        className
-      )}
-      plugins={streamdownPlugins}
-      {...props}
-    />
-  ),
+  ({
+    allowedTags,
+    citations = [],
+    className,
+    components,
+    literalTagContent,
+    remarkPlugins,
+    ...props
+  }: MessageResponseProps) => {
+    const citationByIndex = useMemo(() => {
+      const citationMap = new Map<number, MessageCitation>();
+      for (const citation of citations) {
+        citationMap.set(citation.cite_index, citation);
+      }
+      return citationMap;
+    }, [citations]);
+
+    const citationIndexes = useMemo(
+      () => new Set(citationByIndex.keys()),
+      [citationByIndex]
+    );
+
+    const citationRemarkPlugin = useMemo(
+      () => createCitationRemarkPlugin(citationIndexes),
+      [citationIndexes]
+    );
+
+    const mergedRemarkPlugins = useMemo(
+      () => [...(remarkPlugins ?? []), citationRemarkPlugin],
+      [remarkPlugins, citationRemarkPlugin]
+    );
+
+    const mergedAllowedTags = useMemo(
+      () => ({
+        ...allowedTags,
+        citation: Array.from(
+          new Set([...(allowedTags?.citation ?? []), "cite_index"])
+        ),
+      }),
+      [allowedTags]
+    );
+
+    const mergedLiteralTagContent = useMemo(
+      () => Array.from(new Set([...(literalTagContent ?? []), "citation"])),
+      [literalTagContent]
+    );
+
+    const mergedComponents = useMemo(
+      () => ({
+        ...components,
+        citation: ({
+          cite_index: citeIndex,
+          children,
+        }: {
+          cite_index?: unknown;
+          children?: React.ReactNode;
+        }) => {
+          const citationIndex =
+            typeof citeIndex === "number"
+              ? citeIndex
+              : typeof citeIndex === "string"
+                ? Number(citeIndex)
+                : Number.NaN;
+          const citation = citationByIndex.get(citationIndex);
+
+          if (!citation) {
+            return <>{children}</>;
+          }
+
+          return (
+            <a
+              className="mx-0.5 inline-flex translate-y-[-0.08em] items-center rounded-[5px] border border-[#cad4c2] bg-[#f3f7f1] px-1.5 py-0.5 text-[0.72em] font-medium leading-none text-[#4f7f52] no-underline transition-colors hover:border-[#9fb392] hover:bg-[#e8f0e4] hover:text-[#315b35]"
+              href={citation.url}
+              rel="noreferrer"
+              target="_blank"
+              title={getCitationTitle(citation)}
+            >
+              {children}
+            </a>
+          );
+        },
+      }),
+      [components, citationByIndex]
+    );
+
+    return (
+      <Streamdown
+        allowedTags={mergedAllowedTags}
+        className={cn(
+          "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+          className
+        )}
+        components={mergedComponents}
+        literalTagContent={mergedLiteralTagContent}
+        plugins={streamdownPlugins}
+        remarkPlugins={mergedRemarkPlugins}
+        {...props}
+      />
+    );
+  },
   (prevProps, nextProps) =>
     prevProps.children === nextProps.children &&
-    nextProps.isAnimating === prevProps.isAnimating
+    nextProps.isAnimating === prevProps.isAnimating &&
+    nextProps.citations === prevProps.citations
 );
 
 MessageResponse.displayName = "MessageResponse";

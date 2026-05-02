@@ -26,7 +26,7 @@ export function ChatIndexView() {
     isSending || isDraftSessionLoading || isDraftSessionFetching;
 
   const handleSubmit = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, options: { searchEnabled: boolean }) => {
       if (submitLockRef.current || isSubmitting) return;
 
       submitLockRef.current = true;
@@ -49,6 +49,7 @@ export function ChatIndexView() {
           chatSessionId: targetChatSessionId,
           prompt,
           parentMessageId: draftSession.chat_session.current_message_id,
+          searchEnabled: options.searchEnabled,
         });
 
         // 跳转到详情页

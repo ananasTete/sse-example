@@ -22,12 +22,16 @@ let fetchChatSessionsPageHandler: typeof FetchChatSessionsPageHandler;
 type StreamTextOverride = NonNullable<
   Parameters<typeof chatCompletionHandler>[1]
 >["streamText"];
+type WebSearchOverride = NonNullable<
+  Parameters<typeof chatCompletionHandler>[1]
+>["webSearch"];
 
 function createCompletionRequest(input: {
   chatSessionId: string;
   prompt?: string;
   parentMessageId?: number | null;
   preempt?: boolean;
+  searchEnabled?: boolean;
 }) {
   return new Request("http://localhost/chat/completion", {
     method: "POST",
@@ -41,7 +45,7 @@ function createCompletionRequest(input: {
       prompt: input.prompt ?? "hello",
       ref_file_ids: [],
       thinking_enabled: false,
-      search_enabled: false,
+      search_enabled: input.searchEnabled ?? false,
       preempt: input.preempt ?? false,
     }),
   });
@@ -51,6 +55,12 @@ function createStreamTextOverride(
   fullStream: AsyncIterable<unknown>,
 ): StreamTextOverride {
   return (() => ({ fullStream })) as unknown as StreamTextOverride;
+}
+
+function createWebSearchOverride(
+  payload: Awaited<ReturnType<NonNullable<WebSearchOverride>>>,
+): WebSearchOverride {
+  return async () => payload;
 }
 
 async function createSessionId() {
@@ -247,6 +257,244 @@ test("completion failure before first token still creates a failed assistant mes
   assert.equal(assistant.fragments.length, 1);
   assert.equal(assistant.fragments[0].type, "RESPONSE");
   assert.equal(assistant.fragments[0].content, "");
+});
+
+test("completion without search persists a default response fragment", async () => {
+  const chatSessionId = await createSessionId();
+
+  async function* stream() {
+    yield { type: "text-delta", text: "hello" };
+    yield { type: "finish", totalUsage: { totalTokens: 3 } };
+  }
+
+  const response = await chatCompletionHandler(
+    createCompletionRequest({ chatSessionId }),
+    {
+      streamText: createStreamTextOverride(stream()),
+    },
+  );
+
+  const sseText = await response.text();
+  assert.match(sseText, /"conversation_mode":"DEFAULT"/);
+  assert.doesNotMatch(sseText, /"type":"SEARCH"/);
+
+  const assistant = await prisma.chatMessage.findFirstOrThrow({
+    where: {
+      chatSessionId,
+      role: "ASSISTANT",
+    },
+    include: {
+      fragments: {
+        orderBy: { localId: "asc" },
+      },
+    },
+  });
+
+  assert.equal(assistant.searchEnabled, false);
+  assert.equal(assistant.conversationMode, "DEFAULT");
+  assert.equal(assistant.fragments.length, 1);
+  assert.equal(assistant.fragments[0].type, "RESPONSE");
+  assert.equal(assistant.fragments[0].content, "hello");
+});
+
+test("completion with search streams and persists search fragments", async () => {
+  const chatSessionId = await createSessionId();
+  let streamSystemPrompt = "";
+
+  async function* searchStream() {
+    yield { type: "text-delta", text: "DeepSeek-V4[citation:1]" };
+    yield { type: "finish", totalUsage: { totalTokens: 12 } };
+  }
+
+  const streamText: StreamTextOverride = ((input: { system?: string }) => {
+    streamSystemPrompt = input.system ?? "";
+    return { fullStream: searchStream() };
+  }) as unknown as StreamTextOverride;
+
+  const response = await chatCompletionHandler(
+    createCompletionRequest({
+      chatSessionId,
+      searchEnabled: true,
+      prompt: "DeepSeek 最新模型 2026",
+    }),
+    {
+      streamText,
+      webSearch: createWebSearchOverride({
+        queries: [{ query: "DeepSeek 最新模型 2026" }],
+        results: [
+          {
+            url: "https://example.com/deepseek-v4",
+            title: "DeepSeek V4 发布",
+            snippet: "DeepSeek V4 发布并开源。",
+            cite_index: 1,
+            site_name: "example.com",
+            query_indexes: [0],
+          },
+        ],
+      }),
+    },
+  );
+
+  const sseText = await response.text();
+  assert.match(sseText, /"conversation_mode":"SEARCH"/);
+  assert.match(sseText, /"id":1,"type":"SEARCH"/);
+  assert.match(sseText, /"queries":\[{"query":"DeepSeek 最新模型 2026"}\]/);
+  assert.match(sseText, /"p":"response\/fragments\/-1\/results"/);
+  assert.match(sseText, /"p":"fragments","o":"APPEND"/);
+  assert.match(sseText, /"id":2,"type":"RESPONSE"/);
+  assert.match(sseText, /DeepSeek-V4\[citation:1\]/);
+  assert.match(sseText, /"p":"response\/fragments\/-1\/status","o":"SET","v":"FINISHED"/);
+  assert.match(streamSystemPrompt, /DeepSeek V4 发布并开源/);
+  assert.match(streamSystemPrompt, /\[citation:N\]/);
+
+  const messages = await prisma.chatMessage.findMany({
+    where: { chatSessionId },
+    orderBy: { localId: "asc" },
+    include: {
+      fragments: {
+        orderBy: { localId: "asc" },
+      },
+    },
+  });
+
+  const user = messages.find((message) => message.role === "USER");
+  const assistant = messages.find((message) => message.role === "ASSISTANT");
+
+  assert.equal(user?.searchEnabled, true);
+  assert.equal(assistant?.searchEnabled, true);
+  assert.equal(assistant?.conversationMode, "SEARCH");
+  assert.equal(assistant?.status, "FINISHED");
+  assert.equal(assistant?.fragments.length, 2);
+  assert.equal(assistant?.fragments[0].type, "SEARCH");
+  assert.equal(assistant?.fragments[0].status, "FINISHED");
+  assert.deepEqual(assistant?.fragments[0].queriesJson, [
+    { query: "DeepSeek 最新模型 2026" },
+  ]);
+  assert.deepEqual(assistant?.fragments[0].resultsJson, [
+    {
+      url: "https://example.com/deepseek-v4",
+      title: "DeepSeek V4 发布",
+      snippet: "DeepSeek V4 发布并开源。",
+      cite_index: 1,
+      site_name: "example.com",
+      query_indexes: [0],
+    },
+  ]);
+  assert.equal(assistant?.fragments[1].type, "RESPONSE");
+  assert.equal(assistant?.fragments[1].content, "DeepSeek-V4[citation:1]");
+  assert.equal(assistant?.fragments[1].stageId, assistant?.fragments[0].localId);
+});
+
+test("search completion creates search fragment before response text", async () => {
+  const chatSessionId = await createSessionId();
+
+  async function* searchStream() {
+    yield { type: "text-delta", text: "你好！" };
+    yield { type: "finish", totalUsage: { totalTokens: 2 } };
+  }
+
+  const response = await chatCompletionHandler(
+    createCompletionRequest({
+      chatSessionId,
+      searchEnabled: true,
+      prompt: "deepseek 最新模型",
+    }),
+    {
+      streamText: createStreamTextOverride(searchStream()),
+      webSearch: createWebSearchOverride({
+        queries: [{ query: "deepseek 最新模型" }],
+        results: [
+          {
+            url: "https://example.com/deepseek-v4",
+            title: "DeepSeek V4 发布",
+            snippet: "DeepSeek V4 发布并开源。",
+            cite_index: 1,
+            site_name: "example.com",
+            query_indexes: [0],
+          },
+        ],
+      }),
+    },
+  );
+
+  const sseText = await response.text();
+  assert.match(sseText, /"id":1,"type":"SEARCH"/);
+  assert.match(sseText, /"p":"response\/fragments\/-1\/status","o":"SET","v":"FINISHED"/);
+  assert.match(sseText, /"id":2,"type":"RESPONSE"/);
+  assert.match(sseText, /"stage_id":1/);
+  assert.doesNotMatch(sseText, /"stage_id":null/);
+
+  const assistant = await prisma.chatMessage.findFirstOrThrow({
+    where: {
+      chatSessionId,
+      role: "ASSISTANT",
+    },
+    include: {
+      fragments: {
+        orderBy: { localId: "asc" },
+      },
+    },
+  });
+
+  assert.equal(assistant.fragments.length, 2);
+  assert.equal(assistant.fragments[0].localId, 1);
+  assert.equal(assistant.fragments[0].type, "SEARCH");
+  assert.equal(assistant.fragments[1].localId, 2);
+  assert.equal(assistant.fragments[1].type, "RESPONSE");
+  assert.equal(assistant.fragments[1].stageId, 1);
+});
+
+test("search completion failure clears pending state", async () => {
+  const chatSessionId = await createSessionId();
+  const originalConsoleError = console.error;
+
+  const failingStream: AsyncIterable<unknown> = {
+    [Symbol.asyncIterator]() {
+      return {
+        async next() {
+          throw new Error("provider unavailable");
+        },
+      };
+    },
+  };
+
+  console.error = () => {};
+
+  try {
+    const response = await chatCompletionHandler(
+      createCompletionRequest({ chatSessionId, searchEnabled: true }),
+      {
+        streamText: createStreamTextOverride(failingStream),
+      },
+    );
+
+    const sseText = await response.text();
+    assert.match(sseText, /"type":"SEARCH"/);
+    assert.match(sseText, /"FAILED"/);
+    assert.match(sseText, /"Completion failed"/);
+  } finally {
+    console.error = originalConsoleError;
+  }
+
+  const assistant = await prisma.chatMessage.findFirstOrThrow({
+    where: {
+      chatSessionId,
+      role: "ASSISTANT",
+    },
+    include: {
+      fragments: {
+        orderBy: { localId: "asc" },
+      },
+    },
+  });
+
+  assert.equal(assistant.status, "FAILED");
+  assert.equal(assistant.hasPendingFragment, false);
+  assert.equal(assistant.searchEnabled, true);
+  assert.equal(assistant.conversationMode, "SEARCH");
+  assert.equal(assistant.fragments.length, 1);
+  assert.equal(assistant.fragments[0].type, "SEARCH");
+  assert.equal(assistant.fragments[0].status, "FINISHED");
 });
 
 test("second completion on an active session returns 409", async () => {

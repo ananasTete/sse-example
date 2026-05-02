@@ -24,7 +24,7 @@ export function ChatDetailView({ chatSessionId }: ChatDetailViewProps) {
   const chatState = sessionQuery.data;
 
   const handleSubmit = useCallback(
-    async (prompt: string) => {
+    async (prompt: string, options: { searchEnabled: boolean }) => {
       if (submitLockRef.current || isSending) return;
 
       submitLockRef.current = true;
@@ -33,6 +33,7 @@ export function ChatDetailView({ chatSessionId }: ChatDetailViewProps) {
           chatSessionId,
           prompt,
           parentMessageId: chatState?.chat_session.current_message_id ?? null,
+          searchEnabled: options.searchEnabled,
         });
       } finally {
         submitLockRef.current = false;
