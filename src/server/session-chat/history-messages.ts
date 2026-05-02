@@ -8,6 +8,7 @@ function asArray(value: unknown): unknown[] {
 
 function toFragmentResponse(fragment: {
   id: number;
+  localId: number;
   type: string;
   status: string | null;
   content: string | null;
@@ -18,7 +19,7 @@ function toFragmentResponse(fragment: {
 }) {
   if (fragment.type === "REQUEST") {
     return {
-      id: fragment.id,
+      id: fragment.localId,
       type: fragment.type,
       content: fragment.content ?? "",
     };
@@ -26,7 +27,7 @@ function toFragmentResponse(fragment: {
 
   if (fragment.type === "SEARCH") {
     return {
-      id: fragment.id,
+      id: fragment.localId,
       type: fragment.type,
       status: fragment.status ?? "FINISHED",
       content: fragment.content,
@@ -36,7 +37,7 @@ function toFragmentResponse(fragment: {
   }
 
   return {
-    id: fragment.id,
+    id: fragment.localId,
     type: fragment.type,
     content: fragment.content ?? "",
     references: asArray(fragment.referencesJson),
@@ -46,6 +47,7 @@ function toFragmentResponse(fragment: {
 
 function toMessageResponse(message: {
   id: number;
+  localId: number;
   parentId: number | null;
   model: string;
   role: string;
@@ -63,6 +65,7 @@ function toMessageResponse(message: {
   autoContinue: boolean;
   fragments: Array<{
     id: number;
+    localId: number;
     type: string;
     status: string | null;
     content: string | null;
@@ -73,7 +76,7 @@ function toMessageResponse(message: {
   }>;
 }) {
   const base = {
-    message_id: message.id,
+    message_id: message.localId,
     parent_id: message.parentId,
     model: message.model,
     role: message.role,
@@ -124,10 +127,10 @@ export async function historyMessagesHandler(request: Request) {
     where: { id: chatSessionId },
     include: {
       messages: {
-        orderBy: { id: "asc" },
+        orderBy: { localId: "asc" },
         include: {
           fragments: {
-            orderBy: { id: "asc" },
+            orderBy: { localId: "asc" },
           },
         },
       },

@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 
 const CHAT_SESSION_TTL_SECONDS = 259_200;
 const CHAT_SESSION_SEQUENCE_NAME = "chat_session";
-const DEFAULT_FETCH_PAGE_LIMIT = 30;
+const CHAT_SESSION_PAGE_SIZE = 30;
 
 const toEpochSeconds = (date: Date) => date.getTime() / 1000;
 
@@ -105,6 +105,7 @@ export async function createChatSessionHandler() {
 
 function toChatSessionListItem(session: {
   id: string;
+  seqId: number;
   title: string | null;
   titleType: string;
   pinned: boolean;
@@ -113,6 +114,7 @@ function toChatSessionListItem(session: {
 }) {
   return {
     id: session.id,
+    seq_id: session.seqId,
     title: session.title,
     title_type: session.titleType,
     pinned: session.pinned,
@@ -126,29 +128,48 @@ export async function fetchChatSessionsPageHandler(request: Request) {
     const url = new URL(request.url);
     const pinnedParam = url.searchParams.get("lte_cursor.pinned");
     const updatedAtParam = url.searchParams.get("lte_cursor.updated_at");
-    const limitParam = Number(url.searchParams.get("limit"));
+    const seqIdParam = url.searchParams.get("lte_cursor.seq_id");
 
     const pinned = pinnedParam === "true";
-    const limit = Number.isFinite(limitParam)
-      ? Math.min(Math.max(limitParam, 1), 100)
-      : DEFAULT_FETCH_PAGE_LIMIT;
     const updatedAtCursor = updatedAtParam ? Number(updatedAtParam) : null;
+    const seqIdCursor = seqIdParam ? Number(seqIdParam) : null;
     const where: Prisma.ChatSessionWhereInput = {
       pinned,
       isEmpty: false,
     };
 
     if (updatedAtCursor !== null && Number.isFinite(updatedAtCursor)) {
-      where.updatedAt = {
-        lte: new Date(updatedAtCursor * 1000),
-      };
+      const updatedAt = new Date(updatedAtCursor * 1000);
+
+      if (seqIdCursor !== null && Number.isFinite(seqIdCursor)) {
+        where.OR = [
+          { updatedAt: { lt: updatedAt } },
+          {
+            updatedAt,
+            seqId: { lt: seqIdCursor },
+          },
+        ];
+      } else {
+        where.updatedAt = {
+          lt: updatedAt,
+        };
+      }
     }
 
     const sessions = await prisma.chatSession.findMany({
       where,
       orderBy: [{ updatedAt: "desc" }, { seqId: "desc" }],
-      take: limit,
+      take: CHAT_SESSION_PAGE_SIZE + 1,
     });
+    const pageSessions = sessions.slice(0, CHAT_SESSION_PAGE_SIZE);
+    const lastSession = pageSessions.at(-1);
+    const nextCursor =
+      sessions.length > CHAT_SESSION_PAGE_SIZE && lastSession
+        ? {
+            updated_at: toEpochSeconds(lastSession.updatedAt),
+            seq_id: lastSession.seqId,
+          }
+        : null;
 
     return Response.json({
       code: 0,
@@ -157,7 +178,9 @@ export async function fetchChatSessionsPageHandler(request: Request) {
         biz_code: 0,
         biz_msg: "",
         biz_data: {
-          chat_sessions: sessions.map(toChatSessionListItem),
+          chat_sessions: pageSessions.map(toChatSessionListItem),
+          has_more: sessions.length > CHAT_SESSION_PAGE_SIZE,
+          next_cursor: nextCursor,
         },
       },
     });

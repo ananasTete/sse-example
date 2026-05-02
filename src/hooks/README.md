@@ -1,6 +1,6 @@
-# 🚀 Advanced Stream Chat Architecture (DeepSeek R1 / Claude 范式)
+# 🚀 Advanced Stream Chat Architecture (Reasoning R1 / Claude 范式)
 
-这份设计文档与代码库提供了一套高度定制、极客级别的流式对话系统架构。本系统**完全剥离**了 Vercel AI SDK 以及过时的长轮询策略的包袱，专门为了拥抱最前沿的大模型（如 DeepSeek R1 级别的深度思考反馈、Claude 的多分支并行与结构化工具调用）以及极端顺畅的客户端体验（Optimistic UI）而生。
+这份设计文档与代码库提供了一套高度定制、极客级别的流式对话系统架构。本系统**完全剥离**了 Vercel AI SDK 以及过时的长轮询策略的包袱，专门为了拥抱最前沿的大模型（如 Reasoning R1 级别的深度思考反馈、Claude 的多分支并行与结构化工具调用）以及极端顺畅的客户端体验（Optimistic UI）而生。
 
 ---
 

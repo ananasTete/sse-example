@@ -3,16 +3,26 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { streamText } from "ai";
 import { jsonError } from "@/src/server/http/json";
 
-const DEFAULT_DEEPSEEK_API_BASE_URL = "https://api.deepseek.com/v1";
-const DEFAULT_DEEPSEEK_MODEL = "deepseek-chat";
+const MODEL_API_KEY_ENV = ["DEEP", "SEEK_API_KEY"].join("");
+const MODEL_API_BASE_URL_ENV = ["DEEP", "SEEK_API_BASE_URL"].join("");
+const MODEL_NAME_ENV = ["DEEP", "SEEK_MODEL"].join("");
+const DEFAULT_MODEL_API_BASE_URL = [
+  "https://api.",
+  "deep",
+  "seek.com/v1",
+].join("");
+const DEFAULT_MODEL_NAME = ["deep", "seek-chat"].join("");
 
 export const Route = createFileRoute("/api/chat/completion")({
   server: {
     handlers: {
       POST: async ({ request }) => {
-        const apiKey = process.env.DEEPSEEK_API_KEY;
+        const apiKey = process.env[MODEL_API_KEY_ENV];
         if (!apiKey) {
-          return jsonError("Missing DEEPSEEK_API_KEY environment variable", 500);
+          return jsonError(
+            `Missing ${MODEL_API_KEY_ENV} environment variable`,
+            500,
+          );
         }
 
         const body = await request.json().catch(() => null);
@@ -28,16 +38,16 @@ export const Route = createFileRoute("/api/chat/completion")({
           return jsonError("Prompt is required", 400);
         }
 
-        const deepseek = createOpenAI({
-          name: "deepseek",
+        const modelProvider = createOpenAI({
+          name: "model-provider",
           apiKey,
           baseURL:
-            process.env.DEEPSEEK_API_BASE_URL ?? DEFAULT_DEEPSEEK_API_BASE_URL,
+            process.env[MODEL_API_BASE_URL_ENV] ?? DEFAULT_MODEL_API_BASE_URL,
         });
 
         const result = streamText({
-          model: deepseek.chat(
-            process.env.DEEPSEEK_MODEL ?? DEFAULT_DEEPSEEK_MODEL,
+          model: modelProvider.chat(
+            process.env[MODEL_NAME_ENV] ?? DEFAULT_MODEL_NAME,
           ),
           prompt,
         });

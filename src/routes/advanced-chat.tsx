@@ -199,7 +199,7 @@ function ChatSidebar({
       </SidebarContent>
 
       <SidebarFooter className="px-4 pb-4 pt-2">
-        <p className="text-[10px] text-sidebar-foreground/35">DeepSeek R1</p>
+        <p className="text-[10px] text-sidebar-foreground/35">Reasoning R1</p>
       </SidebarFooter>
     </Sidebar>
   );
@@ -237,7 +237,7 @@ function AdvancedChatLayout() {
                 </div>
               </div>
               <span className="rounded-full border border-border/70 px-2.5 py-1 text-[11px] text-muted-foreground">
-                DeepSeek R1
+                Reasoning R1
               </span>
             </header>
 
