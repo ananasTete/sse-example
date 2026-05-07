@@ -11,6 +11,31 @@ import type { Suggestion, SuggestionToolInput } from "../types";
 import { SuggestionCard } from "./suggestion-card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
+function getDisplayText(text: string) {
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (typeof parsed !== "object" || parsed === null) return text;
+
+    const request = parsed as {
+      message?: unknown;
+      requestId?: unknown;
+      selection?: { contentWithSelection?: unknown };
+    };
+
+    if (
+      typeof request.message === "string" &&
+      typeof request.requestId === "string" &&
+      typeof request.selection?.contentWithSelection === "string"
+    ) {
+      return request.message;
+    }
+  } catch {
+    return text;
+  }
+
+  return text;
+}
+
 interface MessageListProps {
   messages: Message[];
   onApplySuggestion: (
@@ -163,7 +188,7 @@ function MessagePartRenderer({
     case "text":
       return (
         <div className="whitespace-pre-wrap text-[13px] leading-6">
-          {part.text}
+          {getDisplayText(part.text)}
         </div>
       );
 

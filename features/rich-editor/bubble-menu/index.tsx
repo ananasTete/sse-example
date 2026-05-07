@@ -21,6 +21,7 @@ import { getActiveNodeTypeId } from "./bubble-menu-config";
 interface BubbleMenuProps {
   editor: Editor;
   scrollTarget?: HTMLElement | Window | null;
+  onSelectionAISubmit?: (prompt: string) => boolean;
 }
 
 const alignMatchers: Array<{
@@ -41,7 +42,11 @@ function getActiveAlignId(editor: Editor): AlignId {
   return alignMatchers.find((item) => item.isActive(editor))?.id ?? "left";
 }
 
-export function BubbleMenu({ editor, scrollTarget }: BubbleMenuProps) {
+export function BubbleMenu({
+  editor,
+  scrollTarget,
+  onSelectionAISubmit,
+}: BubbleMenuProps) {
   const [showAIPanel, setShowAIPanel] = useState(false);
 
   const ui = useEditorState({
@@ -101,6 +106,11 @@ export function BubbleMenu({ editor, scrollTarget }: BubbleMenuProps) {
 
       if (payload.reason === "cancel") {
         clearAIPanelState(getAISelectionRange(editor.state)?.to);
+        return;
+      }
+
+      if (payload.reason === "submit") {
+        setShowAIPanel(false);
         return;
       }
 
@@ -190,7 +200,11 @@ export function BubbleMenu({ editor, scrollTarget }: BubbleMenuProps) {
 
       {/* 独立的 AI 浮动面板 */}
       {showAIPanel && (
-        <AIFloatingPanel editor={editor} onClose={handleCloseAIPanel} />
+        <AIFloatingPanel
+          editor={editor}
+          onClose={handleCloseAIPanel}
+          onSelectionAISubmit={onSelectionAISubmit}
+        />
       )}
     </>
   );

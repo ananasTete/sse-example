@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import type { Editor } from "@tiptap/react";
 import TiptapEditor from "@/features/rich-editor/editor";
-import { AgentChat } from "@/features/agent-editor/components/agent-chat";
+import {
+  AgentChat,
+  type AgentChatHandle,
+} from "@/features/agent-editor/components/agent-chat";
 import { useEditorAgent } from "@/features/agent-editor/hooks/use-editor-agent";
 import { ErrorBoundary } from "@/features/agent-editor/components/error-boundary";
 import {
@@ -16,6 +19,7 @@ export const Route = createFileRoute("/agent-editor")({
 
 function AgentEditorPage() {
   const [editor, setEditor] = useState<Editor | null>(null);
+  const agentChatRef = useRef<AgentChatHandle>(null);
   const [editorScrollElement, setEditorScrollElement] =
     useState<HTMLDivElement | null>(null);
   const [initialContent] = useState(
@@ -26,6 +30,10 @@ function AgentEditorPage() {
   const handleEditorReady = (editorInstance: Editor) => {
     setEditor(editorInstance);
   };
+
+  const handleSelectionAISubmit = useCallback((prompt: string) => {
+    return agentChatRef.current?.submitFromSelectionPanel(prompt) ?? false;
+  }, []);
 
   return (
     <div className="h-screen p-4 bg-[#fbf7f2]">
@@ -41,6 +49,7 @@ function AgentEditorPage() {
                 onEditorReady={handleEditorReady}
                 onDocumentChange={saveAgentEditorDocument}
                 scrollTarget={editorScrollElement}
+                onSelectionAISubmit={handleSelectionAISubmit}
               />
             </ErrorBoundary>
           </div>
@@ -48,7 +57,7 @@ function AgentEditorPage() {
 
         <div className="rounded-sm w-150 overflow-hidden">
           <ErrorBoundary>
-            <AgentChat editorAgent={editorAgent} />
+            <AgentChat ref={agentChatRef} editorAgent={editorAgent} />
           </ErrorBoundary>
         </div>
       </div>

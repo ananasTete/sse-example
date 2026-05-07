@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react";
 import { useChat } from "@/features/ai-sdk/hooks/use-chat/useChat";
 import type {
   MessagePart,
@@ -29,6 +36,10 @@ import { saveStructuredOutputAction } from "../services/structured-output-action
 
 interface AgentChatProps {
   editorAgent: UseEditorAgentReturn;
+}
+
+export interface AgentChatHandle {
+  submitFromSelectionPanel: (prompt: string) => boolean;
 }
 
 const rewriteCardPattern =
@@ -94,7 +105,8 @@ function removeItem(items: string[] = [], item: string) {
   return items.filter((current) => current !== item);
 }
 
-export function AgentChat({ editorAgent }: AgentChatProps) {
+export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
+function AgentChat({ editorAgent }, ref) {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [patchError, setPatchError] = useState<string | null>(null);
 
@@ -432,13 +444,22 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
 
   // 发送消息时附加上下文
   const handleSendMessage = useCallback(
-    async (text: string) => {
-      const request = editorAgent.createAIRequest(text);
+    (text: string, options?: { requireSelection?: boolean }) => {
+      const messageText = text.trim();
+      if (!messageText || isLoading) return false;
+
       setPatchError(null);
 
-      if (editorAgent.mode === "selection" && !request) {
+      if (options?.requireSelection && !editorAgent.selectionInfo) {
         setPatchError("选区已失效，请重新选择后生成。");
-        return;
+        return false;
+      }
+
+      const request = editorAgent.createAIRequest(messageText);
+
+      if ((editorAgent.mode === "selection" || options?.requireSelection) && !request) {
+        setPatchError("选区已失效，请重新选择后生成。");
+        return false;
       }
 
       // 发送新消息前，使最近一条 assistant 消息中的建议失效
@@ -449,27 +470,44 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
         cancelAllSuggestionsInMessage(lastAssistantMsg.id);
       }
 
-      await sendMessage(request ? JSON.stringify(request) : text);
+      void sendMessage(request ? JSON.stringify(request) : messageText);
+      return true;
     },
-    [editorAgent, messages, cancelAllSuggestionsInMessage, sendMessage],
+    [
+      editorAgent,
+      isLoading,
+      messages,
+      cancelAllSuggestionsInMessage,
+      sendMessage,
+    ],
+  );
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      submitFromSelectionPanel(prompt) {
+        return handleSendMessage(prompt, { requireSelection: true });
+      },
+    }),
+    [handleSendMessage],
   );
 
   // 表单提交
   const handleFormSubmit = useCallback(
-    async (e: React.FormEvent) => {
+    (e: React.FormEvent) => {
       e.preventDefault();
       if (!input.trim() || isLoading) return;
 
-      const text = input;
-      setInput("");
-      await handleSendMessage(text);
+      if (handleSendMessage(input)) {
+        setInput("");
+      }
     },
     [input, isLoading, handleSendMessage, setInput],
   );
 
   // context-bar 快捷操作提交
   const handleQuickAction = useCallback(
-    (action: QuickAction, prompt: string) => {
+    (_action: QuickAction, prompt: string) => {
       handleSendMessage(prompt);
     },
     [handleSendMessage],
@@ -548,4 +586,6 @@ export function AgentChat({ editorAgent }: AgentChatProps) {
       </form>
     </div>
   );
-}
+});
+
+AgentChat.displayName = "AgentChat";

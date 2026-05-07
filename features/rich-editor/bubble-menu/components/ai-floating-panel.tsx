@@ -2,8 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { type Editor } from "@tiptap/react";
-import { Loader2, ArrowRight } from "lucide-react";
-import { createParser } from "eventsource-parser";
+import { ArrowRight } from "lucide-react";
 import {
   useFloating,
   offset,
@@ -11,22 +10,18 @@ import {
   autoUpdate,
 } from "@floating-ui/react";
 import { getAISelectionRange } from "../../extensions/ai-selection-highlight";
-import {
-  applyEditorAIPatch,
-  createEditorAIRequest,
-  type EditorAIPatchResult,
-} from "@/features/agent-editor/services/editor-ai-context";
 import { FloatingMenuLayer } from "./floating-menu-layer";
 
-type AIStatus = "input" | "loading" | "result" | "error" | "empty";
+type AIStatus = "input" | "error";
 
 interface AIFloatingPanelProps {
   editor: Editor;
   onClose: (payload: AIPanelClosePayload) => void;
+  onSelectionAISubmit?: (prompt: string) => boolean;
 }
 
 export interface AIPanelClosePayload {
-  reason: "cancel" | "replace" | "selection-lost";
+  reason: "cancel" | "replace" | "selection-lost" | "submit";
   caretPos?: number;
 }
 
@@ -34,14 +29,16 @@ export interface AIPanelClosePayload {
  * 独立的 AI 浮动面板组件
  * 使用 Floating UI 定位到选区位置，独立于 BubbleMenu
  */
-export function AIFloatingPanel({ editor, onClose }: AIFloatingPanelProps) {
+export function AIFloatingPanel({
+  editor,
+  onClose,
+  onSelectionAISubmit,
+}: AIFloatingPanelProps) {
   const [status, setStatus] = useState<AIStatus>("input");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const [transactionVersion, setTransactionVersion] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     const handleTransaction = () => {
@@ -137,12 +134,6 @@ export function AIFloatingPanel({ editor, onClose }: AIFloatingPanelProps) {
     refs.setReference(virtualReference);
   }, [refs, virtualReference]);
 
-  useEffect(() => {
-    return () => {
-      abortControllerRef.current?.abort();
-    };
-  }, []);
-
   // 自动聚焦输入框
   useEffect(() => {
     if (textareaRef.current) {
@@ -157,84 +148,32 @@ export function AIFloatingPanel({ editor, onClose }: AIFloatingPanelProps) {
   }, [selectionRange, onClose]);
 
   // 处理确定按钮点击
-  const handleSubmit = useCallback(async () => {
-    if (isLoading || !selectionRange) return;
-
-    setErrorMessage(null);
-    setStatus("loading");
-    setIsLoading(true);
-
-    const bundle = createEditorAIRequest(editor, inputValue);
-    if (!bundle) {
+  const handleSubmit = useCallback(() => {
+    if (!selectionRange) {
       setErrorMessage("请先选择需要处理的文本。");
       setStatus("error");
-      setIsLoading(false);
       return;
     }
 
-    abortControllerRef.current?.abort();
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
+    setErrorMessage(null);
+    setStatus("input");
 
-    try {
-      const response = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(bundle.request),
-        signal: controller.signal,
-      });
-
-      if (!response.ok) throw new Error(`Request failed: ${response.status}`);
-      if (!response.body) throw new Error("No response body");
-
-      let patch: EditorAIPatchResult | null = null;
-      const parser = createParser({
-        onEvent: (event) => {
-          if (event.data === "[DONE]") return;
-          const parsed = JSON.parse(event.data) as {
-            type?: string;
-            patch?: EditorAIPatchResult;
-          };
-          if (parsed.type === "patch" && parsed.patch) {
-            patch = parsed.patch;
-          }
-        },
-      });
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        parser.feed(decoder.decode(value, { stream: true }));
-      }
-
-      if (!patch) {
-        setStatus("empty");
-        return;
-      }
-
-      const result = applyEditorAIPatch(editor, patch);
-      if (result.status === "stale") {
-        setErrorMessage(result.reason);
-        setStatus("error");
-        return;
-      }
-
-      onClose({ reason: "cancel" });
-    } catch (error) {
-      if (error instanceof Error && error.name === "AbortError") return;
-      console.error("AI patch error:", error);
-      const message =
-        error instanceof Error ? error.message : "生成失败，请重试。";
-      setErrorMessage(message || "生成失败，请重试。");
+    const prompt = inputValue.trim();
+    if (!prompt) {
+      setErrorMessage("请输入你希望 AI 帮你做的事情。");
       setStatus("error");
-    } finally {
-      setIsLoading(false);
-      abortControllerRef.current = null;
+      return;
     }
-  }, [editor, inputValue, isLoading, onClose, selectionRange]);
+
+    const submitted = onSelectionAISubmit?.(prompt) ?? false;
+    if (!submitted) {
+      setErrorMessage("当前会话正在生成，或选区已失效。");
+      setStatus("error");
+      return;
+    }
+
+    onClose({ reason: "submit" });
+  }, [inputValue, onClose, onSelectionAISubmit, selectionRange]);
 
   // 处理键盘事件
   const handleKeyDown = useCallback(
@@ -254,21 +193,12 @@ export function AIFloatingPanel({ editor, onClose }: AIFloatingPanelProps) {
   const resultClassName = [
     "ai-panel-result",
     status === "error" ? "is-error" : "",
-    status === "empty" ? "is-empty" : "",
   ]
     .filter(Boolean)
     .join(" ");
 
   const resultContent =
-    status === "loading"
-      ? "正在生成..."
-      : status === "result"
-        ? "已生成修改建议。"
-        : status === "error"
-          ? errorMessage || "生成失败，请重试。"
-          : status === "empty"
-            ? "未生成可替换文本，请调整指令后重试。"
-            : "";
+    status === "error" ? errorMessage || "提交失败，请重试。" : "";
 
   return (
     <FloatingMenuLayer
@@ -284,7 +214,13 @@ export function AIFloatingPanel({ editor, onClose }: AIFloatingPanelProps) {
         className="ai-panel-textarea"
         placeholder="请输入你希望 AI 帮你做的事情..."
         value={inputValue}
-        onChange={(e) => setInputValue(e.target.value)}
+        onChange={(e) => {
+          setInputValue(e.target.value);
+          if (status === "error") {
+            setStatus("input");
+            setErrorMessage(null);
+          }
+        }}
         rows={2}
       />
 
@@ -305,13 +241,9 @@ export function AIFloatingPanel({ editor, onClose }: AIFloatingPanelProps) {
           type="button"
           className="ai-panel-btn ai-panel-btn-submit"
           onClick={handleSubmit}
-          disabled={isLoading || !selectionRange}
+          disabled={!inputValue.trim() || !selectionRange}
         >
-          {isLoading ? (
-            <Loader2 size={14} className="ai-panel-loading" />
-          ) : (
-            <ArrowRight size={14} />
-          )}
+          <ArrowRight size={14} />
         </button>
       </div>
     </FloatingMenuLayer>

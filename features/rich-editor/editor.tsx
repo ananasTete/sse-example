@@ -51,6 +51,7 @@ interface TiptapEditorProps {
   onEditorReady?: (editor: Editor) => void;
   onDocumentChange?: (snapshot: { raw: JSONContent; html: string }) => void;
   scrollTarget?: HTMLElement | Window | null;
+  onSelectionAISubmit?: (prompt: string) => boolean;
 }
 
 const TiptapEditor = ({
@@ -58,6 +59,7 @@ const TiptapEditor = ({
   onEditorReady,
   onDocumentChange,
   scrollTarget,
+  onSelectionAISubmit,
 }: TiptapEditorProps) => {
   const editor = useEditor({
     extensions: [
@@ -129,6 +131,7 @@ const TiptapEditor = ({
         key={scrollTarget ? "custom-scroll-target" : "window-scroll-target"}
         editor={editor}
         scrollTarget={scrollTarget}
+        onSelectionAISubmit={onSelectionAISubmit}
       />
       <SlashCommandMenu editor={editor} />
       <EditorContent editor={editor} />
