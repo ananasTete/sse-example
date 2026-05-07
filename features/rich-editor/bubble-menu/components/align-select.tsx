@@ -1,6 +1,5 @@
 import { memo } from 'react'
 import { type Editor } from '@tiptap/react'
-import { FloatingPortal } from '@floating-ui/react'
 import {
   AlignLeft,
   AlignCenter,
@@ -9,12 +8,11 @@ import {
   Check,
 } from 'lucide-react'
 import { useFloatingSelect } from '../hooks/use-floating-select'
+import { FloatingMenuLayer } from './floating-menu-layer'
 
 interface AlignSelectProps {
   editor: Editor
-  placementDir?: 'top' | 'bottom'
   activeAlignId: AlignId
-  onRequestPlacement?: () => void
 }
 
 const alignOptions = [
@@ -27,21 +25,19 @@ export type AlignId = (typeof alignOptions)[number]['id']
 
 export const AlignSelect = memo(function AlignSelect({
   editor,
-  placementDir = 'bottom',
   activeAlignId,
-  onRequestPlacement,
 }: AlignSelectProps) {
   const {
     isOpen,
     setReference,
     setFloating,
     floatingStyles,
+    context,
     getReferenceProps,
     getFloatingProps,
     close,
   } = useFloatingSelect({
-    placement: `${placementDir}-start`,
-    onOpen: onRequestPlacement,
+    placement: 'bottom-start',
   })
 
   const handleSelect = (alignId: AlignId) => {
@@ -66,31 +62,31 @@ export const AlignSelect = memo(function AlignSelect({
       </button>
 
       {isOpen && (
-        <FloatingPortal>
-          <div
-            ref={setFloating}
-            style={floatingStyles}
-            className="floating-select"
-            {...getFloatingProps()}
-          >
-            {alignOptions.map((option) => {
-              const Icon = option.icon
-              const isActive = activeAlignId === option.id
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  className={`floating-select-item ${isActive ? 'is-active' : ''}`}
-                  onClick={() => handleSelect(option.id)}
-                >
-                  <Icon size={16} />
-                  <span>{option.label}</span>
-                  {isActive && <Check size={14} className="check-icon" />}
-                </button>
-              )
-            })}
-          </div>
-        </FloatingPortal>
+        <FloatingMenuLayer
+          context={context}
+          close={close}
+          setFloating={setFloating}
+          floatingStyles={floatingStyles}
+          className="floating-select"
+          floatingProps={getFloatingProps()}
+        >
+          {alignOptions.map((option) => {
+            const Icon = option.icon
+            const isActive = activeAlignId === option.id
+            return (
+              <button
+                key={option.id}
+                type="button"
+                className={`floating-select-item ${isActive ? 'is-active' : ''}`}
+                onClick={() => handleSelect(option.id)}
+              >
+                <Icon size={16} />
+                <span>{option.label}</span>
+                {isActive && <Check size={14} className="check-icon" />}
+              </button>
+            )
+          })}
+        </FloatingMenuLayer>
       )}
     </>
   )

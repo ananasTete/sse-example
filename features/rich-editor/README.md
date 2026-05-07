@@ -44,6 +44,10 @@
 
 ## BubbleMenu 开发
 
+### 设计
+
+划词时的一级气泡菜单默认展示在划词文本上方，居中对齐。二级菜单默认展示在下方，当二级菜单出现伴随着页面级的全透明遮罩，只有二级菜单能操作，不能滚动，点击二级菜单外的位置退出二级菜单
+
 ### useEditorState
 
 **为什么要使用 `useEditorState` ?**
@@ -54,6 +58,14 @@
 
 1. 划词之后可以通过 menu 来更新选中文本样式比如加粗，那加粗之后也要将加粗按钮来高亮表示。这就是 `useEditorState` 这个场景的用途：在监听到变化后触发高亮按钮的重渲染。
 2. 因为有很多 menu 菜单，所以要订阅很多更新。AI 说 `transaction` 在编辑器触发频率很高，每次光标移动、输入字符、格式切换等都会触发，如果在每个菜单单独订阅数据，在每次 `transaction` 后执行 `selector` 并对比使用 `memo` 的成本更高，所以这里使用： 单点订阅 + `React.memo`
+
+### 二级菜单定位与遮罩
+
+二级菜单固定从触发按钮下方展开。Node Type、Alignment、Color 使用 `bottom-start`，More 使用 `bottom-end`。
+
+二级菜单打开时通过 `FloatingPortal` 挂载到 `body`，并同时渲染全透明页面遮罩。遮罩位于页面内容之上、二级菜单之下，负责拦截菜单外点击、滚轮和触摸滚动。点击遮罩会关闭当前二级菜单。
+
+滚动锁定不修改 `document.body.style.overflow`。真实滚动容器在编辑器页面内部，修改 body overflow 会引入页面级 layout shift。
 
 ### 分步菜单
 

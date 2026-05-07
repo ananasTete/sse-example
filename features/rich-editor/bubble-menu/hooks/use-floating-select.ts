@@ -108,6 +108,6 @@ export function useFloatingSelect(options: UseFloatingSelectOptions = {}) {
       context,
       getReferenceProps,
       getFloatingProps,
-    ]
+    ],
   );
 }

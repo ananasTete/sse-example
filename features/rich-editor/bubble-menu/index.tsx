@@ -1,14 +1,6 @@
 import { BubbleMenu as TiptapBubbleMenu } from "@tiptap/react/menus";
 import { isNodeSelection } from "@tiptap/core";
 import { type Editor, useEditorState } from "@tiptap/react";
-import {
-  computePosition,
-  flip,
-  offset,
-  shift,
-  size,
-  type VirtualElement,
-} from "@floating-ui/react";
 import { useState, useCallback } from "react";
 
 import { AIButton } from "./components/ai-button";
@@ -28,12 +20,8 @@ import { getActiveNodeTypeId } from "./bubble-menu-config";
 
 interface BubbleMenuProps {
   editor: Editor;
+  scrollTarget?: HTMLElement | Window | null;
 }
-
-const DROPDOWN_OFFSET = 8;
-const DROPDOWN_VIEWPORT_PADDING = 16;
-const MAX_DROPDOWN_HEIGHT = 420;
-const DROPDOWN_PROBE_WIDTH = 220;
 
 const alignMatchers: Array<{
   id: AlignId;
@@ -53,21 +41,16 @@ function getActiveAlignId(editor: Editor): AlignId {
   return alignMatchers.find((item) => item.isActive(editor))?.id ?? "left";
 }
 
-export function BubbleMenu({ editor }: BubbleMenuProps) {
-  const [placementDir, setPlacementDir] = useState<"top" | "bottom">("bottom");
+export function BubbleMenu({ editor, scrollTarget }: BubbleMenuProps) {
   const [showAIPanel, setShowAIPanel] = useState(false);
 
   const ui = useEditorState({
     editor,
     selector: ({ editor }) => {
-      const selection = editor.state.selection;
-
       const textColor = editor.getAttributes("textStyle").color || null;
       const highlightColor = editor.getAttributes("highlight").color || null;
 
       return {
-        selectionEmpty: selection.empty,
-        isNodeSelection: isNodeSelection(selection),
         nodeTypeId: getActiveNodeTypeId(editor),
         alignId: getActiveAlignId(editor),
         textColor,
@@ -80,61 +63,6 @@ export function BubbleMenu({ editor }: BubbleMenuProps) {
       };
     },
   });
-
-  const requestDropdownPlacement = useCallback(() => {
-    const { selection } = editor.state;
-    if (isNodeSelection(selection) || selection.empty) return;
-
-    const coords = editor.view.coordsAtPos(selection.from);
-    const reference: VirtualElement = {
-      getBoundingClientRect: () =>
-        new DOMRect(
-          coords.left,
-          coords.top,
-          Math.max(1, coords.right - coords.left),
-          Math.max(1, coords.bottom - coords.top),
-        ),
-    };
-
-    const probe = document.createElement("div");
-    Object.assign(probe.style, {
-      position: "fixed",
-      width: `${DROPDOWN_PROBE_WIDTH}px`,
-      height: `${MAX_DROPDOWN_HEIGHT}px`,
-      visibility: "hidden",
-      pointerEvents: "none",
-    });
-
-    document.body.appendChild(probe);
-
-    void computePosition(reference, probe, {
-      strategy: "fixed",
-      placement: "bottom-start",
-      middleware: [
-        offset(DROPDOWN_OFFSET),
-        flip({
-          padding: DROPDOWN_VIEWPORT_PADDING,
-          fallbackPlacements: ["top-start"],
-        }),
-        size({
-          padding: DROPDOWN_VIEWPORT_PADDING,
-          apply({ availableHeight, elements }) {
-            elements.floating.style.maxHeight = `${Math.max(
-              0,
-              Math.min(MAX_DROPDOWN_HEIGHT, availableHeight),
-            )}px`;
-          },
-        }),
-        shift({ padding: DROPDOWN_VIEWPORT_PADDING }),
-      ],
-    })
-      .then(({ placement }) => {
-        setPlacementDir(placement.startsWith("top") ? "top" : "bottom");
-      })
-      .finally(() => {
-        probe.remove();
-      });
-  }, [editor]);
 
   const clearAIPanelState = useCallback(
     (caretPos?: number) => {
@@ -190,20 +118,16 @@ export function BubbleMenu({ editor }: BubbleMenuProps) {
           pluginKey="richEditorBubbleMenu"
           className="bubble-menu"
           updateDelay={100}
-          resizeDelay={80}
-          appendTo={() => document.body}
+          resizeDelay={0}
           options={{
-            strategy: "fixed",
             placement: "top",
             offset: 8,
-            flip: {
-              padding: 12,
-              fallbackPlacements: ["bottom", "top-start", "bottom-start"],
-            },
+            flip: false,
             shift: {
               padding: 12,
             },
             inline: true,
+            scrollTarget: scrollTarget ?? undefined,
           }}
           shouldShow={({ state }) => {
             const { selection, doc } = state;
@@ -228,16 +152,12 @@ export function BubbleMenu({ editor }: BubbleMenuProps) {
           <NodeTypeSelect
             editor={editor}
             activeTypeId={ui.nodeTypeId}
-            placementDir={placementDir}
-            onRequestPlacement={requestDropdownPlacement}
           />
 
           {/* Alignment Select */}
           <AlignSelect
             editor={editor}
             activeAlignId={ui.alignId}
-            placementDir={placementDir}
-            onRequestPlacement={requestDropdownPlacement}
           />
 
           <Divider />
@@ -259,27 +179,18 @@ export function BubbleMenu({ editor }: BubbleMenuProps) {
             editor={editor}
             activeTextColor={ui.textColor}
             activeHighlight={ui.highlightColor}
-            placementDir={placementDir}
-            onRequestPlacement={requestDropdownPlacement}
           />
 
           <Divider />
 
           {/* More Menu */}
-          <MoreMenu
-            editor={editor}
-            placementDir={placementDir}
-            onRequestPlacement={requestDropdownPlacement}
-          />
+          <MoreMenu editor={editor} />
         </TiptapBubbleMenu>
       )}
 
       {/* 独立的 AI 浮动面板 */}
       {showAIPanel && (
-        <AIFloatingPanel
-          editor={editor}
-          onClose={handleCloseAIPanel}
-        />
+        <AIFloatingPanel editor={editor} onClose={handleCloseAIPanel} />
       )}
     </>
   );

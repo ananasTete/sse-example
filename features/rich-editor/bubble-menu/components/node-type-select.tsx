@@ -1,8 +1,8 @@
 import { memo } from 'react'
 import { type Editor } from '@tiptap/react'
-import { FloatingPortal } from '@floating-ui/react'
 import { ChevronDown, Check } from 'lucide-react'
 import { useFloatingSelect } from '../hooks/use-floating-select'
+import { FloatingMenuLayer } from './floating-menu-layer'
 import {
   getNodeTypeById,
   nodeTypes,
@@ -12,28 +12,24 @@ import {
 
 interface NodeTypeSelectProps {
   editor: Editor
-  placementDir?: 'top' | 'bottom'
   activeTypeId: NodeTypeId
-  onRequestPlacement?: () => void
 }
 
 export const NodeTypeSelect = memo(function NodeTypeSelect({
   editor,
-  placementDir = 'bottom',
   activeTypeId,
-  onRequestPlacement,
 }: NodeTypeSelectProps) {
   const {
     isOpen,
     setReference,
     setFloating,
     floatingStyles,
+    context,
     getReferenceProps,
     getFloatingProps,
     close,
   } = useFloatingSelect({
-    placement: `${placementDir}-start`,
-    onOpen: onRequestPlacement,
+    placement: 'bottom-start',
   })
 
   const handleSelect = (typeId: NodeTypeId) => {
@@ -57,31 +53,31 @@ export const NodeTypeSelect = memo(function NodeTypeSelect({
       </button>
 
       {isOpen && (
-        <FloatingPortal>
-          <div
-            ref={setFloating}
-            style={floatingStyles}
-            className="floating-select"
-            {...getFloatingProps()}
-          >
-            {nodeTypes.map((nodeType) => {
-              const Icon = nodeType.icon
-              const isActive = activeTypeId === nodeType.id
-              return (
-                <button
-                  key={nodeType.id}
-                  type="button"
-                  className={`floating-select-item ${isActive ? 'is-active' : ''}`}
-                  onClick={() => handleSelect(nodeType.id)}
-                >
-                  <Icon size={16} />
-                  <span>{nodeType.label}</span>
-                  {isActive && <Check size={14} className="check-icon" />}
-                </button>
-              )
-            })}
-          </div>
-        </FloatingPortal>
+        <FloatingMenuLayer
+          context={context}
+          close={close}
+          setFloating={setFloating}
+          floatingStyles={floatingStyles}
+          className="floating-select"
+          floatingProps={getFloatingProps()}
+        >
+          {nodeTypes.map((nodeType) => {
+            const Icon = nodeType.icon
+            const isActive = activeTypeId === nodeType.id
+            return (
+              <button
+                key={nodeType.id}
+                type="button"
+                className={`floating-select-item ${isActive ? 'is-active' : ''}`}
+                onClick={() => handleSelect(nodeType.id)}
+              >
+                <Icon size={16} />
+                <span>{nodeType.label}</span>
+                {isActive && <Check size={14} className="check-icon" />}
+              </button>
+            )
+          })}
+        </FloatingMenuLayer>
       )}
     </>
   )

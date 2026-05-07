@@ -7,10 +7,8 @@ import { createParser } from "eventsource-parser";
 import {
   useFloating,
   offset,
-  flip,
   shift,
   autoUpdate,
-  FloatingPortal,
 } from "@floating-ui/react";
 import { getAISelectionRange } from "../../extensions/ai-selection-highlight";
 import {
@@ -18,6 +16,7 @@ import {
   createEditorAIRequest,
   type EditorAIPatchResult,
 } from "@/features/agent-editor/services/editor-ai-context";
+import { FloatingMenuLayer } from "./floating-menu-layer";
 
 type AIStatus = "input" | "loading" | "result" | "error" | "empty";
 
@@ -109,16 +108,12 @@ export function AIFloatingPanel({ editor, onClose }: AIFloatingPanelProps) {
     };
   }, [editor, selectionRange]);
 
-  // Floating UI 配置
-  const { refs, floatingStyles, elements } = useFloating({
+  const { refs, floatingStyles, elements, context } = useFloating({
+    strategy: "fixed",
     placement: "bottom-start",
     middleware: [
-      offset(8), // 与选区保持 8px 距离
-      flip({
-        fallbackPlacements: ["top-start", "bottom-end", "top-end"],
-        padding: 16,
-      }),
-      shift({ padding: 16 }), // 防止超出视口
+      offset(8),
+      shift({ padding: 16 }),
     ],
     whileElementsMounted: autoUpdate,
   });
@@ -276,58 +271,49 @@ export function AIFloatingPanel({ editor, onClose }: AIFloatingPanelProps) {
             : "";
 
   return (
-    <FloatingPortal>
-      {/* 使用 fixed 遮盖整个屏幕，其中的作为气泡菜单定位到 virtualReference  */}
-      <div
-        className="ai-floating-backdrop"
-        style={{ visibility: isPositioned ? "visible" : "hidden" }}
-        onPointerDown={() => onClose({ reason: "cancel" })}
+    <FloatingMenuLayer
+      context={context}
+      close={() => onClose({ reason: "cancel" })}
+      setFloating={(node) => refs.setFloating(node)}
+      floatingStyles={safeFloatingStyles}
+      className="ai-floating-panel"
+      floatingProps={{ onKeyDown: handleKeyDown }}
+    >
+      <textarea
+        ref={textareaRef}
+        className="ai-panel-textarea"
+        placeholder="请输入你希望 AI 帮你做的事情..."
+        value={inputValue}
+        onChange={(e) => setInputValue(e.target.value)}
+        rows={2}
       />
-      <div
-        ref={(node) => refs.setFloating(node)}
-        style={safeFloatingStyles}
-        className="ai-floating-panel"
-        onKeyDown={handleKeyDown}
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        {/* Textarea 输入框 */}
-        <textarea
-          ref={textareaRef}
-          className="ai-panel-textarea"
-          placeholder="请输入你希望 AI 帮你做的事情..."
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          rows={2}
-        />
 
-        {status !== "input" && (
-          <div className={resultClassName}>{resultContent}</div>
-        )}
+      {status !== "input" && (
+        <div className={resultClassName}>{resultContent}</div>
+      )}
 
-        {/* 按钮组 */}
-        <div className="ai-panel-actions">
-          <button
-            type="button"
-            className="ai-panel-btn ai-panel-btn-cancel"
-            onClick={() => onClose({ reason: "cancel" })}
-          >
-            取消
-          </button>
+      <div className="ai-panel-actions">
+        <button
+          type="button"
+          className="ai-panel-btn ai-panel-btn-cancel"
+          onClick={() => onClose({ reason: "cancel" })}
+        >
+          取消
+        </button>
 
-          <button
-            type="button"
-            className="ai-panel-btn ai-panel-btn-submit"
-            onClick={handleSubmit}
-            disabled={isLoading || !selectionRange}
-          >
-            {isLoading ? (
-              <Loader2 size={14} className="ai-panel-loading" />
-            ) : (
-              <ArrowRight size={14} />
-            )}
-          </button>
-        </div>
+        <button
+          type="button"
+          className="ai-panel-btn ai-panel-btn-submit"
+          onClick={handleSubmit}
+          disabled={isLoading || !selectionRange}
+        >
+          {isLoading ? (
+            <Loader2 size={14} className="ai-panel-loading" />
+          ) : (
+            <ArrowRight size={14} />
+          )}
+        </button>
       </div>
-    </FloatingPortal>
+    </FloatingMenuLayer>
   );
 }

@@ -1,33 +1,29 @@
 import { memo } from 'react'
 import { type Editor } from '@tiptap/react'
-import { FloatingPortal } from '@floating-ui/react'
 import { MoreVertical, Copy, Trash2 } from 'lucide-react'
 import { useFloatingSelect } from '../hooks/use-floating-select'
+import { FloatingMenuLayer } from './floating-menu-layer'
 
 interface MoreMenuProps {
   editor: Editor
-  placementDir?: 'top' | 'bottom'
   isBlockNode?: boolean
-  onRequestPlacement?: () => void
 }
 
 export const MoreMenu = memo(function MoreMenu({
   editor,
-  placementDir = 'bottom',
   isBlockNode = false,
-  onRequestPlacement,
 }: MoreMenuProps) {
   const {
     isOpen,
     setReference,
     setFloating,
     floatingStyles,
+    context,
     getReferenceProps,
     getFloatingProps,
     close,
   } = useFloatingSelect({
-    placement: `${placementDir}-end`,
-    onOpen: onRequestPlacement,
+    placement: 'bottom-end',
   })
 
   const handleCopy = () => {
@@ -64,31 +60,31 @@ export const MoreMenu = memo(function MoreMenu({
       </button>
 
       {isOpen && (
-        <FloatingPortal>
-          <div
-            ref={setFloating}
-            style={floatingStyles}
-            className="floating-select more-menu"
-            {...getFloatingProps()}
+        <FloatingMenuLayer
+          context={context}
+          close={close}
+          setFloating={setFloating}
+          floatingStyles={floatingStyles}
+          className="floating-select more-menu"
+          floatingProps={getFloatingProps()}
+        >
+          <button
+            type="button"
+            className="floating-select-item"
+            onClick={handleCopy}
           >
-            <button
-              type="button"
-              className="floating-select-item"
-              onClick={handleCopy}
-            >
-              <Copy size={16} />
-              <span>Copy</span>
-            </button>
-            <button
-              type="button"
-              className="floating-select-item delete-item"
-              onClick={handleDelete}
-            >
-              <Trash2 size={16} />
-              <span>Delete</span>
-            </button>
-          </div>
-        </FloatingPortal>
+            <Copy size={16} />
+            <span>Copy</span>
+          </button>
+          <button
+            type="button"
+            className="floating-select-item delete-item"
+            onClick={handleDelete}
+          >
+            <Trash2 size={16} />
+            <span>Delete</span>
+          </button>
+        </FloatingMenuLayer>
       )}
     </>
   )

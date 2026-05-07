@@ -1,15 +1,13 @@
 import { memo } from 'react'
 import { type Editor } from '@tiptap/react'
-import { FloatingPortal } from '@floating-ui/react'
 import { Palette, ChevronDown, Check } from 'lucide-react'
 import { useFloatingSelect } from '../hooks/use-floating-select'
+import { FloatingMenuLayer } from './floating-menu-layer'
 
 interface ColorSelectProps {
   editor: Editor
-  placementDir?: 'top' | 'bottom'
   activeTextColor: string | null
   activeHighlight: string | null
-  onRequestPlacement?: () => void
 }
 
 const textColors = [
@@ -38,22 +36,20 @@ const backgroundColors = [
 
 export const ColorSelect = memo(function ColorSelect({
   editor,
-  placementDir = 'bottom',
   activeTextColor,
   activeHighlight,
-  onRequestPlacement,
 }: ColorSelectProps) {
   const {
     isOpen,
     setReference,
     setFloating,
     floatingStyles,
+    context,
     getReferenceProps,
     getFloatingProps,
     close,
   } = useFloatingSelect({
-    placement: `${placementDir}-start`,
-    onOpen: onRequestPlacement,
+    placement: 'bottom-start',
   })
 
   const handleTextColorSelect = (color: string | null) => {
@@ -88,65 +84,63 @@ export const ColorSelect = memo(function ColorSelect({
       </button>
 
       {isOpen && (
-        <FloatingPortal>
-          <div
-            ref={setFloating}
-            style={floatingStyles}
-            className="floating-select color-select"
-            {...getFloatingProps()}
-          >
-            {/* Text Color Section */}
-            <div className="color-section-label">Color</div>
-            {textColors.map((item) => {
-              const isActive = item.color === activeTextColor
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`floating-select-item ${isActive ? 'is-active' : ''}`}
-                  onClick={() => handleTextColorSelect(item.color)}
+        <FloatingMenuLayer
+          context={context}
+          close={close}
+          setFloating={setFloating}
+          floatingStyles={floatingStyles}
+          className="floating-select color-select"
+          floatingProps={getFloatingProps()}
+        >
+          <div className="color-section-label">Color</div>
+          {textColors.map((item) => {
+            const isActive = item.color === activeTextColor
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`floating-select-item ${isActive ? 'is-active' : ''}`}
+                onClick={() => handleTextColorSelect(item.color)}
+              >
+                <span
+                  className="color-indicator"
+                  style={{
+                    backgroundColor: item.color ?? 'transparent',
+                    color: item.color ?? '#374151',
+                  }}
                 >
-                  <span
-                    className="color-indicator"
-                    style={{
-                      backgroundColor: item.color ?? 'transparent',
-                      color: item.color ?? '#374151',
-                    }}
-                  >
-                    A
-                  </span>
-                  <span>{item.label}</span>
-                  {isActive && <Check size={14} className="check-icon" />}
-                </button>
-              )
-            })}
+                  A
+                </span>
+                <span>{item.label}</span>
+                {isActive && <Check size={14} className="check-icon" />}
+              </button>
+            )
+          })}
 
-            {/* Background Color Section */}
-            <div className="color-section-label">Background</div>
-            {backgroundColors.map((item) => {
-              const isActive = item.color === activeHighlight
-              return (
-                <button
-                  key={item.id}
-                  type="button"
-                  className={`floating-select-item ${isActive ? 'is-active' : ''}`}
-                  onClick={() => handleBackgroundColorSelect(item.color)}
+          <div className="color-section-label">Background</div>
+          {backgroundColors.map((item) => {
+            const isActive = item.color === activeHighlight
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={`floating-select-item ${isActive ? 'is-active' : ''}`}
+                onClick={() => handleBackgroundColorSelect(item.color)}
+              >
+                <span
+                  className="color-indicator has-bg"
+                  style={{
+                    backgroundColor: item.color ?? 'transparent',
+                  }}
                 >
-                  <span
-                    className="color-indicator has-bg"
-                    style={{
-                      backgroundColor: item.color ?? 'transparent',
-                    }}
-                  >
-                    A
-                  </span>
-                  <span>{item.label}</span>
-                  {isActive && <Check size={14} className="check-icon" />}
-                </button>
-              )
-            })}
-          </div>
-        </FloatingPortal>
+                  A
+                </span>
+                <span>{item.label}</span>
+                {isActive && <Check size={14} className="check-icon" />}
+              </button>
+            )
+          })}
+        </FloatingMenuLayer>
       )}
     </>
   )

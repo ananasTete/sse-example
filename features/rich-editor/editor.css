@@ -176,6 +176,11 @@
   transform: scale(0.95);
 }
 
+.bubble-menu .select-trigger:active,
+.bubble-menu .menu-button:active {
+  transform: none;
+}
+
 .bubble-menu button:disabled {
   opacity: 0.4;
   cursor: not-allowed;

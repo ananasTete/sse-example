@@ -16,6 +16,8 @@ export const Route = createFileRoute("/agent-editor")({
 
 function AgentEditorPage() {
   const [editor, setEditor] = useState<Editor | null>(null);
+  const [editorScrollElement, setEditorScrollElement] =
+    useState<HTMLDivElement | null>(null);
   const [initialContent] = useState(
     () => loadAgentEditorDocument()?.raw,
   );
@@ -28,13 +30,17 @@ function AgentEditorPage() {
   return (
     <div className="h-screen p-4 bg-[#fbf7f2]">
       <div className="h-full flex gap-2 border border-[#ece4d8] bg-[#fdfaf6]">
-        <div className="rounded-sm flex-1 overflow-auto bg-white shadow-[0_1px_0_rgba(63,53,45,0.05)]">
+        <div
+          ref={setEditorScrollElement}
+          className="rounded-sm flex-1 overflow-auto bg-white shadow-[0_1px_0_rgba(63,53,45,0.05)]"
+        >
           <div className="w-200 mx-auto">
             <ErrorBoundary>
               <TiptapEditor
                 initialContent={initialContent}
                 onEditorReady={handleEditorReady}
                 onDocumentChange={saveAgentEditorDocument}
+                scrollTarget={editorScrollElement}
               />
             </ErrorBoundary>
           </div>

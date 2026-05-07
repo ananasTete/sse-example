@@ -50,12 +50,14 @@ interface TiptapEditorProps {
   initialContent?: string | JSONContent;
   onEditorReady?: (editor: Editor) => void;
   onDocumentChange?: (snapshot: { raw: JSONContent; html: string }) => void;
+  scrollTarget?: HTMLElement | Window | null;
 }
 
 const TiptapEditor = ({
   initialContent,
   onEditorReady,
   onDocumentChange,
+  scrollTarget,
 }: TiptapEditorProps) => {
   const editor = useEditor({
     extensions: [
@@ -123,7 +125,11 @@ const TiptapEditor = ({
 
   return (
     <div className="editor-container">
-      <BubbleMenu editor={editor} />
+      <BubbleMenu
+        key={scrollTarget ? "custom-scroll-target" : "window-scroll-target"}
+        editor={editor}
+        scrollTarget={scrollTarget}
+      />
       <SlashCommandMenu editor={editor} />
       <EditorContent editor={editor} />
     </div>
