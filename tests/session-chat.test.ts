@@ -302,7 +302,10 @@ test("completion with search streams and persists search fragments", async () =>
   let streamSystemPrompt = "";
 
   async function* searchStream() {
-    yield { type: "text-delta", text: "DeepSeek-V4[citation:1]" };
+    yield {
+      type: "text-delta",
+      text: 'DeepSeek-V4<citation cite_index="1">1</citation>',
+    };
     yield { type: "finish", totalUsage: { totalTokens: 12 } };
   }
 
@@ -342,10 +345,13 @@ test("completion with search streams and persists search fragments", async () =>
   assert.match(sseText, /"p":"response\/fragments\/-1\/results"/);
   assert.match(sseText, /"p":"fragments","o":"APPEND"/);
   assert.match(sseText, /"id":2,"type":"RESPONSE"/);
-  assert.match(sseText, /DeepSeek-V4\[citation:1\]/);
+  assert.match(
+    sseText,
+    /DeepSeek-V4<citation cite_index=\\"1\\">1<\/citation>/,
+  );
   assert.match(sseText, /"p":"response\/fragments\/-1\/status","o":"SET","v":"FINISHED"/);
   assert.match(streamSystemPrompt, /DeepSeek V4 发布并开源/);
-  assert.match(streamSystemPrompt, /\[citation:N\]/);
+  assert.match(streamSystemPrompt, /<citation cite_index="N">N<\/citation>/);
 
   const messages = await prisma.chatMessage.findMany({
     where: { chatSessionId },
@@ -381,8 +387,67 @@ test("completion with search streams and persists search fragments", async () =>
     },
   ]);
   assert.equal(assistant?.fragments[1].type, "RESPONSE");
-  assert.equal(assistant?.fragments[1].content, "DeepSeek-V4[citation:1]");
+  assert.equal(
+    assistant?.fragments[1].content,
+    'DeepSeek-V4<citation cite_index="1">1</citation>',
+  );
   assert.equal(assistant?.fragments[1].stageId, assistant?.fragments[0].localId);
+});
+
+test("search completion normalizes streamed citation tags to cite_index tags", async () => {
+  const chatSessionId = await createSessionId();
+
+  async function* searchStream() {
+    yield { type: "text-delta", text: "DeepSeek" };
+    yield { type: "text-delta", text: '<citation cite="1">' };
+    yield { type: "text-delta", text: "1</citation>" };
+    yield { type: "finish", totalUsage: { totalTokens: 12 } };
+  }
+
+  const response = await chatCompletionHandler(
+    createCompletionRequest({
+      chatSessionId,
+      searchEnabled: true,
+      prompt: "DeepSeek 最新模型 2026",
+    }),
+    {
+      streamText: createStreamTextOverride(searchStream()),
+      webSearch: createWebSearchOverride({
+        queries: [{ query: "DeepSeek 最新模型 2026" }],
+        results: [
+          {
+            url: "https://example.com/deepseek-v4",
+            title: "DeepSeek V4 发布",
+            snippet: "DeepSeek V4 发布并开源。",
+            cite_index: 1,
+            site_name: "example.com",
+            query_indexes: [0],
+          },
+        ],
+      }),
+    },
+  );
+
+  const sseText = await response.text();
+  assert.match(sseText, /"v":"<citation cite_index=\\"1\\">1<\/citation>"/);
+  assert.doesNotMatch(sseText, /cite=\\"1\\"/);
+
+  const assistant = await prisma.chatMessage.findFirstOrThrow({
+    where: {
+      chatSessionId,
+      role: "ASSISTANT",
+    },
+    include: {
+      fragments: {
+        orderBy: { localId: "asc" },
+      },
+    },
+  });
+
+  assert.equal(
+    assistant.fragments[1].content,
+    'DeepSeek<citation cite_index="1">1</citation>',
+  );
 });
 
 test("search completion creates search fragment before response text", async () => {

@@ -1,10 +1,7 @@
 "use client";
 
 import { Button } from "@/components/ui/button";
-import {
-  ButtonGroup,
-  ButtonGroupText,
-} from "@/components/ui/button-group";
+import { ButtonGroup, ButtonGroupText } from "@/components/ui/button-group";
 import {
   Tooltip,
   TooltipContent,
@@ -39,7 +36,7 @@ export const Message = ({ className, from, ...props }: MessageProps) => (
     className={cn(
       "group flex w-full max-w-[95%] flex-col gap-2",
       from === "user" ? "is-user ml-auto justify-end" : "is-assistant",
-      className
+      className,
     )}
     {...props}
   />
@@ -57,7 +54,7 @@ export const MessageContent = ({
       "is-user:dark flex w-fit min-w-0 max-w-full flex-col gap-2 overflow-hidden text-sm",
       "group-[.is-user]:ml-auto group-[.is-user]:rounded-lg group-[.is-user]:bg-secondary group-[.is-user]:px-4 group-[.is-user]:py-3 group-[.is-user]:text-foreground",
       "group-[.is-assistant]:text-foreground",
-      className
+      className,
     )}
     {...props}
   >
@@ -123,7 +120,7 @@ interface MessageBranchContextType {
 }
 
 const MessageBranchContext = createContext<MessageBranchContextType | null>(
-  null
+  null,
 );
 
 const useMessageBranch = () => {
@@ -131,7 +128,7 @@ const useMessageBranch = () => {
 
   if (!context) {
     throw new Error(
-      "MessageBranch components must be used within MessageBranch"
+      "MessageBranch components must be used within MessageBranch",
     );
   }
 
@@ -157,7 +154,7 @@ export const MessageBranch = ({
       setCurrentBranch(newBranch);
       onBranchChange?.(newBranch);
     },
-    [onBranchChange]
+    [onBranchChange],
   );
 
   const goToPrevious = useCallback(() => {
@@ -181,7 +178,7 @@ export const MessageBranch = ({
       setBranches,
       totalBranches: branches.length,
     }),
-    [branches, currentBranch, goToNext, goToPrevious]
+    [branches, currentBranch, goToNext, goToPrevious],
   );
 
   return (
@@ -203,7 +200,7 @@ export const MessageBranchContent = ({
   const { currentBranch, setBranches, branches } = useMessageBranch();
   const childrenArray = useMemo(
     () => (Array.isArray(children) ? children : [children]),
-    [children]
+    [children],
   );
 
   // Use useEffect to update branches when they change
@@ -217,7 +214,7 @@ export const MessageBranchContent = ({
     <div
       className={cn(
         "grid gap-2 overflow-hidden [&>div]:pb-0",
-        index === currentBranch ? "block" : "hidden"
+        index === currentBranch ? "block" : "hidden",
       )}
       key={branch.key}
       {...props}
@@ -244,7 +241,7 @@ export const MessageBranchSelector = ({
     <ButtonGroup
       className={cn(
         "[&>*:not(:first-child)]:rounded-l-md [&>*:not(:last-child)]:rounded-r-md",
-        className
+        className,
       )}
       orientation="horizontal"
       {...props}
@@ -310,7 +307,7 @@ export const MessageBranchPage = ({
     <ButtonGroupText
       className={cn(
         "border-none bg-transparent text-muted-foreground shadow-none",
-        className
+        className,
       )}
       {...props}
     >
@@ -324,121 +321,6 @@ export interface MessageCitation {
   url: string;
   title?: string;
   site_name?: string;
-}
-
-type CitationMarkdownNode =
-  | { type: "text"; value: string }
-  | { type: "html"; value: string };
-
-export function createCitationMarkdownNodes(
-  value: string,
-  citationIndexes: ReadonlySet<number>
-): CitationMarkdownNode[] {
-  const nodes: CitationMarkdownNode[] = [];
-  const citationPattern = /\[citation:(\d+)\]/g;
-  let lastIndex = 0;
-  const pushText = (text: string) => {
-    if (!text) return;
-    const lastNode = nodes.at(-1);
-    if (lastNode?.type === "text") {
-      lastNode.value += text;
-      return;
-    }
-    nodes.push({ type: "text", value: text });
-  };
-
-  for (const match of value.matchAll(citationPattern)) {
-    const matchIndex = match.index ?? 0;
-    const citationIndex = Number(match[1]);
-    const rawCitation = match[0];
-
-    if (matchIndex > lastIndex) {
-      pushText(value.slice(lastIndex, matchIndex));
-    }
-
-    if (citationIndexes.has(citationIndex)) {
-      nodes.push({
-        type: "html",
-        value: `<citation cite_index="${citationIndex}">[${citationIndex}]</citation>`,
-      });
-    } else {
-      pushText(rawCitation);
-    }
-
-    lastIndex = matchIndex + rawCitation.length;
-  }
-
-  if (lastIndex < value.length) {
-    pushText(value.slice(lastIndex));
-  }
-
-  return nodes.length > 0 ? nodes : [{ type: "text", value }];
-}
-
-function createCitationRemarkPlugin(citationIndexes: ReadonlySet<number>) {
-  return function remarkCitationTags() {
-    return function transform(tree: unknown) {
-      transformCitationTextNodes(tree, citationIndexes);
-    };
-  };
-}
-
-function isMarkdownParent(value: unknown): value is { children: unknown[] } {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    Array.isArray((value as { children?: unknown }).children)
-  );
-}
-
-function getMarkdownNodeType(value: unknown) {
-  if (typeof value !== "object" || value === null) return "";
-  const type = (value as { type?: unknown }).type;
-  return typeof type === "string" ? type : "";
-}
-
-function isTextNode(value: unknown): value is { type: "text"; value: string } {
-  return (
-    getMarkdownNodeType(value) === "text" &&
-    typeof (value as { value?: unknown }).value === "string"
-  );
-}
-
-export function transformCitationTextNodes(
-  node: unknown,
-  citationIndexes: ReadonlySet<number>,
-  blocked = false
-) {
-  if (!isMarkdownParent(node)) return;
-
-  const children = node.children;
-  for (let index = 0; index < children.length; index += 1) {
-    const child = children[index];
-    const childType = getMarkdownNodeType(child);
-    const childBlocked =
-      blocked ||
-      childType === "link" ||
-      childType === "linkReference" ||
-      childType === "html" ||
-      childType === "code" ||
-      childType === "inlineCode";
-
-    if (!childBlocked && isTextNode(child)) {
-      const replacement = createCitationMarkdownNodes(
-        child.value,
-        citationIndexes
-      );
-
-      if (replacement.length !== 1 || replacement[0].value !== child.value) {
-        children.splice(index, 1, ...replacement);
-        index += replacement.length - 1;
-      }
-
-      continue;
-    }
-
-    transformCitationTextNodes(child, citationIndexes, childBlocked);
-  }
 }
 
 function getCitationTitle(citation: MessageCitation) {
@@ -469,34 +351,19 @@ export const MessageResponse = memo(
       return citationMap;
     }, [citations]);
 
-    const citationIndexes = useMemo(
-      () => new Set(citationByIndex.keys()),
-      [citationByIndex]
-    );
-
-    const citationRemarkPlugin = useMemo(
-      () => createCitationRemarkPlugin(citationIndexes),
-      [citationIndexes]
-    );
-
-    const mergedRemarkPlugins = useMemo(
-      () => [...(remarkPlugins ?? []), citationRemarkPlugin],
-      [remarkPlugins, citationRemarkPlugin]
-    );
-
     const mergedAllowedTags = useMemo(
       () => ({
         ...allowedTags,
         citation: Array.from(
-          new Set([...(allowedTags?.citation ?? []), "cite_index"])
+          new Set([...(allowedTags?.citation ?? []), "cite_index"]),
         ),
       }),
-      [allowedTags]
+      [allowedTags],
     );
 
     const mergedLiteralTagContent = useMemo(
       () => Array.from(new Set([...(literalTagContent ?? []), "citation"])),
-      [literalTagContent]
+      [literalTagContent],
     );
 
     const mergedComponents = useMemo(
@@ -534,7 +401,7 @@ export const MessageResponse = memo(
           );
         },
       }),
-      [components, citationByIndex]
+      [components, citationByIndex],
     );
 
     return (
@@ -542,12 +409,12 @@ export const MessageResponse = memo(
         allowedTags={mergedAllowedTags}
         className={cn(
           "size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-          className
+          className,
         )}
         components={mergedComponents}
         literalTagContent={mergedLiteralTagContent}
         plugins={streamdownPlugins}
-        remarkPlugins={mergedRemarkPlugins}
+        remarkPlugins={remarkPlugins}
         {...props}
       />
     );
@@ -555,7 +422,7 @@ export const MessageResponse = memo(
   (prevProps, nextProps) =>
     prevProps.children === nextProps.children &&
     nextProps.isAnimating === prevProps.isAnimating &&
-    nextProps.citations === prevProps.citations
+    nextProps.citations === prevProps.citations,
 );
 
 MessageResponse.displayName = "MessageResponse";
@@ -570,7 +437,7 @@ export const MessageToolbar = ({
   <div
     className={cn(
       "mt-4 flex w-full items-center justify-between gap-4",
-      className
+      className,
     )}
     {...props}
   >

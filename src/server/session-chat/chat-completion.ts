@@ -224,7 +224,7 @@ function buildSearchSystemPrompt(searchResults: SearchResultPayload[]) {
 
   return [
     "你可以使用以下搜索结果回答用户问题。",
-    "回答必须基于搜索结果；引用来源时使用 [citation:N]，N 对应搜索结果编号。",
+    "回答必须基于搜索结果；引用来源时使用 <citation cite_index=\"N\">N</citation>，N 对应搜索结果编号。",
     "搜索结果无法支持的内容，直接说明当前搜索结果未提供。",
     "",
     ...searchResults.map((result) =>
@@ -459,6 +459,60 @@ async function createCompletionTurn(body: CompletionRequestBody) {
   });
 }
 
+function normalizeCitationTags(value: string) {
+  return value.replace(
+    /<citation\b([^>]*)>([\s\S]*?)<\/citation>/g,
+    (raw, attributes: string, children: string) => {
+      const attributeMatch = attributes.match(
+        /\b(?:cite_index|cite)=["']?(\d+)["']?/,
+      );
+      const childMatch = children.match(/\d+/);
+      const citeIndex = attributeMatch?.[1] ?? childMatch?.[0];
+      return citeIndex
+        ? `<citation cite_index="${citeIndex}">${children}</citation>`
+        : raw;
+    },
+  );
+}
+
+function extractFlushableCitationMarkdown(buffer: string): {
+  flush: string;
+  hold: string;
+} {
+  const OPEN = "<citation";
+  const CLOSE = "</citation>";
+
+  let pos = 0;
+
+  while (pos < buffer.length) {
+    const openIdx = buffer.indexOf(OPEN, pos);
+
+    if (openIdx === -1) {
+      for (let i = OPEN.length - 1; i >= 1; i--) {
+        if (buffer.endsWith(OPEN.slice(0, i))) {
+          return {
+            flush: normalizeCitationTags(buffer.slice(0, buffer.length - i)),
+            hold: buffer.slice(buffer.length - i),
+          };
+        }
+      }
+      return { flush: normalizeCitationTags(buffer), hold: "" };
+    }
+
+    const closeIdx = buffer.indexOf(CLOSE, openIdx);
+    if (closeIdx === -1) {
+      return {
+        flush: normalizeCitationTags(buffer.slice(0, openIdx)),
+        hold: buffer.slice(openIdx),
+      };
+    }
+
+    pos = closeIdx + CLOSE.length;
+  }
+
+  return { flush: normalizeCitationTags(buffer), hold: "" };
+}
+
 export async function chatCompletionHandler(
   request: Request,
   options: ChatCompletionHandlerOptions = {},
@@ -541,6 +595,7 @@ export async function chatCompletionHandler(
       let searchQueries: SearchQueryPayload[] = [];
       let searchResults: SearchResultPayload[] = [];
       let content = "";
+      let citationBuffer = "";
       let lastPersistedContent = "";
       let lastPersistedAt = 0;
       let tokenUsage = 0;
@@ -872,15 +927,21 @@ export async function chatCompletionHandler(
         for await (const part of result.fullStream) {
           if (part.type === "text-delta") {
             await ensureResponseFragmentInitialized();
-            content += part.text;
+            citationBuffer += part.text;
 
-            await persistContent();
+            const { flush, hold } =
+              extractFlushableCitationMarkdown(citationBuffer);
+            citationBuffer = hold;
 
-            sendPatch({
-              p: "response/fragments/-1/content",
-              o: "APPEND",
-              v: part.text,
-            });
+            if (flush) {
+              content += flush;
+              await persistContent();
+              sendPatch({
+                p: "response/fragments/-1/content",
+                o: "APPEND",
+                v: flush,
+              });
+            }
           }
 
           if (part.type === "finish") {
@@ -890,6 +951,17 @@ export async function chatCompletionHandler(
 
         if (fragmentId === null) {
           await ensureResponseFragmentInitialized();
+        }
+
+        if (citationBuffer) {
+          const flush = normalizeCitationTags(citationBuffer);
+          content += flush;
+          sendPatch({
+            p: "response/fragments/-1/content",
+            o: "APPEND",
+            v: flush,
+          });
+          citationBuffer = "";
         }
 
         await persistContent(true);
