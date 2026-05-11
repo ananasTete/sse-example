@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   ChatStreamPatchContext,
 } from "../types";
+import { consumePatchStream } from "@/lib/chat-core/client/stream-consumer";
 import {
   createChatCompletionParser,
   type ChatCompletionStreamCallbacks,
@@ -35,6 +36,7 @@ export async function processChatCompletionStream({
   const patchContext: ChatStreamPatchContext = {
     responseMessageId: null,
     responseMessageIndex: null,
+    lastTarget: null,
     lastPath: null,
     lastOperation: null,
   };
@@ -52,21 +54,7 @@ export async function processChatCompletionStream({
     },
   });
 
-  // 把 HTTP 响应的二进制流先通过 TextDecoderStream 转成文本流。
-  // 并自动处理 UTF-8 字符跨 chunk 被切开的情况。比如一个中文字符的字节被拆到两次 read() 里，TextDecoderStream 会缓存残缺字节，等完整后再输出正确字符串。
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
-
-    // 把文本块交给 eventsource-parser 解析，他会自动处理一个 SSE 消息被切开的情况，等待完整消息拼接完整才输出。
-    parser.feed(value);
-
-    if (streamError) {
-      throw streamError;
-    }
-  }
+  await consumePatchStream(response, parser);
 
   if (streamError) {
     throw streamError;

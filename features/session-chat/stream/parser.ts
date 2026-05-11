@@ -1,14 +1,15 @@
 import { createParser, type EventSourceMessage } from "eventsource-parser";
 import { produce } from "immer";
+import { applyStreamData as applyCoreStreamData } from "@/lib/chat-core/client/stream-parser";
 import type {
   ChatCompletionOptions,
+  ChatFragment,
   ChatMessage,
-  ChatPatchOperation,
+  ChatPatchTarget,
   ChatReadyEventPayload,
   ChatSessionPatch,
   ChatTitleType,
   ChatState,
-  ChatStreamPatch,
   ChatStreamPatchContext,
 } from "../types";
 import { createUserMessage, upsertMessage } from "./messages";
@@ -32,9 +33,6 @@ interface CreateChatCompletionParserOptions extends ChatCompletionStreamCallback
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
-
-const isChatPatchOperation = (value: unknown): value is ChatPatchOperation =>
-  value === "APPEND" || value === "SET" || value === "BATCH";
 
 const isChatTitleType = (value: unknown): value is ChatTitleType =>
   value === "WIP" || value === "SYSTEM" || value === "USER";
@@ -112,112 +110,21 @@ function getResponseMessage(
     : null;
 }
 
-function resolveArrayIndex(array: unknown[], segment: string) {
-  const index = segment === "-1" ? array.length - 1 : Number(segment);
-
-  if (!Number.isInteger(index) || index < 0 || index >= array.length) {
-    return null;
-  }
-
-  return index;
-}
-
-function applyPathPatch(
-  target: unknown,
-  path: string,
-  operation: ChatPatchOperation,
-  value: unknown,
-) {
-  const segments = path.split("/").filter(Boolean);
-  let cursor = target;
-
-  for (let index = 0; index < segments.length - 1; index += 1) {
-    if (Array.isArray(cursor)) {
-      const arrayIndex = resolveArrayIndex(cursor, segments[index]);
-      if (arrayIndex === null) return;
-
-      cursor = cursor[arrayIndex];
-      continue;
-    }
-
-    if (!isRecord(cursor)) return;
-    cursor = cursor[segments[index]];
-  }
-
-  const lastSegment = segments.at(-1);
-  if (!lastSegment) return;
-
-  if (Array.isArray(cursor)) {
-    const arrayIndex = resolveArrayIndex(cursor, lastSegment);
-    if (arrayIndex === null) return;
-
-    if (operation === "APPEND" && Array.isArray(cursor[arrayIndex])) {
-      (cursor[arrayIndex] as unknown[]).push(value);
-      return;
-    }
-
-    cursor[arrayIndex] =
-      operation === "APPEND" && typeof cursor[arrayIndex] === "string"
-        ? `${cursor[arrayIndex]}${String(value)}`
-        : value;
-    return;
-  }
-
-  if (!isRecord(cursor)) return;
-
-  if (operation === "APPEND") {
-    const currentValue = cursor[lastSegment];
-    if (Array.isArray(currentValue)) {
-      if (Array.isArray(value)) {
-        currentValue.push(...value);
-      } else {
-        currentValue.push(value);
-      }
-      return;
-    }
-
-    if (typeof currentValue === "string") {
-      cursor[lastSegment] = currentValue + String(value);
-      return;
-    }
-  }
-
-  cursor[lastSegment] = value;
-}
-
-function applyPatchToResponse(
+function resolvePatchTarget(
   state: ChatState,
   context: ChatStreamPatchContext,
-  patch: Required<Pick<ChatStreamPatch, "p" | "v">> & {
-    o?: ChatPatchOperation;
-  },
+  target: ChatPatchTarget,
 ) {
   const responseMessage = getResponseMessage(state, context);
-  if (!responseMessage) return;
+  if (!responseMessage) return null;
 
-  const operation = patch.o ?? "SET";
-  if (operation === "BATCH" && Array.isArray(patch.v)) {
-    for (const childPatch of patch.v) {
-      if (!isRecord(childPatch) || typeof childPatch.p !== "string") continue;
-      applyPathPatch(
-        responseMessage,
-        childPatch.p,
-        isChatPatchOperation(childPatch.o) ? childPatch.o : "SET",
-        childPatch.v,
-      );
-    }
-    return;
-  }
+  if (target.type === "response") return responseMessage;
 
-  const relativePath = patch.p.startsWith("response/")
-    ? patch.p.slice("response/".length)
-    : patch.p === "response"
-      ? ""
-      : patch.p;
-
-  if (relativePath) {
-    applyPathPatch(responseMessage, relativePath, operation, patch.v);
-  }
+  return (
+    responseMessage.fragments.find(
+      (fragment: ChatFragment) => fragment.id === target.id,
+    ) ?? null
+  );
 }
 
 function applyStreamData(
@@ -225,50 +132,28 @@ function applyStreamData(
   context: ChatStreamPatchContext,
   data: unknown,
 ) {
-  if (!currentState || !isRecord(data)) return currentState;
-
-  return produce(currentState, (draft) => {
-    // v
-    if (isRecord(data.v) && isChatMessage(data.v.response)) {
-      const responseMessage = data.v.response;
-      // 重置上次操作记录
-      context.responseMessageId = responseMessage.message_id;
-      context.responseMessageIndex = null;
-      context.lastPath = null;
-      context.lastOperation = null;
-      // 添加响应到本地镜像
-      upsertMessage(draft.chat_messages, responseMessage);
-      context.responseMessageIndex = findResponseMessageIndex(
-        draft,
-        responseMessage.message_id,
-      );
-      // 更新 current_message_id
-      draft.chat_session.current_message_id = responseMessage.message_id;
-      return;
-    }
-
-    // p + o + v
-    if (typeof data.p === "string") {
-      const operation = isChatPatchOperation(data.o) ? data.o : "SET";
-      applyPatchToResponse(draft, context, {
-        p: data.p,
-        o: operation,
-        v: data.v,
-      });
-      context.lastPath = data.p;
-      context.lastOperation = operation;
-      return;
-    }
-
-    // v
-    if ("v" in data && context.lastPath) {
-      applyPatchToResponse(draft, context, {
-        p: context.lastPath,
-        o: context.lastOperation ?? "SET",
-        v: data.v,
-      });
-    }
-  });
+  return applyCoreStreamData(
+    currentState,
+    {
+      updateState: () => {},
+      patchContext: context,
+      isResponseMessage: isChatMessage,
+      getResponseMessageId: (value) =>
+        isChatMessage(value) ? value.message_id : null,
+      upsertResponse: (draft, response) => {
+        if (!isChatMessage(response)) return;
+        upsertMessage(draft.chat_messages, response);
+        context.responseMessageIndex = findResponseMessageIndex(
+          draft,
+          response.message_id,
+        );
+        draft.chat_session.current_message_id = response.message_id;
+      },
+      resolvePatchTarget: (draft, target) =>
+        resolvePatchTarget(draft, context, target),
+    },
+    data,
+  );
 }
 
 export function createChatCompletionParser({

@@ -1,7 +1,15 @@
+import type {
+  ChatPatchOperation,
+  ChatPatchTarget,
+  ChatStreamPatch,
+  ChatStreamPatchContext,
+  CoreFragment,
+} from "@/lib/chat-core";
+
 export type ChatRole = "USER" | "ASSISTANT";
 export type ChatTitleType = "WIP" | "SYSTEM" | "USER";
 export type ChatMessageStatus = "WIP" | "FINISHED" | "FAILED";
-export type ChatPatchOperation = "APPEND" | "SET" | "BATCH";
+export type { ChatPatchOperation, ChatStreamPatch };
 
 export interface ChatSession {
   id: string;
@@ -30,9 +38,9 @@ export interface ChatSessionListItem {
   updated_at: number;
 }
 
-export interface ChatFragment {
+export interface ChatFragment extends CoreFragment {
   id: number;
-  type: "REQUEST" | "RESPONSE" | "SEARCH" | string;
+  type: "REQUEST" | "RESPONSE" | "SEARCH" | "TOOL_CALL" | string;
   status?: string;
   content: string | null;
   queries?: Array<Record<string, unknown>>;
@@ -127,12 +135,7 @@ export interface ChatReadyEventPayload {
   model_type: string;
 }
 
-export interface ChatStreamPatchContext {
-  responseMessageId: number | null;
-  responseMessageIndex: number | null;
-  lastPath: string | null;
-  lastOperation: ChatPatchOperation | null;
-}
+export type { ChatStreamPatchContext, ChatPatchTarget };
 
 export interface ChatCompletionOptions {
   chatSessionId: string;
@@ -141,10 +144,4 @@ export interface ChatCompletionOptions {
   thinkingEnabled: boolean;
   searchEnabled: boolean;
   optimisticUserMessageId?: number;
-}
-
-export interface ChatStreamPatch {
-  p?: string;
-  o?: ChatPatchOperation;
-  v?: unknown;
 }

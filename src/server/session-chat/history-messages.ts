@@ -12,6 +12,10 @@ function toFragmentResponse(fragment: {
   type: string;
   status: string | null;
   content: string | null;
+  toolName: string | null;
+  toolCallId: string | null;
+  toolInputJson: unknown;
+  toolOutputJson: unknown;
   queriesJson: unknown;
   resultsJson: unknown;
   referencesJson: unknown;
@@ -33,6 +37,31 @@ function toFragmentResponse(fragment: {
       content: fragment.content,
       queries: asArray(fragment.queriesJson),
       results: asArray(fragment.resultsJson),
+    };
+  }
+
+  if (fragment.type === "TOOL_CALL") {
+    const toolOutput = fragment.toolOutputJson;
+    const outputRecord =
+      typeof toolOutput === "object" && toolOutput !== null
+        ? (toolOutput as Record<string, unknown>)
+        : null;
+
+    return {
+      id: fragment.localId,
+      type: fragment.type,
+      status: fragment.status ?? "FINISHED",
+      content: fragment.content,
+      tool_name: fragment.toolName ?? "unknown",
+      tool_call_id: fragment.toolCallId ?? "",
+      tool_input: fragment.toolInputJson,
+      tool_output: toolOutput,
+      ...(fragment.toolName === "web_search" && outputRecord
+        ? {
+            queries: asArray(outputRecord.queries),
+            results: asArray(outputRecord.results),
+          }
+        : {}),
     };
   }
 
@@ -69,6 +98,10 @@ function toMessageResponse(message: {
     type: string;
     status: string | null;
     content: string | null;
+    toolName: string | null;
+    toolCallId: string | null;
+    toolInputJson: unknown;
+    toolOutputJson: unknown;
     queriesJson: unknown;
     resultsJson: unknown;
     referencesJson: unknown;

@@ -143,6 +143,10 @@ async function createTestSchema() {
       "type" TEXT NOT NULL,
       "status" TEXT,
       "content" TEXT,
+      "toolName" TEXT,
+      "toolCallId" TEXT,
+      "toolInputJson" JSONB,
+      "toolOutputJson" JSONB,
       "queriesJson" JSONB,
       "resultsJson" JSONB,
       "referencesJson" JSONB,
@@ -302,6 +306,32 @@ test("completion with search streams and persists search fragments", async () =>
   let streamSystemPrompt = "";
 
   async function* searchStream() {
+    const searchOutput = {
+      queries: [{ query: "DeepSeek 最新模型 2026" }],
+      results: [
+        {
+          url: "https://example.com/deepseek-v4",
+          title: "DeepSeek V4 发布",
+          snippet: "DeepSeek V4 发布并开源。",
+          cite_index: 1,
+          site_name: "example.com",
+          query_indexes: [0],
+        },
+      ],
+    };
+    yield {
+      type: "tool-call",
+      toolCallId: "call_search",
+      toolName: "web_search",
+      input: { query: "DeepSeek 最新模型 2026" },
+    };
+    yield {
+      type: "tool-result",
+      toolCallId: "call_search",
+      toolName: "web_search",
+      input: { query: "DeepSeek 最新模型 2026" },
+      output: searchOutput,
+    };
     yield {
       type: "text-delta",
       text: 'DeepSeek-V4<citation cite_index="1">1</citation>',
@@ -340,17 +370,17 @@ test("completion with search streams and persists search fragments", async () =>
 
   const sseText = await response.text();
   assert.match(sseText, /"conversation_mode":"SEARCH"/);
-  assert.match(sseText, /"id":1,"type":"SEARCH"/);
-  assert.match(sseText, /"queries":\[{"query":"DeepSeek 最新模型 2026"}\]/);
-  assert.match(sseText, /"p":"response\/fragments\/-1\/results"/);
+  assert.match(sseText, /"id":1,"type":"TOOL_CALL"/);
+  assert.match(sseText, /"tool_name":"web_search"/);
+  assert.match(sseText, /"p":"tool_output","o":"SET"/);
   assert.match(sseText, /"p":"fragments","o":"APPEND"/);
   assert.match(sseText, /"id":2,"type":"RESPONSE"/);
   assert.match(
     sseText,
     /DeepSeek-V4<citation cite_index=\\"1\\">1<\/citation>/,
   );
-  assert.match(sseText, /"p":"response\/fragments\/-1\/status","o":"SET","v":"FINISHED"/);
-  assert.match(streamSystemPrompt, /DeepSeek V4 发布并开源/);
+  assert.match(sseText, /"p":"status","o":"SET","v":"FINISHED"/);
+  assert.match(streamSystemPrompt, /web_search/);
   assert.match(streamSystemPrompt, /<citation cite_index="N">N<\/citation>/);
 
   const messages = await prisma.chatMessage.findMany({
@@ -371,33 +401,64 @@ test("completion with search streams and persists search fragments", async () =>
   assert.equal(assistant?.conversationMode, "SEARCH");
   assert.equal(assistant?.status, "FINISHED");
   assert.equal(assistant?.fragments.length, 2);
-  assert.equal(assistant?.fragments[0].type, "SEARCH");
+  assert.equal(assistant?.fragments[0].type, "TOOL_CALL");
   assert.equal(assistant?.fragments[0].status, "FINISHED");
-  assert.deepEqual(assistant?.fragments[0].queriesJson, [
-    { query: "DeepSeek 最新模型 2026" },
-  ]);
-  assert.deepEqual(assistant?.fragments[0].resultsJson, [
-    {
-      url: "https://example.com/deepseek-v4",
-      title: "DeepSeek V4 发布",
-      snippet: "DeepSeek V4 发布并开源。",
-      cite_index: 1,
-      site_name: "example.com",
-      query_indexes: [0],
-    },
-  ]);
+  assert.equal(assistant?.fragments[0].toolName, "web_search");
+  assert.equal(assistant?.fragments[0].toolCallId, "call_search");
+  assert.deepEqual(assistant?.fragments[0].toolInputJson, {
+    query: "DeepSeek 最新模型 2026",
+  });
+  assert.deepEqual(assistant?.fragments[0].toolOutputJson, {
+    queries: [{ query: "DeepSeek 最新模型 2026" }],
+    results: [
+      {
+        url: "https://example.com/deepseek-v4",
+        title: "DeepSeek V4 发布",
+        snippet: "DeepSeek V4 发布并开源。",
+        cite_index: 1,
+        site_name: "example.com",
+        query_indexes: [0],
+      },
+    ],
+  });
   assert.equal(assistant?.fragments[1].type, "RESPONSE");
   assert.equal(
     assistant?.fragments[1].content,
     'DeepSeek-V4<citation cite_index="1">1</citation>',
   );
-  assert.equal(assistant?.fragments[1].stageId, assistant?.fragments[0].localId);
+  assert.equal(assistant?.fragments[1].stageId, null);
 });
 
 test("search completion normalizes streamed citation tags to cite_index tags", async () => {
   const chatSessionId = await createSessionId();
 
   async function* searchStream() {
+    const searchOutput = {
+      queries: [{ query: "DeepSeek 最新模型 2026" }],
+      results: [
+        {
+          url: "https://example.com/deepseek-v4",
+          title: "DeepSeek V4 发布",
+          snippet: "DeepSeek V4 发布并开源。",
+          cite_index: 1,
+          site_name: "example.com",
+          query_indexes: [0],
+        },
+      ],
+    };
+    yield {
+      type: "tool-call",
+      toolCallId: "call_search",
+      toolName: "web_search",
+      input: { query: "DeepSeek 最新模型 2026" },
+    };
+    yield {
+      type: "tool-result",
+      toolCallId: "call_search",
+      toolName: "web_search",
+      input: { query: "DeepSeek 最新模型 2026" },
+      output: searchOutput,
+    };
     yield { type: "text-delta", text: "DeepSeek" };
     yield { type: "text-delta", text: '<citation cite="1">' };
     yield { type: "text-delta", text: "1</citation>" };
@@ -450,10 +511,35 @@ test("search completion normalizes streamed citation tags to cite_index tags", a
   );
 });
 
-test("search completion creates search fragment before response text", async () => {
+test("search completion creates tool fragment before response text", async () => {
   const chatSessionId = await createSessionId();
 
   async function* searchStream() {
+    yield {
+      type: "tool-call",
+      toolCallId: "call_search",
+      toolName: "web_search",
+      input: { query: "deepseek 最新模型" },
+    };
+    yield {
+      type: "tool-result",
+      toolCallId: "call_search",
+      toolName: "web_search",
+      input: { query: "deepseek 最新模型" },
+      output: {
+        queries: [{ query: "deepseek 最新模型" }],
+        results: [
+          {
+            url: "https://example.com/deepseek-v4",
+            title: "DeepSeek V4 发布",
+            snippet: "DeepSeek V4 发布并开源。",
+            cite_index: 1,
+            site_name: "example.com",
+            query_indexes: [0],
+          },
+        ],
+      },
+    };
     yield { type: "text-delta", text: "你好！" };
     yield { type: "finish", totalUsage: { totalTokens: 2 } };
   }
@@ -483,11 +569,10 @@ test("search completion creates search fragment before response text", async () 
   );
 
   const sseText = await response.text();
-  assert.match(sseText, /"id":1,"type":"SEARCH"/);
-  assert.match(sseText, /"p":"response\/fragments\/-1\/status","o":"SET","v":"FINISHED"/);
+  assert.match(sseText, /"id":1,"type":"TOOL_CALL"/);
+  assert.match(sseText, /"tool_name":"web_search"/);
+  assert.match(sseText, /"p":"status","o":"SET","v":"FINISHED"/);
   assert.match(sseText, /"id":2,"type":"RESPONSE"/);
-  assert.match(sseText, /"stage_id":1/);
-  assert.doesNotMatch(sseText, /"stage_id":null/);
 
   const assistant = await prisma.chatMessage.findFirstOrThrow({
     where: {
@@ -503,10 +588,11 @@ test("search completion creates search fragment before response text", async () 
 
   assert.equal(assistant.fragments.length, 2);
   assert.equal(assistant.fragments[0].localId, 1);
-  assert.equal(assistant.fragments[0].type, "SEARCH");
+  assert.equal(assistant.fragments[0].type, "TOOL_CALL");
+  assert.equal(assistant.fragments[0].toolName, "web_search");
   assert.equal(assistant.fragments[1].localId, 2);
   assert.equal(assistant.fragments[1].type, "RESPONSE");
-  assert.equal(assistant.fragments[1].stageId, 1);
+  assert.equal(assistant.fragments[1].stageId, null);
 });
 
 test("search completion failure clears pending state", async () => {
@@ -534,7 +620,7 @@ test("search completion failure clears pending state", async () => {
     );
 
     const sseText = await response.text();
-    assert.match(sseText, /"type":"SEARCH"/);
+    assert.match(sseText, /"type":"RESPONSE"/);
     assert.match(sseText, /"FAILED"/);
     assert.match(sseText, /"Completion failed"/);
   } finally {
@@ -558,8 +644,8 @@ test("search completion failure clears pending state", async () => {
   assert.equal(assistant.searchEnabled, true);
   assert.equal(assistant.conversationMode, "SEARCH");
   assert.equal(assistant.fragments.length, 1);
-  assert.equal(assistant.fragments[0].type, "SEARCH");
-  assert.equal(assistant.fragments[0].status, "FINISHED");
+  assert.equal(assistant.fragments[0].type, "RESPONSE");
+  assert.equal(assistant.fragments[0].content, "");
 });
 
 test("second completion on an active session returns 409", async () => {

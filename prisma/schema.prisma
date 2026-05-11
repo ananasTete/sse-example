@@ -140,6 +140,10 @@ model MessageFragment {
   type           String
   status         String?
   content        String?
+  toolName       String?
+  toolCallId     String?
+  toolInputJson  Json?
+  toolOutputJson Json?
   queriesJson    Json?
   resultsJson    Json?
   referencesJson Json?
