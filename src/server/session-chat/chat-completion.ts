@@ -12,10 +12,11 @@ import {
 } from "@/src/server/http/sse";
 import {
   bridgeAIStreamToPatches,
-  createPatchEmitter,
+  createMutationEmitter,
   createWebSearchTool,
 } from "@/lib/chat-core";
-import type { WebSearchFn } from "@/lib/chat-core";
+import { applyPathPatch } from "@/lib/chat-core/client/patch-apply";
+import type { MutationEmitter, Target, WebSearchFn } from "@/lib/chat-core";
 
 // 最新配置，不要改这里
 const MODEL_API_KEY_ENV = ["DEEP", "SEEK_API_KEY"].join("");
@@ -28,19 +29,23 @@ const DEFAULT_MODEL_NAME = ["deep", "seek-v4-flash"].join("");
 const SEARCH_SYSTEM_PROMPT = [
   "你可以使用 web_search 工具搜索网络获取最新信息。",
   "当用户启用网络搜索时，应先调用 web_search，再基于工具结果回答。",
-  "引用来源时使用 <citation cite_index=\"N\">N</citation>，N 对应搜索结果编号。",
+  '引用来源时使用 <citation cite_index="N">N</citation>，N 对应搜索结果编号。',
   "搜索结果无法支持的内容，直接说明当前搜索结果未提供。",
 ].join("\n");
 
 interface CompletionRequestBody {
   chat_session_id: string;
   parent_message_id: number | null;
-  model_type: string;
   prompt: string;
   ref_file_ids: string[];
   thinking_enabled: boolean;
   search_enabled: boolean;
   preempt: boolean;
+}
+
+interface ResumeStreamRequestBody {
+  chat_session_id: string;
+  message_id: number;
 }
 
 interface ChatCompletionHandlerOptions {
@@ -59,11 +64,23 @@ class CompletionHttpError extends Error {
 
 const activeCompletionControllers = new Map<
   string,
-  {
-    assistantMessageId: number;
-    controller: AbortController;
-  }
+  ActiveCompletionRun
 >();
+
+interface ActiveCompletionRun {
+  chatSessionId: string;
+  assistantMessageDbId: number;
+  assistantMessageLocalId: number;
+  userMessageLocalId: number;
+  controller: AbortController;
+  subscribers: Set<ActiveCompletionSubscriber>;
+  snapshot: Record<string, unknown> | null;
+}
+
+interface ActiveCompletionSubscriber {
+  emitter: MutationEmitter;
+  close: () => void;
+}
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
@@ -100,10 +117,6 @@ function parseCompletionRequestBody(body: unknown): CompletionRequestBody {
   return {
     chat_session_id: chatSessionId.trim(),
     parent_message_id: parentMessageId ?? null,
-    model_type:
-      typeof body.model_type === "string" && body.model_type.trim()
-        ? body.model_type.trim()
-        : "default",
     prompt: prompt.trim(),
     ref_file_ids: Array.isArray(body.ref_file_ids)
       ? body.ref_file_ids.filter(
@@ -120,14 +133,40 @@ function parseCompletionRequestBody(body: unknown): CompletionRequestBody {
   };
 }
 
+function parseResumeStreamRequestBody(body: unknown): ResumeStreamRequestBody {
+  if (!isRecord(body)) {
+    throw new Error("request body must be an object");
+  }
+
+  const chatSessionId = body.chat_session_id;
+  const messageId = body.message_id;
+
+  if (typeof chatSessionId !== "string" || !chatSessionId.trim()) {
+    throw new Error("chat_session_id is required");
+  }
+
+  if (
+    typeof messageId !== "number" ||
+    !Number.isSafeInteger(messageId) ||
+    messageId <= 0
+  ) {
+    throw new Error("message_id must be a positive integer");
+  }
+
+  return {
+    chat_session_id: chatSessionId.trim(),
+    message_id: messageId,
+  };
+}
+
 function toResponseMessagePayload(input: {
   messageId: number;
   parentId: number;
   thinkingEnabled: boolean;
   searchEnabled: boolean;
   insertedAt: Date;
-  fragments?: unknown[];
-  hasPendingFragment?: boolean;
+  blocks?: unknown[];
+  hasPendingBlock?: boolean;
 }) {
   return {
     message_id: input.messageId,
@@ -143,9 +182,9 @@ function toResponseMessagePayload(input: {
     feedback: null,
     inserted_at: toEpochSeconds(input.insertedAt),
     search_enabled: input.searchEnabled,
-    fragments: input.fragments ?? [],
+    blocks: input.blocks ?? [],
     conversation_mode: input.searchEnabled ? "SEARCH" : "DEFAULT",
-    has_pending_fragment: input.hasPendingFragment ?? false,
+    has_pending_block: input.hasPendingBlock ?? false,
     auto_continue: false,
   };
 }
@@ -155,16 +194,10 @@ function createCompletionErrorSseResponse(message: string, status: number) {
     start(controller) {
       const encoder = new TextEncoder();
       sendSseFrame(controller, encoder, {
-        event: "error",
+        event: "lifecycle",
         data: {
+          type: "error",
           message,
-        },
-      });
-      sendSseFrame(controller, encoder, {
-        event: "close",
-        data: {
-          click_behavior: "none",
-          auto_resume: false,
         },
       });
       controller.close();
@@ -175,6 +208,123 @@ function createCompletionErrorSseResponse(message: string, status: number) {
     status,
     headers: SSE_HEADERS,
   });
+}
+
+function createLifecycleSseResponse(
+  event: "done" | "error",
+  data: Record<string, unknown>,
+  status = 200,
+) {
+  const stream = new ReadableStream({
+    start(controller) {
+      const emitter = createMutationEmitter(controller);
+      emitter.sendLifecycle(event, data);
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    status,
+    headers: SSE_HEADERS,
+  });
+}
+
+function cloneRecord(value: Record<string, unknown>) {
+  return structuredClone(value);
+}
+
+function resolveSnapshotTarget(snapshot: Record<string, unknown>, target: Target) {
+  if (target.type === "message") {
+    return Number(target.id) === Number(snapshot.message_id) ? snapshot : null;
+  }
+
+  if (target.type !== "block") return null;
+
+  const blocks = snapshot.blocks;
+  if (!Array.isArray(blocks)) return null;
+
+  return (
+    blocks.find(
+      (block) =>
+        isRecord(block) && Number(block.id) === Number(target.id),
+    ) ?? null
+  );
+}
+
+function applyMutationToRunSnapshot(
+  run: ActiveCompletionRun,
+  mutation: Parameters<MutationEmitter["sendMutation"]>[0],
+) {
+  if (
+    mutation.target.type === "message" &&
+    Number(mutation.target.id) === run.assistantMessageLocalId &&
+    mutation.op === "upsert" &&
+    mutation.path === "" &&
+    isRecord(mutation.value)
+  ) {
+    run.snapshot = cloneRecord(mutation.value);
+    return;
+  }
+
+  if (!run.snapshot) return;
+
+  const target = resolveSnapshotTarget(run.snapshot, mutation.target);
+  if (!target) return;
+
+  if (mutation.path) {
+    applyPathPatch(target, mutation.path, mutation.op, mutation.value);
+  }
+}
+
+function sendRunLifecycle(
+  run: ActiveCompletionRun,
+  type: Parameters<MutationEmitter["sendLifecycle"]>[0],
+  data?: Record<string, unknown>,
+) {
+  for (const subscriber of [...run.subscribers]) {
+    try {
+      subscriber.emitter.sendLifecycle(type, data);
+    } catch {
+      run.subscribers.delete(subscriber);
+    }
+  }
+}
+
+function sendRunMutation(
+  run: ActiveCompletionRun,
+  mutation: Parameters<MutationEmitter["sendMutation"]>[0],
+) {
+  applyMutationToRunSnapshot(run, mutation);
+
+  for (const subscriber of [...run.subscribers]) {
+    try {
+      subscriber.emitter.sendMutation(mutation);
+    } catch {
+      run.subscribers.delete(subscriber);
+    }
+  }
+}
+
+function addRunSubscriber(
+  run: ActiveCompletionRun,
+  subscriber: ActiveCompletionSubscriber,
+) {
+  run.subscribers.add(subscriber);
+
+  return () => {
+    run.subscribers.delete(subscriber);
+  };
+}
+
+function closeRunSubscribers(run: ActiveCompletionRun) {
+  for (const subscriber of [...run.subscribers]) {
+    run.subscribers.delete(subscriber);
+    try {
+      subscriber.close();
+    } catch {
+      // The connection may already be closed by the client.
+    }
+  }
 }
 
 async function createCompletionTurn(body: CompletionRequestBody) {
@@ -201,7 +351,10 @@ async function createCompletionTurn(body: CompletionRequestBody) {
 
     if (activeAssistantMessage) {
       if (!body.preempt) {
-        throw new CompletionHttpError("A completion is already in progress", 409);
+        throw new CompletionHttpError(
+          "A completion is already in progress",
+          409,
+        );
       }
 
       await tx.chatMessage.updateMany({
@@ -213,7 +366,7 @@ async function createCompletionTurn(body: CompletionRequestBody) {
         data: {
           status: "FAILED",
           incompleteMessage: "Completion preempted",
-          hasPendingFragment: false,
+          hasPendingBlock: false,
         },
       });
     }
@@ -244,10 +397,10 @@ async function createCompletionTurn(body: CompletionRequestBody) {
         status: "FINISHED",
         accumulatedTokenUsage: body.prompt.length,
         searchEnabled: body.search_enabled,
-        fragments: {
+        blocks: {
           create: {
             localId: 1,
-            type: "REQUEST",
+            type: "request",
             content: body.prompt,
           },
         },
@@ -264,7 +417,7 @@ async function createCompletionTurn(body: CompletionRequestBody) {
         thinkingEnabled: body.thinking_enabled,
         searchEnabled: body.search_enabled,
         conversationMode: body.search_enabled ? "SEARCH" : "DEFAULT",
-        hasPendingFragment: true,
+        hasPendingBlock: true,
       },
     });
 
@@ -273,7 +426,6 @@ async function createCompletionTurn(body: CompletionRequestBody) {
       data: {
         currentMessageId: assistantMessage.localId,
         isEmpty: false,
-        modelType: body.model_type,
         version: { increment: 1 },
       },
       select: { updatedAt: true },
@@ -327,10 +479,7 @@ export async function chatCompletionHandler(
           ? "Chat session not found"
           : "Failed to create completion";
 
-    return createCompletionErrorSseResponse(
-      message,
-      status,
-    );
+    return createCompletionErrorSseResponse(message, status);
   }
 
   if (body.preempt) {
@@ -338,18 +487,16 @@ export async function chatCompletionHandler(
   }
 
   const completionController = new AbortController();
-  activeCompletionControllers.set(body.chat_session_id, {
-    assistantMessageId: turn.assistantMessage.id,
+  const activeRun: ActiveCompletionRun = {
+    chatSessionId: body.chat_session_id,
+    assistantMessageDbId: turn.assistantMessage.id,
+    assistantMessageLocalId: turn.assistantMessage.localId,
+    userMessageLocalId: turn.userMessage.localId,
     controller: completionController,
-  });
-
-  request.signal.addEventListener(
-    "abort",
-    () => {
-      completionController.abort();
-    },
-    { once: true },
-  );
+    subscribers: new Set(),
+    snapshot: null,
+  };
+  activeCompletionControllers.set(body.chat_session_id, activeRun);
 
   const modelProvider = createDeepSeek({
     apiKey,
@@ -359,11 +506,20 @@ export async function chatCompletionHandler(
   const streamTextFn = options.streamText ?? streamText;
   const webSearch = options.webSearch;
 
+  let unsubscribeMain: (() => void) | null = null;
   const stream = new ReadableStream({
     async start(controller) {
-      const emitter = createPatchEmitter(controller);
-      const createdFragmentIds = new Set<number>();
-      const responseFragmentDbIdByLocalId = new Map<number, number>();
+      const mainSubscriber = {
+        emitter: createMutationEmitter(controller),
+        close: () => controller.close(),
+      };
+      unsubscribeMain = addRunSubscriber(activeRun, mainSubscriber);
+      const emitter: MutationEmitter = {
+        sendLifecycle: (type, data) => sendRunLifecycle(activeRun, type, data),
+        sendMutation: (mutation) => sendRunMutation(activeRun, mutation),
+      };
+      const createdBlockIds = new Set<number>();
+      const responseBlockDbIdByLocalId = new Map<number, number>();
       const responseContentByLocalId = new Map<number, string>();
       const lastPersistedContentByLocalId = new Map<number, string>();
       const lastPersistedAtByLocalId = new Map<number, number>();
@@ -375,27 +531,21 @@ export async function chatCompletionHandler(
           ? Prisma.JsonNull
           : (value as Prisma.InputJsonValue);
 
-      const sendEventFrame = (frame: {
-        event: string;
-        data: object | string;
-      }) => {
-        emitter.sendEventFrame(frame);
-      };
-
       const sendInitialResponse = () => {
         responseInitialized = true;
-        emitter.sendFullData({
-          v: {
-            response: toResponseMessagePayload({
-              messageId: turn.assistantMessage.localId,
-              parentId: turn.userMessage.localId,
-              thinkingEnabled: body.thinking_enabled,
-              searchEnabled: body.search_enabled,
-              insertedAt: turn.assistantMessage.insertedAt,
-              fragments: [],
-              hasPendingFragment: false,
-            }),
-          },
+        emitter.sendMutation({
+          target: { type: "message", id: turn.assistantMessage.localId },
+          op: "upsert",
+          path: "",
+          value: toResponseMessagePayload({
+            messageId: turn.assistantMessage.localId,
+            parentId: turn.userMessage.localId,
+            thinkingEnabled: body.thinking_enabled,
+            searchEnabled: body.search_enabled,
+            insertedAt: turn.assistantMessage.insertedAt,
+            blocks: [],
+            hasPendingBlock: false,
+          }),
         });
       };
 
@@ -404,39 +554,39 @@ export async function chatCompletionHandler(
         sendInitialResponse();
       };
 
-      const createResponseFragment = async (localId: number) => {
-        if (responseFragmentDbIdByLocalId.has(localId)) return;
+      const createResponseBlock = async (localId: number) => {
+        if (responseBlockDbIdByLocalId.has(localId)) return;
 
-        const fragment = await prisma.messageFragment.create({
+        const block = await prisma.messageBlock.create({
           data: {
             localId,
             messageId: turn.assistantMessage.id,
-            type: "RESPONSE",
+            type: "response",
             content: "",
             referencesJson: [] as Prisma.InputJsonArray,
             stageId: null,
           },
         });
 
-        createdFragmentIds.add(localId);
-        responseFragmentDbIdByLocalId.set(localId, fragment.id);
+        createdBlockIds.add(localId);
+        responseBlockDbIdByLocalId.set(localId, block.id);
         responseContentByLocalId.set(localId, "");
         lastPersistedContentByLocalId.set(localId, "");
         lastPersistedAtByLocalId.set(localId, Date.now());
       };
 
-      const ensureEmptyResponseFragment = async () => {
-        if (createdFragmentIds.size > 0) return;
+      const ensureEmptyResponseBlock = async () => {
+        if (createdBlockIds.size > 0) return;
 
         const localId = 1;
-        await createResponseFragment(localId);
-        emitter.sendPatch({
-          t: { type: "response" },
-          p: "fragments",
-          o: "APPEND",
-          v: {
+        await createResponseBlock(localId);
+        emitter.sendMutation({
+          target: { type: "message", id: turn.assistantMessage.localId },
+          op: "append",
+          path: "blocks",
+          value: {
             id: localId,
-            type: "RESPONSE",
+            type: "response",
             content: "",
             references: [],
           },
@@ -444,8 +594,8 @@ export async function chatCompletionHandler(
       };
 
       const persistContent = async (localId: number, force = false) => {
-        const fragmentDbId = responseFragmentDbIdByLocalId.get(localId);
-        if (fragmentDbId === undefined) return;
+        const blockDbId = responseBlockDbIdByLocalId.get(localId);
+        if (blockDbId === undefined) return;
 
         const content = responseContentByLocalId.get(localId) ?? "";
         if (content === lastPersistedContentByLocalId.get(localId)) return;
@@ -453,8 +603,8 @@ export async function chatCompletionHandler(
         const lastPersistedAt = lastPersistedAtByLocalId.get(localId) ?? 0;
         if (!force && now - lastPersistedAt < 500) return;
 
-        await prisma.messageFragment.update({
-          where: { id: fragmentDbId },
+        await prisma.messageBlock.update({
+          where: { id: blockDbId },
           data: {
             content,
           },
@@ -464,22 +614,22 @@ export async function chatCompletionHandler(
       };
 
       const persistAllContent = async (force = false) => {
-        for (const localId of responseFragmentDbIdByLocalId.keys()) {
+        for (const localId of responseBlockDbIdByLocalId.keys()) {
           await persistContent(localId, force);
         }
       };
 
-      const createToolCallFragment = async (
+      const createToolCallBlock = async (
         localId: number,
         toolName: string,
         toolCallId: string,
         input: unknown,
       ) => {
-        await prisma.messageFragment.create({
+        await prisma.messageBlock.create({
           data: {
             localId,
             messageId: turn.assistantMessage.id,
-            type: "TOOL_CALL",
+            type: "tool_call",
             status: "WIP",
             content: null,
             toolName,
@@ -488,15 +638,15 @@ export async function chatCompletionHandler(
             toolOutputJson: Prisma.JsonNull,
           },
         });
-        createdFragmentIds.add(localId);
+        createdBlockIds.add(localId);
       };
 
-      const updateToolCallFragment = async (
+      const updateToolCallBlock = async (
         localId: number,
         status: "FINISHED" | "FAILED",
         output: unknown,
       ) => {
-        await prisma.messageFragment.update({
+        await prisma.messageBlock.update({
           where: {
             messageId_localId: {
               messageId: turn.assistantMessage.id,
@@ -510,20 +660,16 @@ export async function chatCompletionHandler(
         });
       };
 
-      sendEventFrame({
-        event: "ready",
-        data: {
-          request_message_id: turn.userMessage.localId,
-          response_message_id: turn.assistantMessage.localId,
-          model_type: body.model_type,
-        },
+      emitter.sendLifecycle("ready", {
+        response_message_id: turn.assistantMessage.localId,
+        user_message_id: turn.userMessage.localId,
       });
 
-      sendEventFrame({
-        event: "update_session",
-        data: {
-          updated_at: toEpochSeconds(turn.updatedSession.updatedAt),
-        },
+      emitter.sendMutation({
+        target: { type: "session", id: body.chat_session_id },
+        op: "set",
+        path: "updated_at",
+        value: toEpochSeconds(turn.updatedSession.updatedAt),
       });
 
       try {
@@ -549,13 +695,14 @@ export async function chatCompletionHandler(
 
         await bridgeAIStreamToPatches(result.fullStream, {
           emitter,
+          responseMessageId: turn.assistantMessage.localId,
           ensureResponseInitialized,
-          onResponseFragment: createResponseFragment,
-          onToolCall: createToolCallFragment,
+          onResponseBlock: createResponseBlock,
+          onToolCall: createToolCallBlock,
           onToolResult: (localId, _toolCallId, output) =>
-            updateToolCallFragment(localId, "FINISHED", output),
+            updateToolCallBlock(localId, "FINISHED", output),
           onToolError: (localId, _toolCallId, error) =>
-            updateToolCallFragment(localId, "FAILED", error),
+            updateToolCallBlock(localId, "FAILED", error),
           onContentAppend: async (localId, contentDelta) => {
             responseContentByLocalId.set(
               localId,
@@ -576,7 +723,7 @@ export async function chatCompletionHandler(
             data: {
               status: "FINISHED",
               accumulatedTokenUsage: tokenUsage,
-              hasPendingFragment: false,
+              hasPendingBlock: false,
             },
           });
 
@@ -602,56 +749,44 @@ export async function chatCompletionHandler(
         });
 
         if (!finished) {
-          sendEventFrame({
-            event: "close",
-            data: {
-              click_behavior: "none",
-              auto_resume: false,
-            },
-          });
+          emitter.sendLifecycle("done", { status: "aborted" });
           return;
         }
 
-        emitter.sendPatch({
-          t: { type: "response" },
-          p: "accumulated_token_usage",
-          o: "SET",
-          v: tokenUsage,
+        emitter.sendMutation({
+          target: { type: "message", id: turn.assistantMessage.localId },
+          op: "set",
+          path: "accumulated_token_usage",
+          value: tokenUsage,
         });
 
-        emitter.sendPatch({
-          t: { type: "response" },
-          p: "status",
-          o: "SET",
-          v: finished.assistantMessage.status,
+        emitter.sendMutation({
+          target: { type: "message", id: turn.assistantMessage.localId },
+          op: "set",
+          path: "status",
+          value: finished.assistantMessage.status,
         });
 
-        sendEventFrame({
-          event: "update_session",
-          data: {
-            updated_at: toEpochSeconds(finished.session.updatedAt),
-          },
+        emitter.sendMutation({
+          target: { type: "session", id: body.chat_session_id },
+          op: "set",
+          path: "updated_at",
+          value: toEpochSeconds(finished.session.updatedAt),
         });
 
-        sendEventFrame({
-          event: "title",
-          data: {
-            content: finished.session.title ?? "新会话",
-          },
+        emitter.sendMutation({
+          target: { type: "session", id: body.chat_session_id },
+          op: "set",
+          path: "title",
+          value: finished.session.title ?? "新会话",
         });
 
-        sendEventFrame({
-          event: "close",
-          data: {
-            click_behavior: "none",
-            auto_resume: false,
-          },
-        });
+        emitter.sendLifecycle("done", { status: "finished" });
       } catch (error) {
         if (!responseInitialized) {
           ensureResponseInitialized();
         }
-        await ensureEmptyResponseFragment();
+        await ensureEmptyResponseBlock();
 
         try {
           await persistAllContent(true);
@@ -669,46 +804,141 @@ export async function chatCompletionHandler(
           data: {
             status: "FAILED",
             incompleteMessage: errorMessage,
-            hasPendingFragment: false,
+            hasPendingBlock: false,
           },
         });
 
         if (responseInitialized) {
-          emitter.sendPatch({
-            t: { type: "response" },
-            p: "status",
-            o: "SET",
-            v: "FAILED",
+          emitter.sendMutation({
+            target: { type: "message", id: turn.assistantMessage.localId },
+            op: "set",
+            path: "status",
+            value: "FAILED",
           });
         }
 
-        sendEventFrame({
-          event: "error",
-          data: {
-            message: errorMessage,
-          },
+        emitter.sendLifecycle("error", {
+          message: errorMessage,
         });
 
-        sendEventFrame({
-          event: "close",
-          data: {
-            click_behavior: "none",
-            auto_resume: false,
-          },
-        });
+        emitter.sendLifecycle("done", { status: "failed" });
       } finally {
         const activeController = activeCompletionControllers.get(
           body.chat_session_id,
         );
+        unsubscribeMain?.();
+        unsubscribeMain = null;
         if (
-          activeController?.assistantMessageId === turn.assistantMessage.id
+          activeController?.assistantMessageDbId === turn.assistantMessage.id
         ) {
           activeCompletionControllers.delete(body.chat_session_id);
         }
-        controller.close();
+        closeRunSubscribers(activeRun);
+        try {
+          controller.close();
+        } catch {
+          // The primary connection may already be closed by the client.
+        }
       }
+    },
+    cancel() {
+      unsubscribeMain?.();
+      unsubscribeMain = null;
     },
   });
 
   return createSseResponse(stream);
+}
+
+export async function resumeChatCompletionStreamHandler(request: Request) {
+  let body: ResumeStreamRequestBody;
+  try {
+    body = parseResumeStreamRequestBody(await request.json());
+  } catch (error) {
+    return createLifecycleSseResponse(
+      "error",
+      {
+        message: error instanceof Error ? error.message : "Invalid request body",
+      },
+      400,
+    );
+  }
+
+  const activeRun = activeCompletionControllers.get(body.chat_session_id);
+
+  if (
+    activeRun &&
+    activeRun.assistantMessageLocalId === body.message_id
+  ) {
+    let unsubscribe: (() => void) | null = null;
+    const stream = new ReadableStream({
+      start(controller) {
+        const emitter = createMutationEmitter(controller);
+
+        emitter.sendLifecycle("ready", {
+          response_message_id: activeRun.assistantMessageLocalId,
+          user_message_id: activeRun.userMessageLocalId,
+        });
+
+        if (activeRun.snapshot) {
+          emitter.sendMutation({
+            target: {
+              type: "message",
+              id: activeRun.assistantMessageLocalId,
+            },
+            op: "upsert",
+            path: "",
+            value: cloneRecord(activeRun.snapshot),
+          });
+        }
+
+        unsubscribe = addRunSubscriber(activeRun, {
+          emitter,
+          close: () => controller.close(),
+        });
+
+        request.signal.addEventListener(
+          "abort",
+          () => {
+            unsubscribe?.();
+            unsubscribe = null;
+          },
+          { once: true },
+        );
+      },
+      cancel() {
+        unsubscribe?.();
+        unsubscribe = null;
+      },
+    });
+
+    return createSseResponse(stream);
+  }
+
+  const message = await prisma.chatMessage.findFirst({
+    where: {
+      chatSessionId: body.chat_session_id,
+      localId: body.message_id,
+      role: "ASSISTANT",
+    },
+    select: {
+      status: true,
+    },
+  });
+
+  if (!message) {
+    return createLifecycleSseResponse(
+      "error",
+      { message: "message_id is invalid" },
+      404,
+    );
+  }
+
+  if (message.status === "FINISHED") {
+    return createLifecycleSseResponse("done", { status: "finished" });
+  }
+
+  return createLifecycleSseResponse("error", {
+    message: "生成已中断",
+  });
 }

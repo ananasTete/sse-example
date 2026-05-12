@@ -6,7 +6,7 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function toFragmentResponse(fragment: {
+function toBlockResponse(block: {
   id: number;
   localId: number;
   type: string;
@@ -21,42 +21,42 @@ function toFragmentResponse(fragment: {
   referencesJson: unknown;
   stageId: number | null;
 }) {
-  if (fragment.type === "REQUEST") {
+  if (block.type === "request") {
     return {
-      id: fragment.localId,
-      type: fragment.type,
-      content: fragment.content ?? "",
+      id: block.localId,
+      type: "request",
+      content: block.content ?? "",
     };
   }
 
-  if (fragment.type === "SEARCH") {
+  if (block.type === "search") {
     return {
-      id: fragment.localId,
-      type: fragment.type,
-      status: fragment.status ?? "FINISHED",
-      content: fragment.content,
-      queries: asArray(fragment.queriesJson),
-      results: asArray(fragment.resultsJson),
+      id: block.localId,
+      type: "search",
+      status: block.status ?? "FINISHED",
+      content: block.content,
+      queries: asArray(block.queriesJson),
+      results: asArray(block.resultsJson),
     };
   }
 
-  if (fragment.type === "TOOL_CALL") {
-    const toolOutput = fragment.toolOutputJson;
+  if (block.type === "tool_call") {
+    const toolOutput = block.toolOutputJson;
     const outputRecord =
       typeof toolOutput === "object" && toolOutput !== null
         ? (toolOutput as Record<string, unknown>)
         : null;
 
     return {
-      id: fragment.localId,
-      type: fragment.type,
-      status: fragment.status ?? "FINISHED",
-      content: fragment.content,
-      tool_name: fragment.toolName ?? "unknown",
-      tool_call_id: fragment.toolCallId ?? "",
-      tool_input: fragment.toolInputJson,
-      tool_output: toolOutput,
-      ...(fragment.toolName === "web_search" && outputRecord
+      id: block.localId,
+      type: "tool_call",
+      status: block.status ?? "FINISHED",
+      content: block.content,
+      tool_name: block.toolName ?? "unknown",
+      tool_call_id: block.toolCallId ?? "",
+      input: block.toolInputJson,
+      output: toolOutput,
+      ...(block.toolName === "web_search" && outputRecord
         ? {
             queries: asArray(outputRecord.queries),
             results: asArray(outputRecord.results),
@@ -66,11 +66,11 @@ function toFragmentResponse(fragment: {
   }
 
   return {
-    id: fragment.localId,
-    type: fragment.type,
-    content: fragment.content ?? "",
-    references: asArray(fragment.referencesJson),
-    stage_id: fragment.stageId,
+    id: block.localId,
+    type: block.type,
+    content: block.content ?? "",
+    references: asArray(block.referencesJson),
+    stage_id: block.stageId,
   };
 }
 
@@ -90,9 +90,9 @@ function toMessageResponse(message: {
   insertedAt: Date;
   searchEnabled: boolean;
   conversationMode: string;
-  hasPendingFragment: boolean;
+  hasPendingBlock: boolean;
   autoContinue: boolean;
-  fragments: Array<{
+  blocks: Array<{
     id: number;
     localId: number;
     type: string;
@@ -122,8 +122,8 @@ function toMessageResponse(message: {
     feedback: message.feedback,
     inserted_at: toEpochSeconds(message.insertedAt),
     search_enabled: message.searchEnabled,
-    fragments: message.fragments.map(toFragmentResponse),
-    has_pending_fragment: message.hasPendingFragment,
+    blocks: message.blocks.map(toBlockResponse),
+    has_pending_block: message.hasPendingBlock,
     auto_continue: message.autoContinue,
   };
 
@@ -162,7 +162,7 @@ export async function historyMessagesHandler(request: Request) {
       messages: {
         orderBy: { localId: "asc" },
         include: {
-          fragments: {
+          blocks: {
             orderBy: { localId: "asc" },
           },
         },
@@ -196,7 +196,6 @@ export async function historyMessagesHandler(request: Request) {
           id: session.id,
           title: session.title,
           title_type: session.titleType,
-          model_type: session.modelType,
           pinned: session.pinned,
           updated_at: toEpochSeconds(session.updatedAt),
           seq_id: session.seqId,

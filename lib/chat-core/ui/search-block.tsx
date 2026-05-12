@@ -3,10 +3,10 @@
 import { cn } from "@/lib/utils";
 import { ExternalLink, Search } from "lucide-react";
 import type { ReactNode } from "react";
-import type { CoreFragment, WebSearchPayload } from "../types";
+import type { CoreBlock, WebSearchPayload } from "../types";
 
-export interface SearchFragmentViewProps {
-  fragment: CoreFragment;
+export interface SearchBlockViewProps {
+  block: CoreBlock;
   className?: string;
   renderResult?: (result: Record<string, unknown>, index: number) => ReactNode;
 }
@@ -23,16 +23,16 @@ function getNumberField(value: unknown, key: string) {
   return typeof field === "number" ? field : null;
 }
 
-function getSearchPayload(fragment: CoreFragment) {
-  if (fragment.type === "SEARCH") {
+function getSearchPayload(block: CoreBlock) {
+  if (block.type === "search") {
     return {
-      queries: fragment.queries ?? [],
-      results: fragment.results ?? [],
+      queries: block.queries ?? [],
+      results: block.results ?? [],
     };
   }
 
-  const output = fragment.tool_output as Partial<WebSearchPayload> | null;
-  const input = fragment.tool_input as { query?: unknown } | null;
+  const output = block.output as Partial<WebSearchPayload> | null;
+  const input = block.input as { query?: unknown } | null;
   const inputQuery = typeof input?.query === "string" ? input.query : "";
 
   return {
@@ -45,19 +45,19 @@ function getSearchPayload(fragment: CoreFragment) {
   };
 }
 
-export function SearchFragmentView({
-  fragment,
+export function SearchBlockView({
+  block,
   className,
   renderResult,
-}: SearchFragmentViewProps) {
-  const payload = getSearchPayload(fragment);
+}: SearchBlockViewProps) {
+  const payload = getSearchPayload(block);
   const queries = payload.queries
     .map((query) => getStringField(query, "query"))
     .filter(Boolean);
   const results = payload.results.filter((result) =>
     Boolean(getStringField(result, "url")),
   );
-  const isSearching = fragment.status !== "FINISHED";
+  const isSearching = block.status !== "FINISHED";
 
   return (
     <div

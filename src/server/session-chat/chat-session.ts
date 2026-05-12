@@ -12,7 +12,6 @@ function toChatSessionResponse(session: {
   id: string;
   seqId: number;
   agent: string;
-  modelType: string;
   title: string | null;
   titleType: string;
   version: number;
@@ -24,7 +23,6 @@ function toChatSessionResponse(session: {
   id: string;
   seq_id: number;
   agent: string;
-  model_type: string;
   title: string | null;
   title_type: string;
   version: number;
@@ -37,7 +35,6 @@ function toChatSessionResponse(session: {
     id: session.id,
     seq_id: session.seqId,
     agent: session.agent,
-    model_type: session.modelType,
     title: session.title,
     title_type: session.titleType,
     version: session.version,
@@ -109,7 +106,6 @@ function toChatSessionListItem(session: {
   title: string | null;
   titleType: string;
   pinned: boolean;
-  modelType: string;
   updatedAt: Date;
 }) {
   return {
@@ -118,7 +114,6 @@ function toChatSessionListItem(session: {
     title: session.title,
     title_type: session.titleType,
     pinned: session.pinned,
-    model_type: session.modelType,
     updated_at: toEpochSeconds(session.updatedAt),
   };
 }

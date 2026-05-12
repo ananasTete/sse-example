@@ -81,13 +81,12 @@ model ChatSession {
   id               String    @id
   seqId            Int       @unique
   agent            String    @default("chat")
-  modelType        String    @default("default")
   title            String?
   titleType        String    @default("WIP")
   version          Int       @default(0)
   currentMessageId Int?
   nextMessageId    Int       @default(0)
-  nextFragmentId   Int       @default(0)
+  nextBlockId      Int       @default(0)
   pinned           Boolean   @default(false)
   isEmpty          Boolean   @default(true)
   expiresAt        DateTime?
@@ -121,19 +120,19 @@ model ChatMessage {
   feedback              Json?
   searchEnabled         Boolean   @default(false)
   conversationMode      String    @default("DEFAULT")
-  hasPendingFragment    Boolean   @default(false)
+  hasPendingBlock       Boolean   @default(false)
   autoContinue          Boolean   @default(false)
   insertedAt            DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
   chatSession           ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
-  fragments             MessageFragment[]
+  blocks                MessageBlock[]
 
   @@index([chatSessionId, insertedAt])
   @@index([chatSessionId, parentId])
   @@unique([chatSessionId, localId])
 }
 
-model MessageFragment {
+model MessageBlock {
   id             Int         @id @default(autoincrement())
   localId        Int
   messageId      Int

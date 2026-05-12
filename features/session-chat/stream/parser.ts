@@ -1,31 +1,28 @@
 import { createParser, type EventSourceMessage } from "eventsource-parser";
-import { produce } from "immer";
 import { applyStreamData as applyCoreStreamData } from "@/lib/chat-core/client/stream-parser";
 import type {
-  ChatCompletionOptions,
-  ChatFragment,
+  ChatBlock,
   ChatMessage,
-  ChatPatchTarget,
   ChatReadyEventPayload,
   ChatSessionPatch,
   ChatTitleType,
   ChatState,
   ChatStreamPatchContext,
+  Target,
 } from "../types";
-import { createUserMessage, upsertMessage } from "./messages";
+import { upsertMessage } from "./messages";
 
 export type ChatStateUpdater = (
   updater: (currentState: ChatState | undefined) => ChatState | undefined,
 ) => void;
 
 export interface ChatCompletionStreamCallbacks {
-  onReady?: () => void;
+  onReady?: (payload: ChatReadyEventPayload) => void;
   onSessionPatch?: (patch: ChatSessionPatch) => void;
   onTitle?: (title: string) => void;
 }
 
 interface CreateChatCompletionParserOptions extends ChatCompletionStreamCallbacks {
-  options: ChatCompletionOptions;
   updateState: ChatStateUpdater;
   patchContext: ChatStreamPatchContext;
   onError: (error: Error) => void;
@@ -41,7 +38,10 @@ const isChatMessage = (value: unknown): value is ChatMessage =>
   isRecord(value) &&
   typeof value.message_id === "number" &&
   (value.role === "USER" || value.role === "ASSISTANT") &&
-  Array.isArray(value.fragments);
+  Array.isArray(value.blocks);
+
+const isAssistantMessage = (value: unknown): value is ChatMessage =>
+  isChatMessage(value) && value.role === "ASSISTANT";
 
 function createSessionPatch(data: Record<string, unknown>): ChatSessionPatch {
   const patch: ChatSessionPatch = {};
@@ -51,7 +51,6 @@ function createSessionPatch(data: Record<string, unknown>): ChatSessionPatch {
     patch.title = data.title;
   }
   if (isChatTitleType(data.title_type)) patch.title_type = data.title_type;
-  if (typeof data.model_type === "string") patch.model_type = data.model_type;
   if (typeof data.pinned === "boolean") patch.pinned = data.pinned;
   if (typeof data.updated_at === "number") patch.updated_at = data.updated_at;
   if (typeof data.seq_id === "number") patch.seq_id = data.seq_id;
@@ -113,16 +112,31 @@ function getResponseMessage(
 function resolvePatchTarget(
   state: ChatState,
   context: ChatStreamPatchContext,
-  target: ChatPatchTarget,
+  target: Target,
 ) {
-  const responseMessage = getResponseMessage(state, context);
+  if (target.type === "session") return state.chat_session;
+
+  if (target.type === "message") {
+    return (
+      state.chat_messages.find((message) => message.message_id === target.id) ??
+      null
+    );
+  }
+
+  const parentMessageId =
+    target.parent?.type === "message" ? Number(target.parent.id) : null;
+  const responseMessage =
+    parentMessageId !== null
+      ? state.chat_messages.find(
+          (message) => message.message_id === parentMessageId,
+        ) ?? null
+      : getResponseMessage(state, context);
+
   if (!responseMessage) return null;
 
-  if (target.type === "response") return responseMessage;
-
   return (
-    responseMessage.fragments.find(
-      (fragment: ChatFragment) => fragment.id === target.id,
+    responseMessage.blocks.find(
+      (block: ChatBlock) => block.id === target.id,
     ) ?? null
   );
 }
@@ -137,11 +151,12 @@ function applyStreamData(
     {
       updateState: () => {},
       patchContext: context,
-      isResponseMessage: isChatMessage,
+      isResponseMessage: isAssistantMessage,
       getResponseMessageId: (value) =>
-        isChatMessage(value) ? value.message_id : null,
+        isAssistantMessage(value) ? value.message_id : null,
       upsertResponse: (draft, response) => {
-        if (!isChatMessage(response)) return;
+        if (!isAssistantMessage(response)) return;
+
         upsertMessage(draft.chat_messages, response);
         context.responseMessageIndex = findResponseMessageIndex(
           draft,
@@ -149,15 +164,36 @@ function applyStreamData(
         );
         draft.chat_session.current_message_id = response.message_id;
       },
-      resolvePatchTarget: (draft, target) =>
+      resolveMutationTarget: (draft, target) =>
         resolvePatchTarget(draft, context, target),
     },
     data,
   );
 }
 
+function getMutationSessionPatch(
+  data: unknown,
+  context: ChatStreamPatchContext,
+) {
+  if (!isRecord(data)) return null;
+
+  const target = isRecord(data.target)
+    ? (data.target as unknown as Target)
+    : context.lastTarget;
+  const path = typeof data.path === "string" ? data.path : context.lastPath;
+
+  if (target?.type !== "session" || path === null || !("value" in data)) {
+    return null;
+  }
+
+  const sessionPatch = createSessionPatch({
+    [path]: data.value,
+  });
+
+  return Object.keys(sessionPatch).length > 0 ? sessionPatch : null;
+}
+
 export function createChatCompletionParser({
-  options,
   updateState,
   patchContext,
   onReady,
@@ -173,68 +209,9 @@ export function createChatCompletionParser({
         const data = JSON.parse(event.data) as unknown;
 
         if (event.event === "ready" && isRecord(data)) {
-          const ready = data as unknown as ChatReadyEventPayload;
-          updateState((currentState) => {
-            if (!currentState) return currentState;
-
-            return produce(currentState, (draft) => {
-              const optimisticUserMessageId = options.optimisticUserMessageId;
-              const optimisticIndex =
-                typeof optimisticUserMessageId === "number"
-                  ? draft.chat_messages.findIndex(
-                      (message) =>
-                        message.message_id === optimisticUserMessageId &&
-                        message.role === "USER",
-                    )
-                  : -1;
-
-              if (optimisticIndex >= 0) {
-                const optimisticMessage = draft.chat_messages[optimisticIndex];
-                optimisticMessage.message_id = ready.request_message_id;
-              } else {
-                upsertMessage(
-                  draft.chat_messages,
-                  createUserMessage(ready.request_message_id, options),
-                );
-              }
-
-              draft.chat_session.current_message_id = ready.response_message_id;
-              draft.chat_session.model_type = ready.model_type;
-            });
-          });
-          onReady?.();
-          return;
-        }
-
-        if (event.event === "update_session" && isRecord(data)) {
-          const sessionPatch = createSessionPatch(data);
-          if (Object.keys(sessionPatch).length === 0) return;
-
-          updateState((currentState) => {
-            if (!currentState) return currentState;
-
-            return produce(currentState, (draft) => {
-              Object.assign(draft.chat_session, sessionPatch);
-            });
-          });
-          onSessionPatch?.(sessionPatch);
-          return;
-        }
-
-        if (event.event === "title" && isRecord(data)) {
-          if (typeof data.content === "string") {
-            onTitle?.(data.content);
-          }
-
-          updateState((currentState) => {
-            if (!currentState || typeof data.content !== "string") {
-              return currentState;
-            }
-
-            return produce(currentState, (draft) => {
-              draft.chat_session.title = data.content as string;
-              draft.chat_session.title_type = "SYSTEM";
-            });
+          onReady?.({
+            response_message_id: data.response_message_id as number,
+            user_message_id: data.user_message_id as number,
           });
           return;
         }
@@ -248,11 +225,19 @@ export function createChatCompletionParser({
           return;
         }
 
-        if (!event.event) {
-          updateState((currentState) =>
-            applyStreamData(currentState, patchContext, data),
-          );
+        if (event.event) return;
+
+        const sessionPatch = getMutationSessionPatch(data, patchContext);
+        if (sessionPatch) {
+          onSessionPatch?.(sessionPatch);
+          if (typeof sessionPatch.title === "string") {
+            onTitle?.(sessionPatch.title);
+          }
         }
+
+        updateState((currentState) =>
+          applyStreamData(currentState, patchContext, data),
+        );
       } catch (error) {
         onError(error instanceof Error ? error : new Error("解析流式响应失败"));
       }

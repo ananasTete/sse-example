@@ -21,12 +21,27 @@ export async function createChatCompletionRequest(input: {
     body: JSON.stringify({
       chat_session_id: input.chatSessionId,
       parent_message_id: input.parentMessageId,
-      model_type: "default",
       prompt: input.prompt,
       ref_file_ids: [],
       thinking_enabled: input.thinkingEnabled,
       search_enabled: input.searchEnabled,
       preempt: false,
+    }),
+  });
+}
+
+export async function createResumeChatCompletionRequest(input: {
+  chatSessionId: string;
+  messageId: number;
+}) {
+  return fetch("/api/v0/chat/resume_stream", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      chat_session_id: input.chatSessionId,
+      message_id: input.messageId,
     }),
   });
 }
@@ -64,7 +79,6 @@ function toSessionListPatch(
   if ("title" in patch) listPatch.title = patch.title ?? null;
   if (patch.title_type !== undefined) listPatch.title_type = patch.title_type;
   if (patch.pinned !== undefined) listPatch.pinned = patch.pinned;
-  if (patch.model_type !== undefined) listPatch.model_type = patch.model_type;
   if (patch.updated_at !== undefined) listPatch.updated_at = patch.updated_at;
   if (patch.seq_id !== undefined) listPatch.seq_id = patch.seq_id;
 
@@ -117,15 +131,40 @@ export function useChatCompletion() {
         // 处理 SSE 响应
         await processChatCompletionStream({
           response,
-          options,
           updateState: (updater) => {
             queryClient.setQueryData(
               chatKeys.session(input.chatSessionId),
               updater,
             );
           },
-          onReady: () => {
+          onReady: (payload) => {
             isReady = true;
+
+            queryClient.setQueryData<ChatState | undefined>(
+              chatKeys.session(input.chatSessionId),
+              (state) => {
+                if (!state) return state;
+
+                return produce(state, (draft) => {
+                  const optimistic = draft.chat_messages.find(
+                    (m) =>
+                      m.message_id === options.optimisticUserMessageId &&
+                      m.role === "USER",
+                  );
+                  if (optimistic) {
+                    optimistic.message_id = payload.user_message_id;
+                    for (const block of optimistic.blocks) {
+                      if (block.id === options.optimisticUserMessageId) {
+                        block.id = payload.user_message_id;
+                      }
+                    }
+                    draft.chat_messages.sort(
+                      (a, b) => a.message_id - b.message_id,
+                    );
+                  }
+                });
+              },
+            );
           },
           onSessionPatch: (patch) => {
             const listPatch = toSessionListPatch(patch);
@@ -161,6 +200,75 @@ export function useChatCompletion() {
       }
 
       return input.chatSessionId;
+    },
+  });
+}
+
+export function useResumeChatCompletion() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (input: { chatSessionId: string; messageId: number }) => {
+      try {
+        const response = await createResumeChatCompletionRequest(input);
+        if (!response.ok) {
+          throw new Error("重新接入失败");
+        }
+
+        await processChatCompletionStream({
+          response,
+          updateState: (updater) => {
+            queryClient.setQueryData(
+              chatKeys.session(input.chatSessionId),
+              updater,
+            );
+          },
+          onSessionPatch: (patch) => {
+            const listPatch = toSessionListPatch(patch);
+            if (Object.keys(listPatch).length === 0) return;
+
+            updateChatSessionListItem(
+              queryClient,
+              input.chatSessionId,
+              listPatch,
+            );
+          },
+          onTitle: (title) => {
+            updateChatSessionListItem(queryClient, input.chatSessionId, {
+              title,
+              title_type: "SYSTEM",
+            });
+          },
+        });
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : "生成已中断";
+
+        queryClient.setQueryData<ChatState | undefined>(
+          chatKeys.session(input.chatSessionId),
+          (state) => {
+            if (!state) return state;
+
+            return produce(state, (draft) => {
+              const target = draft.chat_messages.find(
+                (chatMessage) =>
+                  chatMessage.message_id === input.messageId &&
+                  chatMessage.role === "ASSISTANT",
+              );
+
+              if (!target || target.status !== "WIP") return;
+
+              target.status = "FAILED";
+              target.incomplete_message = message;
+              target.has_pending_block = false;
+            });
+          },
+        );
+
+        throw error;
+      }
+
+      return input;
     },
   });
 }

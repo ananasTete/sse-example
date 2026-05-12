@@ -4,7 +4,7 @@ export * from "./client/patch-apply";
 export * from "./client/stream-consumer";
 export * from "./client/stream-parser";
 export * from "./server/citation";
-export * from "./server/patch-emitter";
+export * from "./server/mutation-emitter";
 export * from "./server/sse";
 export * from "./server/stream-bridge";
 export * from "./server/tools/web-search";

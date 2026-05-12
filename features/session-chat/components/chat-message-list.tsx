@@ -13,10 +13,10 @@ import {
 } from "@/src/components/ai-elements/message";
 import {
   ChatResponse,
-  FragmentRenderer,
-  extractCitationsFromFragments,
+  BlockRenderer,
+  extractCitationsFromBlocks,
 } from "@/lib/chat-core";
-import type { ChatFragment, ChatMessage } from "../types";
+import type { ChatBlock, ChatMessage } from "../types";
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
@@ -28,39 +28,39 @@ interface ChatMessageItemProps {
 }
 
 function getUserMessageText(message: ChatMessage) {
-  return message.fragments
-    .filter((f) => f.type === "REQUEST")
+  return message.blocks
+    .filter((f) => f.type === "request")
     .map((f) => f.content ?? "")
     .join("");
 }
 
-function AssistantFragments({
-  fragments,
+function AssistantBlocks({
+  blocks,
   citations,
   isStreaming,
 }: {
-  fragments: ChatFragment[];
-  citations: ReturnType<typeof extractCitationsFromFragments>;
+  blocks: ChatBlock[];
+  citations: ReturnType<typeof extractCitationsFromBlocks>;
   isStreaming: boolean;
 }) {
-  const lastResponseId = fragments.findLast((f) => f.type === "RESPONSE")?.id;
+  const lastResponseId = blocks.findLast((f) => f.type === "response")?.id;
 
   return (
     <>
-      {fragments.map((fragment) => {
-        if (fragment.type === "RESPONSE") {
+      {blocks.map((block) => {
+        if (block.type === "response") {
           return (
             <ChatResponse
-              key={fragment.id}
+              key={block.id}
               citations={citations}
-              isAnimating={isStreaming && fragment.id === lastResponseId}
+              isAnimating={isStreaming && block.id === lastResponseId}
             >
-              {fragment.content ?? ""}
+              {block.content ?? ""}
             </ChatResponse>
           );
         }
 
-        return <FragmentRenderer key={fragment.id} fragment={fragment} />;
+        return <BlockRenderer key={block.id} block={block} />;
       })}
     </>
   );
@@ -71,7 +71,7 @@ const ChatMessageItem = memo(function ChatMessageItem({
 }: ChatMessageItemProps) {
   const isUser = message.role === "USER";
   const isStreaming = message.role === "ASSISTANT" && message.status === "WIP";
-  const citations = isUser ? [] : extractCitationsFromFragments(message.fragments);
+  const citations = isUser ? [] : extractCitationsFromBlocks(message.blocks);
 
   return (
     <Message
@@ -88,8 +88,8 @@ const ChatMessageItem = memo(function ChatMessageItem({
         {isUser ? (
           <div className="whitespace-pre-wrap">{getUserMessageText(message)}</div>
         ) : (
-          <AssistantFragments
-            fragments={message.fragments}
+          <AssistantBlocks
+            blocks={message.blocks}
             citations={citations}
             isStreaming={isStreaming}
           />

@@ -4,9 +4,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, before, beforeEach, test } from "node:test";
 import type { PrismaClient } from "@prisma/client";
+import type { ChatState } from "@/features/session-chat/types";
 import type { chatCompletionHandler as ChatCompletionHandler } from "@/src/server/session-chat/chat-completion";
+import type { resumeChatCompletionStreamHandler as ResumeChatCompletionStreamHandler } from "@/src/server/session-chat/chat-completion";
 import type { createChatSession as CreateChatSession } from "@/src/server/session-chat/chat-session";
 import type { fetchChatSessionsPageHandler as FetchChatSessionsPageHandler } from "@/src/server/session-chat/chat-session";
+import type { historyMessagesHandler as HistoryMessagesHandler } from "@/src/server/session-chat/history-messages";
 
 const testDir = mkdtempSync(path.join(tmpdir(), "session-chat-"));
 const databaseUrl = `file:${path.join(testDir, "test.db")}`;
@@ -17,7 +20,9 @@ process.env.DEEPSEEK_API_KEY = "test-api-key";
 let prisma: PrismaClient;
 let createChatSession: typeof CreateChatSession;
 let chatCompletionHandler: typeof ChatCompletionHandler;
+let resumeChatCompletionStreamHandler: typeof ResumeChatCompletionStreamHandler;
 let fetchChatSessionsPageHandler: typeof FetchChatSessionsPageHandler;
+let historyMessagesHandler: typeof HistoryMessagesHandler;
 
 type StreamTextOverride = NonNullable<
   Parameters<typeof chatCompletionHandler>[1]
@@ -41,12 +46,27 @@ function createCompletionRequest(input: {
     body: JSON.stringify({
       chat_session_id: input.chatSessionId,
       parent_message_id: input.parentMessageId ?? null,
-      model_type: "default",
       prompt: input.prompt ?? "hello",
       ref_file_ids: [],
       thinking_enabled: false,
       search_enabled: input.searchEnabled ?? false,
       preempt: input.preempt ?? false,
+    }),
+  });
+}
+
+function createResumeStreamRequest(input: {
+  chatSessionId: string;
+  messageId: number;
+}) {
+  return new Request("http://localhost/api/v0/chat/resume_stream", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      chat_session_id: input.chatSessionId,
+      message_id: input.messageId,
     }),
   });
 }
@@ -80,6 +100,27 @@ async function readJson(response: Response) {
   };
 }
 
+function parseSseEvents(text: string) {
+  return text
+    .trim()
+    .split(/\n\n+/)
+    .filter(Boolean)
+    .map((frame) => {
+      const lines = frame.split("\n");
+      const event = lines
+        .find((line) => line.startsWith("event: "))
+        ?.slice("event: ".length);
+      const data = lines
+        .find((line) => line.startsWith("data: "))
+        ?.slice("data: ".length);
+
+      return {
+        event,
+        data: data ? (JSON.parse(data) as Record<string, unknown>) : null,
+      };
+    });
+}
+
 async function createTestSchema() {
   await prisma.$executeRawUnsafe("PRAGMA foreign_keys = ON");
 
@@ -88,13 +129,12 @@ async function createTestSchema() {
       "id" TEXT NOT NULL PRIMARY KEY,
       "seqId" INTEGER NOT NULL,
       "agent" TEXT NOT NULL DEFAULT 'chat',
-      "modelType" TEXT NOT NULL DEFAULT 'default',
       "title" TEXT,
       "titleType" TEXT NOT NULL DEFAULT 'WIP',
       "version" INTEGER NOT NULL DEFAULT 0,
       "currentMessageId" INTEGER,
       "nextMessageId" INTEGER NOT NULL DEFAULT 0,
-      "nextFragmentId" INTEGER NOT NULL DEFAULT 0,
+      "nextBlockId" INTEGER NOT NULL DEFAULT 0,
       "pinned" BOOLEAN NOT NULL DEFAULT false,
       "isEmpty" BOOLEAN NOT NULL DEFAULT true,
       "expiresAt" DATETIME,
@@ -127,7 +167,7 @@ async function createTestSchema() {
       "feedback" JSONB,
       "searchEnabled" BOOLEAN NOT NULL DEFAULT false,
       "conversationMode" TEXT NOT NULL DEFAULT 'DEFAULT',
-      "hasPendingFragment" BOOLEAN NOT NULL DEFAULT false,
+      "hasPendingBlock" BOOLEAN NOT NULL DEFAULT false,
       "autoContinue" BOOLEAN NOT NULL DEFAULT false,
       "insertedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -136,7 +176,7 @@ async function createTestSchema() {
   `);
 
   await prisma.$executeRawUnsafe(`
-    CREATE TABLE IF NOT EXISTS "MessageFragment" (
+    CREATE TABLE IF NOT EXISTS "MessageBlock" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
       "localId" INTEGER NOT NULL,
       "messageId" INTEGER NOT NULL,
@@ -153,7 +193,7 @@ async function createTestSchema() {
       "stageId" INTEGER,
       "insertedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "updatedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      CONSTRAINT "MessageFragment_messageId_fkey" FOREIGN KEY ("messageId") REFERENCES "ChatMessage" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+      CONSTRAINT "MessageBlock_messageId_fkey" FOREIGN KEY ("messageId") REFERENCES "ChatMessage" ("id") ON DELETE CASCADE ON UPDATE CASCADE
     )
   `);
 
@@ -179,10 +219,10 @@ async function createTestSchema() {
     `CREATE UNIQUE INDEX IF NOT EXISTS "ChatMessage_chatSessionId_localId_key" ON "ChatMessage"("chatSessionId", "localId")`,
   );
   await prisma.$executeRawUnsafe(
-    `CREATE INDEX IF NOT EXISTS "MessageFragment_messageId_id_idx" ON "MessageFragment"("messageId", "id")`,
+    `CREATE INDEX IF NOT EXISTS "MessageBlock_messageId_id_idx" ON "MessageBlock"("messageId", "id")`,
   );
   await prisma.$executeRawUnsafe(
-    `CREATE UNIQUE INDEX IF NOT EXISTS "MessageFragment_messageId_localId_key" ON "MessageFragment"("messageId", "localId")`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "MessageBlock_messageId_localId_key" ON "MessageBlock"("messageId", "localId")`,
   );
 }
 
@@ -191,15 +231,18 @@ before(async () => {
   ({ createChatSession, fetchChatSessionsPageHandler } = await import(
     "@/src/server/session-chat/chat-session"
   ));
-  ({ chatCompletionHandler } = await import(
+  ({ chatCompletionHandler, resumeChatCompletionStreamHandler } = await import(
     "@/src/server/session-chat/chat-completion"
+  ));
+  ({ historyMessagesHandler } = await import(
+    "@/src/server/session-chat/history-messages"
   ));
 
   await createTestSchema();
 });
 
 beforeEach(async () => {
-  await prisma.messageFragment.deleteMany();
+  await prisma.messageBlock.deleteMany();
   await prisma.chatMessage.deleteMany();
   await prisma.chatSession.deleteMany();
   await prisma.chatSequence.deleteMany();
@@ -238,8 +281,10 @@ test("completion failure before first token still creates a failed assistant mes
 
     const sseText = await response.text();
     assert.match(sseText, /event: ready/);
-    assert.match(sseText, /"response"/);
+    assert.match(sseText, /"response_message_id":2/);
+    assert.match(sseText, /"role":"ASSISTANT"/);
     assert.match(sseText, /"FAILED"/);
+    assert.match(sseText, /event: error/);
     assert.match(sseText, /"Completion failed"/);
   } finally {
     console.error = originalConsoleError;
@@ -251,19 +296,19 @@ test("completion failure before first token still creates a failed assistant mes
       role: "ASSISTANT",
     },
     include: {
-      fragments: true,
+      blocks: true,
     },
   });
 
   assert.equal(assistant.status, "FAILED");
-  assert.equal(assistant.hasPendingFragment, false);
+  assert.equal(assistant.hasPendingBlock, false);
   assert.equal(assistant.incompleteMessage, "Completion failed");
-  assert.equal(assistant.fragments.length, 1);
-  assert.equal(assistant.fragments[0].type, "RESPONSE");
-  assert.equal(assistant.fragments[0].content, "");
+  assert.equal(assistant.blocks.length, 1);
+  assert.equal(assistant.blocks[0].type, "response");
+  assert.equal(assistant.blocks[0].content, "");
 });
 
-test("completion without search persists a default response fragment", async () => {
+test("completion without search persists a default response block", async () => {
   const chatSessionId = await createSessionId();
 
   async function* stream() {
@@ -280,7 +325,7 @@ test("completion without search persists a default response fragment", async () 
 
   const sseText = await response.text();
   assert.match(sseText, /"conversation_mode":"DEFAULT"/);
-  assert.doesNotMatch(sseText, /"type":"SEARCH"/);
+  assert.doesNotMatch(sseText, /"type":"search"/);
 
   const assistant = await prisma.chatMessage.findFirstOrThrow({
     where: {
@@ -288,7 +333,7 @@ test("completion without search persists a default response fragment", async () 
       role: "ASSISTANT",
     },
     include: {
-      fragments: {
+      blocks: {
         orderBy: { localId: "asc" },
       },
     },
@@ -296,12 +341,193 @@ test("completion without search persists a default response fragment", async () 
 
   assert.equal(assistant.searchEnabled, false);
   assert.equal(assistant.conversationMode, "DEFAULT");
-  assert.equal(assistant.fragments.length, 1);
-  assert.equal(assistant.fragments[0].type, "RESPONSE");
-  assert.equal(assistant.fragments[0].content, "hello");
+  assert.equal(assistant.blocks.length, 1);
+  assert.equal(assistant.blocks[0].type, "response");
+  assert.equal(assistant.blocks[0].content, "hello");
 });
 
-test("completion with search streams and persists search fragments", async () => {
+test("history messages returns blocks payload", async () => {
+  const chatSessionId = await createSessionId();
+
+  async function* stream() {
+    yield { type: "text-delta", text: "hello" };
+    yield { type: "finish", totalUsage: { totalTokens: 3 } };
+  }
+
+  await (
+    await chatCompletionHandler(createCompletionRequest({ chatSessionId }), {
+      streamText: createStreamTextOverride(stream()),
+    })
+  ).text();
+
+  const response = await historyMessagesHandler(
+    new Request(
+      `http://localhost/api/v0/chat/history_messages?chat_session_id=${chatSessionId}`,
+    ),
+  );
+  const body = (await response.json()) as {
+    data?: { biz_data?: ChatState | null };
+  };
+  const messages = body.data?.biz_data?.chat_messages ?? [];
+  const assistant = messages.find((message) => message.role === "ASSISTANT");
+
+  assert.equal(response.status, 200);
+  assert.equal(assistant?.has_pending_block, false);
+  assert.equal(assistant?.blocks.length, 1);
+  assert.equal(assistant?.blocks[0].type, "response");
+  assert.equal(assistant?.blocks[0].content, "hello");
+  assert.equal(["frag", "ments"].join("") in (assistant ?? {}), false);
+});
+
+test("completion compresses repeated mutation context", async () => {
+  const chatSessionId = await createSessionId();
+
+  async function* stream() {
+    yield { type: "text-delta", text: "你" };
+    yield { type: "text-delta", text: "好" };
+    yield { type: "finish", totalUsage: { totalTokens: 2 } };
+  }
+
+  const response = await chatCompletionHandler(
+    createCompletionRequest({ chatSessionId }),
+    {
+      streamText: createStreamTextOverride(stream()),
+    },
+  );
+
+  const events = parseSseEvents(await response.text());
+  const contentMutations = events
+    .filter((event) => event.event === undefined && event.data)
+    .map((event) => event.data!)
+    .filter((data) => data.value === "你" || data.value === "好");
+
+  assert.equal(contentMutations.length, 2);
+  assert.deepEqual(contentMutations[0].target, {
+    type: "block",
+    id: 1,
+    parent: { type: "message", id: 2 },
+  });
+  assert.equal(contentMutations[0].path, "content");
+  assert.equal("op" in contentMutations[0], false);
+  assert.deepEqual(contentMutations[1], { value: "好" });
+
+  const statusMutation = events
+    .filter((event) => event.event === undefined && event.data)
+    .map((event) => event.data!)
+    .find((data) => data.path === "status");
+  const titleMutation = events
+    .filter((event) => event.event === undefined && event.data)
+    .map((event) => event.data!)
+    .find((data) => data.path === "title");
+
+  assert.deepEqual(statusMutation, { path: "status", value: "FINISHED" });
+  assert.deepEqual(titleMutation, { path: "title", value: "hello" });
+});
+
+test("stream parser applies compressed mutation context", async () => {
+  const { applyStreamData } = await import(
+    "@/lib/chat-core/client/stream-parser"
+  );
+  const context = {
+    responseMessageId: null,
+    responseMessageIndex: null,
+    lastTarget: null,
+    lastPath: null,
+    lastOperation: null,
+  };
+  const options = {
+    updateState: () => {},
+    patchContext: context,
+    resolveMutationTarget: (
+      draft: { blocks: Array<{ id: number; content: string }> },
+      target: { type: string; id: string | number },
+    ) =>
+      target.type === "block"
+        ? draft.blocks.find((block) => block.id === target.id) ?? null
+        : null,
+  };
+
+  const firstState = applyStreamData(
+    { blocks: [{ id: 1, content: "" }] },
+    options,
+    {
+      target: { type: "block", id: 1 },
+      op: "append",
+      path: "content",
+      value: "你",
+    },
+  );
+  const secondState = applyStreamData(firstState, options, { value: "好" });
+
+  assert.equal(secondState?.blocks[0].content, "你好");
+});
+
+test("session parser callbacks apply compressed mutation context", async () => {
+  const { createChatCompletionParser } = await import(
+    "@/features/session-chat/stream/parser"
+  );
+  let state: ChatState = {
+    chat_session: {
+      id: "session-1",
+      title: null,
+      title_type: "WIP" as const,
+      pinned: false,
+      updated_at: 0,
+      seq_id: 1,
+      agent: "chat",
+      version: 0,
+      is_empty: false,
+      current_message_id: null,
+      inserted_at: 0,
+    },
+    chat_messages: [],
+  };
+  const patchContext = {
+    responseMessageId: null,
+    responseMessageIndex: null,
+    lastTarget: null,
+    lastPath: null,
+    lastOperation: null,
+  };
+  const sessionPatches: unknown[] = [];
+  const titles: string[] = [];
+  const parser = createChatCompletionParser({
+    patchContext,
+    updateState: (updater) => {
+      state = updater(state) ?? state;
+    },
+    onSessionPatch: (patch) => {
+      sessionPatches.push(patch);
+    },
+    onTitle: (title) => {
+      titles.push(title);
+    },
+    onError: (error) => {
+      throw error;
+    },
+  });
+
+  parser.feed(
+    `data: ${JSON.stringify({
+      target: { type: "session", id: "session-1" },
+      op: "set",
+      path: "updated_at",
+      value: 1,
+    })}\n\n`,
+  );
+  parser.feed(
+    `data: ${JSON.stringify({
+      path: "title",
+      value: "hello",
+    })}\n\n`,
+  );
+
+  assert.deepEqual(sessionPatches, [{ updated_at: 1 }, { title: "hello" }]);
+  assert.deepEqual(titles, ["hello"]);
+  assert.equal(state.chat_session.title, "hello");
+});
+
+test("completion with search streams and persists search blocks", async () => {
   const chatSessionId = await createSessionId();
   let streamSystemPrompt = "";
 
@@ -370,16 +596,16 @@ test("completion with search streams and persists search fragments", async () =>
 
   const sseText = await response.text();
   assert.match(sseText, /"conversation_mode":"SEARCH"/);
-  assert.match(sseText, /"id":1,"type":"TOOL_CALL"/);
+  assert.match(sseText, /"id":1,"type":"tool_call"/);
   assert.match(sseText, /"tool_name":"web_search"/);
-  assert.match(sseText, /"p":"tool_output","o":"SET"/);
-  assert.match(sseText, /"p":"fragments","o":"APPEND"/);
-  assert.match(sseText, /"id":2,"type":"RESPONSE"/);
+  assert.match(sseText, /"op":"set","path":"output"/);
+  assert.match(sseText, /"op":"append","path":"blocks"/);
+  assert.match(sseText, /"id":2,"type":"response"/);
   assert.match(
     sseText,
     /DeepSeek-V4<citation cite_index=\\"1\\">1<\/citation>/,
   );
-  assert.match(sseText, /"p":"status","o":"SET","v":"FINISHED"/);
+  assert.match(sseText, /"value":"FINISHED","path":"status"/);
   assert.match(streamSystemPrompt, /web_search/);
   assert.match(streamSystemPrompt, /<citation cite_index="N">N<\/citation>/);
 
@@ -387,7 +613,7 @@ test("completion with search streams and persists search fragments", async () =>
     where: { chatSessionId },
     orderBy: { localId: "asc" },
     include: {
-      fragments: {
+      blocks: {
         orderBy: { localId: "asc" },
       },
     },
@@ -400,15 +626,15 @@ test("completion with search streams and persists search fragments", async () =>
   assert.equal(assistant?.searchEnabled, true);
   assert.equal(assistant?.conversationMode, "SEARCH");
   assert.equal(assistant?.status, "FINISHED");
-  assert.equal(assistant?.fragments.length, 2);
-  assert.equal(assistant?.fragments[0].type, "TOOL_CALL");
-  assert.equal(assistant?.fragments[0].status, "FINISHED");
-  assert.equal(assistant?.fragments[0].toolName, "web_search");
-  assert.equal(assistant?.fragments[0].toolCallId, "call_search");
-  assert.deepEqual(assistant?.fragments[0].toolInputJson, {
+  assert.equal(assistant?.blocks.length, 2);
+  assert.equal(assistant?.blocks[0].type, "tool_call");
+  assert.equal(assistant?.blocks[0].status, "FINISHED");
+  assert.equal(assistant?.blocks[0].toolName, "web_search");
+  assert.equal(assistant?.blocks[0].toolCallId, "call_search");
+  assert.deepEqual(assistant?.blocks[0].toolInputJson, {
     query: "DeepSeek 最新模型 2026",
   });
-  assert.deepEqual(assistant?.fragments[0].toolOutputJson, {
+  assert.deepEqual(assistant?.blocks[0].toolOutputJson, {
     queries: [{ query: "DeepSeek 最新模型 2026" }],
     results: [
       {
@@ -421,12 +647,12 @@ test("completion with search streams and persists search fragments", async () =>
       },
     ],
   });
-  assert.equal(assistant?.fragments[1].type, "RESPONSE");
+  assert.equal(assistant?.blocks[1].type, "response");
   assert.equal(
-    assistant?.fragments[1].content,
+    assistant?.blocks[1].content,
     'DeepSeek-V4<citation cite_index="1">1</citation>',
   );
-  assert.equal(assistant?.fragments[1].stageId, null);
+  assert.equal(assistant?.blocks[1].stageId, null);
 });
 
 test("search completion normalizes streamed citation tags to cite_index tags", async () => {
@@ -490,7 +716,10 @@ test("search completion normalizes streamed citation tags to cite_index tags", a
   );
 
   const sseText = await response.text();
-  assert.match(sseText, /"v":"<citation cite_index=\\"1\\">1<\/citation>"/);
+  assert.match(
+    sseText,
+    /"value":"<citation cite_index=\\"1\\">1<\/citation>"/,
+  );
   assert.doesNotMatch(sseText, /cite=\\"1\\"/);
 
   const assistant = await prisma.chatMessage.findFirstOrThrow({
@@ -499,19 +728,19 @@ test("search completion normalizes streamed citation tags to cite_index tags", a
       role: "ASSISTANT",
     },
     include: {
-      fragments: {
+      blocks: {
         orderBy: { localId: "asc" },
       },
     },
   });
 
   assert.equal(
-    assistant.fragments[1].content,
+    assistant.blocks[1].content,
     'DeepSeek<citation cite_index="1">1</citation>',
   );
 });
 
-test("search completion creates tool fragment before response text", async () => {
+test("search completion creates tool block before response text", async () => {
   const chatSessionId = await createSessionId();
 
   async function* searchStream() {
@@ -569,10 +798,10 @@ test("search completion creates tool fragment before response text", async () =>
   );
 
   const sseText = await response.text();
-  assert.match(sseText, /"id":1,"type":"TOOL_CALL"/);
+  assert.match(sseText, /"id":1,"type":"tool_call"/);
   assert.match(sseText, /"tool_name":"web_search"/);
-  assert.match(sseText, /"p":"status","o":"SET","v":"FINISHED"/);
-  assert.match(sseText, /"id":2,"type":"RESPONSE"/);
+  assert.match(sseText, /"value":"FINISHED","path":"status"/);
+  assert.match(sseText, /"id":2,"type":"response"/);
 
   const assistant = await prisma.chatMessage.findFirstOrThrow({
     where: {
@@ -580,19 +809,19 @@ test("search completion creates tool fragment before response text", async () =>
       role: "ASSISTANT",
     },
     include: {
-      fragments: {
+      blocks: {
         orderBy: { localId: "asc" },
       },
     },
   });
 
-  assert.equal(assistant.fragments.length, 2);
-  assert.equal(assistant.fragments[0].localId, 1);
-  assert.equal(assistant.fragments[0].type, "TOOL_CALL");
-  assert.equal(assistant.fragments[0].toolName, "web_search");
-  assert.equal(assistant.fragments[1].localId, 2);
-  assert.equal(assistant.fragments[1].type, "RESPONSE");
-  assert.equal(assistant.fragments[1].stageId, null);
+  assert.equal(assistant.blocks.length, 2);
+  assert.equal(assistant.blocks[0].localId, 1);
+  assert.equal(assistant.blocks[0].type, "tool_call");
+  assert.equal(assistant.blocks[0].toolName, "web_search");
+  assert.equal(assistant.blocks[1].localId, 2);
+  assert.equal(assistant.blocks[1].type, "response");
+  assert.equal(assistant.blocks[1].stageId, null);
 });
 
 test("search completion failure clears pending state", async () => {
@@ -620,7 +849,7 @@ test("search completion failure clears pending state", async () => {
     );
 
     const sseText = await response.text();
-    assert.match(sseText, /"type":"RESPONSE"/);
+    assert.match(sseText, /"type":"response"/);
     assert.match(sseText, /"FAILED"/);
     assert.match(sseText, /"Completion failed"/);
   } finally {
@@ -633,19 +862,19 @@ test("search completion failure clears pending state", async () => {
       role: "ASSISTANT",
     },
     include: {
-      fragments: {
+      blocks: {
         orderBy: { localId: "asc" },
       },
     },
   });
 
   assert.equal(assistant.status, "FAILED");
-  assert.equal(assistant.hasPendingFragment, false);
+  assert.equal(assistant.hasPendingBlock, false);
   assert.equal(assistant.searchEnabled, true);
   assert.equal(assistant.conversationMode, "SEARCH");
-  assert.equal(assistant.fragments.length, 1);
-  assert.equal(assistant.fragments[0].type, "RESPONSE");
-  assert.equal(assistant.fragments[0].content, "");
+  assert.equal(assistant.blocks.length, 1);
+  assert.equal(assistant.blocks[0].type, "response");
+  assert.equal(assistant.blocks[0].content, "");
 });
 
 test("second completion on an active session returns 409", async () => {
@@ -680,6 +909,54 @@ test("second completion on an active session returns 409", async () => {
 
   releaseStream();
   assert.match(await firstResponse.text(), /"FINISHED"/);
+});
+
+test("resume stream sends current snapshot then active deltas", async () => {
+  const chatSessionId = await createSessionId();
+  let releaseStream!: () => void;
+  let firstDeltaSent!: () => void;
+  const firstDeltaReady = new Promise<void>((resolve) => {
+    firstDeltaSent = resolve;
+  });
+  const streamReleased = new Promise<void>((resolve) => {
+    releaseStream = resolve;
+  });
+
+  async function* slowStream() {
+    yield { type: "text-delta", text: "hello" };
+    firstDeltaSent();
+    await streamReleased;
+    yield { type: "text-delta", text: " world" };
+    yield { type: "finish", totalUsage: { totalTokens: 2 } };
+  }
+
+  const firstResponse = await chatCompletionHandler(
+    createCompletionRequest({ chatSessionId }),
+    {
+      streamText: createStreamTextOverride(slowStream()),
+    },
+  );
+
+  await firstDeltaReady;
+
+  const resumeResponse = await resumeChatCompletionStreamHandler(
+    createResumeStreamRequest({ chatSessionId, messageId: 2 }),
+  );
+
+  releaseStream();
+
+  const [firstText, resumeText] = await Promise.all([
+    firstResponse.text(),
+    resumeResponse.text(),
+  ]);
+
+  assert.match(firstText, /"hello"/);
+  assert.match(resumeText, /event: ready/);
+  assert.match(resumeText, /"response_message_id":2/);
+  assert.match(resumeText, /"op":"upsert"/);
+  assert.match(resumeText, /"content":"hello"/);
+  assert.match(resumeText, /" world"/);
+  assert.match(resumeText, /event: done/);
 });
 
 test("session pagination uses updated_at and seq_id as a compound cursor", async () => {

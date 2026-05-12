@@ -1,10 +1,14 @@
 "use client";
 
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { ChatMessageList } from "./chat-message-list";
 import { ChatPromptInput } from "./chat-prompt-input";
-import { useChatCompletion, useChatSessionQuery } from "../hooks";
+import {
+  useChatCompletion,
+  useChatSessionQuery,
+  useResumeChatCompletion,
+} from "../hooks";
 
 interface ChatDetailViewProps {
   chatSessionId: string;
@@ -21,7 +25,10 @@ export function ChatDetailView({ chatSessionId }: ChatDetailViewProps) {
   const sessionQuery = useChatSessionQuery(chatSessionId);
   const { mutateAsync: createCompletion, isPending: isSending } =
     useChatCompletion();
+  const { mutate: resumeCompletion, isPending: isResuming } =
+    useResumeChatCompletion();
   const chatState = sessionQuery.data;
+  const resumeKeyRef = useRef<string | null>(null);
 
   const handleSubmit = useCallback(
     async (prompt: string, options: { searchEnabled: boolean }) => {
@@ -48,8 +55,31 @@ export function ChatDetailView({ chatSessionId }: ChatDetailViewProps) {
   );
 
   const messages = chatState?.chat_messages ?? [];
+  const activeAssistantMessage = messages.findLast(
+    (message) => message.role === "ASSISTANT" && message.status === "WIP",
+  );
+
+  useEffect(() => {
+    if (!activeAssistantMessage) return;
+
+    const resumeKey = `${chatSessionId}:${activeAssistantMessage.message_id}`;
+    if (resumeKeyRef.current === resumeKey) return;
+
+    resumeKeyRef.current = resumeKey;
+    resumeCompletion(
+      {
+        chatSessionId,
+        messageId: activeAssistantMessage.message_id,
+      },
+      {
+        onError: () => {},
+      },
+    );
+  }, [activeAssistantMessage, chatSessionId, resumeCompletion]);
+
   const title = getSessionTitle(chatState?.chat_session.title);
   const isLoadingDetail = sessionQuery.isFetching && !sessionQuery.data;
+  const isStreaming = isSending || isResuming;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -72,12 +102,12 @@ export function ChatDetailView({ chatSessionId }: ChatDetailViewProps) {
         </div>
       ) : (
         <>
-          <ChatMessageList messages={messages} isSending={isSending} />
+          <ChatMessageList messages={messages} isSending={isStreaming} />
           <div className="shrink-0 bg-gradient-to-t from-[#fbfbf8] via-[#fbfbf8] to-transparent px-4 pb-5 pt-3">
             <div className="mx-auto w-full max-w-3xl">
               <ChatPromptInput
                 disabled={!chatState}
-                isSending={isSending}
+                isSending={isStreaming}
                 onSubmit={handleSubmit}
               />
             </div>

@@ -1,9 +1,11 @@
 import type {
+  BlockType,
   ChatPatchOperation,
   ChatPatchTarget,
   ChatStreamPatch,
   ChatStreamPatchContext,
-  CoreFragment,
+  CoreBlock,
+  Target,
 } from "@/lib/chat-core";
 
 export type ChatRole = "USER" | "ASSISTANT";
@@ -15,7 +17,6 @@ export interface ChatSession {
   id: string;
   title: string | null;
   title_type: ChatTitleType;
-  model_type: string;
   pinned: boolean;
   updated_at: number;
   seq_id: number;
@@ -34,13 +35,12 @@ export interface ChatSessionListItem {
   title: string | null;
   title_type: ChatTitleType;
   pinned: boolean;
-  model_type: string;
   updated_at: number;
 }
 
-export interface ChatFragment extends CoreFragment {
+export interface ChatBlock extends CoreBlock {
   id: number;
-  type: "REQUEST" | "RESPONSE" | "SEARCH" | "TOOL_CALL" | string;
+  type: BlockType | string;
   status?: string;
   content: string | null;
   queries?: Array<Record<string, unknown>>;
@@ -63,9 +63,9 @@ export interface ChatMessage {
   feedback: unknown;
   inserted_at: number;
   search_enabled: boolean;
-  fragments: ChatFragment[];
+  blocks: ChatBlock[];
   conversation_mode?: string;
-  has_pending_fragment: boolean;
+  has_pending_block: boolean;
   auto_continue: boolean;
 }
 
@@ -130,12 +130,15 @@ export interface ChatSessionsPage {
 }
 
 export interface ChatReadyEventPayload {
-  request_message_id: number;
   response_message_id: number;
-  model_type: string;
+  user_message_id: number;
 }
 
-export type { ChatStreamPatchContext, ChatPatchTarget };
+export type {
+  ChatStreamPatchContext,
+  ChatPatchTarget,
+  Target,
+};
 
 export interface ChatCompletionOptions {
   chatSessionId: string;

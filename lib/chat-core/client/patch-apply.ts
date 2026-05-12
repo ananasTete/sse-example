@@ -1,4 +1,4 @@
-import type { ChatPatchOperation } from "../types";
+import type { ChatPatchOperation, MutationOp } from "../types";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -16,9 +16,11 @@ export function resolveArrayIndex(array: unknown[], segment: string) {
 export function applyPathPatch(
   target: unknown,
   path: string,
-  operation: ChatPatchOperation,
+  operation: ChatPatchOperation | MutationOp,
   value: unknown,
 ) {
+  if (operation === "delete" && !path) return;
+
   const segments = path.split("/").filter(Boolean);
   let cursor = target;
 
@@ -42,13 +44,17 @@ export function applyPathPatch(
     const arrayIndex = resolveArrayIndex(cursor, lastSegment);
     if (arrayIndex === null) return;
 
-    if (operation === "APPEND" && Array.isArray(cursor[arrayIndex])) {
+    if (
+      (operation === "APPEND" || operation === "append") &&
+      Array.isArray(cursor[arrayIndex])
+    ) {
       (cursor[arrayIndex] as unknown[]).push(value);
       return;
     }
 
     cursor[arrayIndex] =
-      operation === "APPEND" && typeof cursor[arrayIndex] === "string"
+      (operation === "APPEND" || operation === "append") &&
+      typeof cursor[arrayIndex] === "string"
         ? `${cursor[arrayIndex]}${String(value)}`
         : value;
     return;
@@ -56,7 +62,12 @@ export function applyPathPatch(
 
   if (!isRecord(cursor)) return;
 
-  if (operation === "APPEND") {
+  if (operation === "delete") {
+    delete cursor[lastSegment];
+    return;
+  }
+
+  if (operation === "APPEND" || operation === "append") {
     const currentValue = cursor[lastSegment];
     if (Array.isArray(currentValue)) {
       if (Array.isArray(value)) {

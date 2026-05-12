@@ -1,7 +1,7 @@
 "use client";
 
 import { Wrench } from "lucide-react";
-import type { CoreFragment } from "../types";
+import type { CoreBlock } from "../types";
 
 function stringify(value: unknown) {
   if (value === undefined || value === null) return "";
@@ -13,18 +13,18 @@ function stringify(value: unknown) {
   }
 }
 
-export function GenericToolView({ fragment }: { fragment: CoreFragment }) {
-  const input = stringify(fragment.tool_input);
-  const output = stringify(fragment.tool_output);
+export function GenericToolView({ block }: { block: CoreBlock }) {
+  const input = stringify(block.input);
+  const output = stringify(block.output);
 
   return (
     <details className="mb-4 rounded-lg border border-[#dedbd2] bg-[#f8f7f2] px-3 py-2.5 text-sm text-[#3f3b34]">
       <summary className="flex cursor-pointer items-center gap-2 font-medium">
         <Wrench className="size-4 text-[#726756]" />
-        <span>{fragment.tool_name ?? "tool"}</span>
-        {fragment.status ? (
+        <span>{block.tool_name ?? "tool"}</span>
+        {block.status ? (
           <span className="ml-auto rounded-full bg-white px-2 py-0.5 text-xs text-[#746f65]">
-            {fragment.status}
+            {block.status}
           </span>
         ) : null}
       </summary>

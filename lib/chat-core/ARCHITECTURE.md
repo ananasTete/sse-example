@@ -42,9 +42,9 @@
 │  │ patch-apply     — target + p/o/v 补丁执行引擎   │      │
 │  │ stream-parser   — SSE 事件 → immer 状态更新     │      │
 │  │ stream-consumer — ReadableStream 消费循环       │      │
-│  │ citation-utils  — 从 fragments 提取引用         │      │
-│  │ UI: ChatResponse, SearchFragmentView,           │      │
-│  │     FragmentRenderer, GenericToolView            │      │
+│  │ citation-utils  — 从 blocks 提取引用         │      │
+│  │ UI: ChatResponse, SearchBlockView,           │      │
+│  │     BlockRenderer, GenericToolView            │      │
 │  └─────────────────────────────────────────────────┘      │
 │                                                          │
 │  ┌─ 后端 ─────────────────────────────────────────┐      │
@@ -56,7 +56,7 @@
 │  └─────────────────────────────────────────────────┘      │
 │                                                          │
 │  ┌─ 共享 ─────────────────────────────────────────┐      │
-│  │ types          — 协议类型 + Fragment 基础类型    │      │
+│  │ types          — 协议类型 + Block 基础类型    │      │
 │  └─────────────────────────────────────────────────┘      │
 └──────────────────────────────────────────────────────────┘
 ```
@@ -106,8 +106,8 @@ createPatchStreamParser()          ← core: eventsource-parser → applyStreamD
        ▼
   [项目 UI]
        │
-       ├─ FragmentRenderer          ← core: 路由到对应 fragment 组件
-       │    ├─ SearchFragmentView   ← core 内置: web_search
+       ├─ BlockRenderer          ← core: 路由到对应 block 组件
+       │    ├─ SearchBlockView   ← core 内置: web_search
        │    ├─ GenericToolView      ← core 内置: 未知工具 fallback
        │    └─ [Custom]             ← 项目注入: customRenderers
        │
@@ -116,26 +116,26 @@ createPatchStreamParser()          ← core: eventsource-parser → applyStreamD
             └─ [Custom components]  ← 项目注入: components prop
 ```
 
-### 2.3 Fragment 状态模型（工具调用生命周期）
+### 2.3 Block 状态模型（工具调用生命周期）
 
-一个 assistant 消息的 `fragments[]` 按时间序保存所有阶段：
+一个 assistant 消息的 `blocks[]` 按时间序保存所有阶段：
 
 ```
-fragments: [
-  { type: "TOOL_CALL", tool_name: "web_search", status: "FINISHED",
-    tool_input: { query: "..." }, tool_output: { queries: [...], results: [...] } },
-  { type: "RESPONSE", content: "根据搜索结果..." }
+blocks: [
+  { type: "tool_call", tool_name: "web_search", status: "FINISHED",
+    input: { query: "..." }, output: { queries: [...], results: [...] } },
+  { type: "response", content: "根据搜索结果..." }
 ]
 ```
 
 多工具交错（agent 多步推理）：
 
 ```
-fragments: [
-  { type: "TOOL_CALL", tool_name: "web_search",        status: "FINISHED", ... },
-  { type: "RESPONSE", content: "初步分析..." },
-  { type: "TOOL_CALL", tool_name: "generate_character", status: "FINISHED", ... },
-  { type: "RESPONSE", content: "最终结论..." }
+blocks: [
+  { type: "tool_call", tool_name: "web_search",        status: "FINISHED", ... },
+  { type: "response", content: "初步分析..." },
+  { type: "tool_call", tool_name: "generate_character", status: "FINISHED", ... },
+  { type: "response", content: "最终结论..." }
 ]
 ```
 
@@ -145,39 +145,39 @@ fragments: [
 // 0. 初始化 assistant response（必须先发，后续 patch 才有目标）
 { "v": { "response": {
     "message_id": 2, "parent_id": 1, "role": "ASSISTANT",
-    "status": "WIP", "fragments": [], "has_pending_fragment": false
+    "status": "WIP", "blocks": [], "has_pending_block": false
 }}}
 
 // 1. 工具调用开始
-{ "t": { "type": "response" }, "p": "fragments", "o": "APPEND", "v": {
-    "id": 1, "type": "TOOL_CALL", "tool_name": "web_search",
+{ "t": { "type": "response" }, "p": "blocks", "o": "APPEND", "v": {
+    "id": 1, "type": "tool_call", "tool_name": "web_search",
     "status": "WIP", "tool_call_id": "call_abc",
-    "tool_input": { "query": "最新消息" }, "tool_output": null
+    "input": { "query": "最新消息" }, "output": null
 }}
 
 // 2. 工具执行完成
-{ "t": { "type": "fragment", "id": 1 }, "p": "tool_output", "o": "SET", "v": { "queries": [...], "results": [...] } }
-{ "t": { "type": "fragment", "id": 1 }, "p": "status", "o": "SET", "v": "FINISHED" }
+{ "t": { "type": "block", "id": 1 }, "p": "output", "o": "SET", "v": { "queries": [...], "results": [...] } }
+{ "t": { "type": "block", "id": 1 }, "p": "status", "o": "SET", "v": "FINISHED" }
 
 // 3. 文本响应开始
-{ "t": { "type": "response" }, "p": "fragments", "o": "APPEND", "v": {
-    "id": 2, "type": "RESPONSE", "content": "", "references": []
+{ "t": { "type": "response" }, "p": "blocks", "o": "APPEND", "v": {
+    "id": 2, "type": "response", "content": "", "references": []
 }}
 
 // 4. 文本流式输出
-{ "t": { "type": "fragment", "id": 2 }, "p": "content", "o": "APPEND", "v": "根据" }
+{ "t": { "type": "block", "id": 2 }, "p": "content", "o": "APPEND", "v": "根据" }
 { "v": "搜索结果" }  // 续传：省略 p/o，复用上一帧
 { "v": "，<citation cite_index=\"1\">1</citation>..." }
 ```
 
-补丁帧统一使用 `t` 定位目标，`p` 只表示目标对象内部路径。`APPEND fragments` 的目标是当前 assistant response；更新 fragment 内容、状态、tool output 时目标是稳定 fragment id。续传帧复用上一帧的 `t/p/o`。
+补丁帧统一使用 `t` 定位目标，`p` 只表示目标对象内部路径。`APPEND blocks` 的目标是当前 assistant response；更新 block 内容、状态、tool output 时目标是稳定 block id。续传帧复用上一帧的 `t/p/o`。
 
 ### 2.4 可扩展性设计
 
 | 扩展场景 | 做法 | 改 core？ |
 |---|---|---|
 | 新增后端 tool | handler 的 `streamText({ tools: { ... } })` 加一个 | ❌ |
-| 新增 tool 前端 UI | `<FragmentRenderer customRenderers={{ my_tool: MyToolUI }} />` | ❌ |
+| 新增 tool 前端 UI | `<BlockRenderer customRenderers={{ my_tool: MyToolUI }} />` | ❌ |
 | 覆盖内置搜索 UI | `customRenderers` 中 key 为 `web_search` | ❌ |
 | 自定义 markdown 标签 | `<ChatResponse components={{ myTag: MyTag }} />` | ❌ |
 | 追加 streamdown plugin | `<ChatResponse plugins={{ mermaid }} />` | ❌ |
@@ -189,27 +189,27 @@ fragments: [
 
 ### 2.5 持久化与历史恢复约定
 
-core 不抽象 DB，但 `TOOL_CALL` fragment 需要项目持久化以下语义字段，保证刷新、重放和历史加载后 UI 仍可渲染：
+core 不抽象 DB，但 `tool_call` block 需要项目持久化以下语义字段，保证刷新、重放和历史加载后 UI 仍可渲染：
 
 ```ts
-interface PersistedToolCallFragment {
+interface PersistedToolCallBlock {
   id: number | string;              // 当前 assistant message 内稳定 id
-  type: "TOOL_CALL";
+  type: "tool_call";
   status: "WIP" | "FINISHED" | "FAILED" | string;
   tool_name: string;
   tool_call_id: string;
-  tool_input: unknown;
-  tool_output: unknown;
+  input: unknown;
+  output: unknown;
 }
 ```
 
-`session-chat` 迁移时需要把现有 `SEARCH` 持久化模型扩展为通用 tool fragment：
+`session-chat` 迁移时需要把现有 `SEARCH` 持久化模型扩展为通用 tool block：
 
-- `MessageFragment` 增加 `toolName`、`toolCallId`、`toolInputJson`、`toolOutputJson`
-- 历史序列化将 `TOOL_CALL` 输出为 `tool_name/tool_call_id/tool_input/tool_output/status`
-- 旧 `SEARCH` 历史可在读取时映射为 `TOOL_CALL + tool_name=web_search`，`queries/results` 放入 `tool_output`
-- `extractCitationsFromFragments` 同时支持旧 `SEARCH.results` 与新 `TOOL_CALL(web_search).tool_output.results`
-- 新写入统一落 `TOOL_CALL`，避免继续扩大 `SEARCH` 特例
+- `MessageBlock` 增加 `toolName`、`toolCallId`、`toolInputJson`、`toolOutputJson`
+- 历史序列化将 `tool_call` 输出为 `tool_name/tool_call_id/input/output/status`
+- 旧 `SEARCH` 历史可在读取时映射为 `tool_call + tool_name=web_search`，`queries/results` 放入 `output`
+- `extractCitationsFromBlocks` 同时支持旧 `SEARCH.results` 与新 `tool_call(web_search).output.results`
+- 新写入统一落 `tool_call`，避免继续扩大 `SEARCH` 特例
 
 ---
 
@@ -219,7 +219,7 @@ interface PersistedToolCallFragment {
 
 ```
 lib/chat-core/
-├── types.ts                        # 协议类型 + Fragment 基础类型
+├── types.ts                        # 协议类型 + Block 基础类型
 ├── server/
 │   ├── sse.ts                      # SSE 传输
 │   ├── patch-emitter.ts            # target + p/o/v 补丁发射
@@ -231,12 +231,12 @@ lib/chat-core/
 │   ├── patch-apply.ts              # 补丁执行引擎
 │   ├── stream-parser.ts            # SSE → 状态更新
 │   ├── stream-consumer.ts          # ReadableStream 消费
-│   └── citation-utils.ts           # 从 fragments 提取引用
+│   └── citation-utils.ts           # 从 blocks 提取引用
 ├── ui/
 │   ├── chat-response.tsx           # Streamdown + Citation（★ 可扩展）
-│   ├── search-fragment.tsx         # 搜索结果 UI（★ 可覆盖）
-│   ├── tool-fragment.tsx           # 通用工具 fallback UI（★ 新增）
-│   ├── fragment-renderer.tsx       # Fragment 路由（★ 可扩展）
+│   ├── search-block.tsx         # 搜索结果 UI（★ 可覆盖）
+│   ├── tool-block.tsx           # 通用工具 fallback UI（★ 新增）
+│   ├── block-renderer.tsx       # Block 路由（★ 可扩展）
 │   └── index.ts                    # 统一导出
 └── index.ts                        # 统一导出
 ```
@@ -251,10 +251,10 @@ export type ChatPatchOperation = "APPEND" | "SET" | "BATCH";
 
 export type ChatPatchTarget =
   | { type: "response" }
-  | { type: "fragment"; id: string | number };
+  | { type: "block"; id: string | number };
 
 export interface ChatStreamPatch {
-  /** 补丁目标：response 表示当前 assistant 消息，fragment 表示该消息下的稳定 fragment */
+  /** 补丁目标：response 表示当前 assistant 消息，block 表示该消息下的稳定 block */
   t?: ChatPatchTarget;
   /** 目标对象内部路径 */
   p?: string;
@@ -304,8 +304,8 @@ export interface MessageCitation {
   site_name?: string;
 }
 
-// ---- 新增：Fragment 基础类型 ----
-export interface CoreFragment {
+// ---- 新增：Block 基础类型 ----
+export interface CoreBlock {
   id: number;
   type: string;
   status?: string;
@@ -313,8 +313,8 @@ export interface CoreFragment {
   // 工具调用字段
   tool_name?: string;
   tool_call_id?: string;
-  tool_input?: Record<string, unknown>;
-  tool_output?: unknown;
+  input?: Record<string, unknown>;
+  output?: unknown;
   // web_search 内置字段
   queries?: Array<Record<string, unknown>>;
   results?: Array<Record<string, unknown>>;
@@ -469,32 +469,32 @@ export async function bridgeAIStreamToPatches(
   const { emitter, citationBuffering = true } = options;
   let citationBuffer = "";
   let totalContent = "";
-  let nextFragmentId = 1;
-  let currentResponseFragmentId: number | null = null;
-  const toolFragmentIdByCallId = new Map<string, number>();
+  let nextBlockId = 1;
+  let currentResponseBlockId: number | null = null;
+  const toolBlockIdByCallId = new Map<string, number>();
 
   await options.ensureResponseInitialized();
 
-  // 确保文本 fragment 已创建
-  const ensureResponseFragment = (): number => {
-    if (currentResponseFragmentId !== null) return currentResponseFragmentId;
-    const fragmentId = nextFragmentId++;
-    currentResponseFragmentId = fragmentId;
+  // 确保文本 block 已创建
+  const ensureResponseBlock = (): number => {
+    if (currentResponseBlockId !== null) return currentResponseBlockId;
+    const blockId = nextBlockId++;
+    currentResponseBlockId = blockId;
     emitter.sendPatch({
       t: { type: "response" },
-      p: "fragments",
+      p: "blocks",
       o: "APPEND",
-      v: { id: fragmentId, type: "RESPONSE", content: "", references: [] },
+      v: { id: blockId, type: "response", content: "", references: [] },
     });
-    return fragmentId;
+    return blockId;
   };
 
   const flushContent = (text: string) => {
     if (!text) return;
-    const fragmentId = ensureResponseFragment();
+    const blockId = ensureResponseBlock();
     totalContent += text;
     emitter.sendPatch({
-      t: { type: "fragment", id: fragmentId },
+      t: { type: "block", id: blockId },
       p: "content",
       o: "APPEND",
       v: text,
@@ -517,24 +517,24 @@ export async function bridgeAIStreamToPatches(
       }
 
       case "tool-call": {
-        // 在工具调用前结束当前文本 fragment（如果有）
-        currentResponseFragmentId = null;
-        const fragmentId = nextFragmentId++;
-        toolFragmentIdByCallId.set(part.toolCallId, fragmentId);
+        // 在工具调用前结束当前文本 block（如果有）
+        currentResponseBlockId = null;
+        const blockId = nextBlockId++;
+        toolBlockIdByCallId.set(part.toolCallId, blockId);
 
-        // 发送 TOOL_CALL fragment
+        // 发送 tool_call block
         emitter.sendPatch({
           t: { type: "response" },
-          p: "fragments",
+          p: "blocks",
           o: "APPEND",
           v: {
-            id: fragmentId,
-            type: "TOOL_CALL",
+            id: blockId,
+            type: "tool_call",
             tool_name: part.toolName,
             tool_call_id: part.toolCallId,
             status: "WIP",
-            tool_input: part.input,
-            tool_output: null,
+            input: part.input,
+            output: null,
           },
         });
         await options.onToolCall?.(part.toolName, part.toolCallId, part.input);
@@ -542,18 +542,18 @@ export async function bridgeAIStreamToPatches(
       }
 
       case "tool-result": {
-        const fragmentId = toolFragmentIdByCallId.get(part.toolCallId);
-        if (fragmentId === undefined) break;
+        const blockId = toolBlockIdByCallId.get(part.toolCallId);
+        if (blockId === undefined) break;
 
-        // 更新对应 TOOL_CALL fragment 的输出和状态
+        // 更新对应 tool_call block 的输出和状态
         emitter.sendPatch({
-          t: { type: "fragment", id: fragmentId },
-          p: "tool_output",
+          t: { type: "block", id: blockId },
+          p: "output",
           o: "SET",
           v: part.output,
         });
         emitter.sendPatch({
-          t: { type: "fragment", id: fragmentId },
+          t: { type: "block", id: blockId },
           p: "status",
           o: "SET",
           v: "FINISHED",
@@ -608,7 +608,7 @@ export interface PatchStreamParserOptions<TState> {
   getResponseMessageId?: (value: unknown) => number | null;
   /** 将 response 对象 upsert 到状态 */
   upsertResponse?: (draft: TState, response: unknown) => void;
-  /** 根据 t 定位补丁目标；response 返回当前 assistant 消息，fragment 返回该消息下的指定 fragment */
+  /** 根据 t 定位补丁目标；response 返回当前 assistant 消息，block 返回该消息下的指定 block */
   resolvePatchTarget: (draft: TState, target: ChatPatchTarget) => unknown | null;
   /** patch context — 调用方管理 */
   patchContext: ChatStreamPatchContext;
@@ -661,7 +661,7 @@ export async function consumePatchStream(
 来源：`features/session-chat/components/chat-message-list.tsx` 行 43-64
 
 ```ts
-export function extractCitationsFromFragments(fragments: CoreFragment[]): MessageCitation[]
+export function extractCitationsFromBlocks(blocks: CoreBlock[]): MessageCitation[]
 ```
 
 #### `ui/chat-response.tsx` — 从 message.tsx 提取 + 增强可扩展性
@@ -688,7 +688,7 @@ export const ChatResponse = memo(({ citations, components, plugins, ...props }: 
 });
 ```
 
-#### `ui/search-fragment.tsx` — 从 chat-message-list.tsx 提取
+#### `ui/search-block.tsx` — 从 chat-message-list.tsx 提取
 
 来源：`features/session-chat/components/chat-message-list.tsx` 行 66-128
 
@@ -697,50 +697,50 @@ export const ChatResponse = memo(({ citations, components, plugins, ...props }: 
 - 增加 `className` prop
 
 ```tsx
-export interface SearchFragmentViewProps {
-  fragment: CoreFragment;
+export interface SearchBlockViewProps {
+  block: CoreBlock;
   className?: string;
   renderResult?: (result: Record<string, unknown>, index: number) => ReactNode;
 }
 
-export function SearchFragmentView({ fragment, className, renderResult }: SearchFragmentViewProps) {
+export function SearchBlockView({ block, className, renderResult }: SearchBlockViewProps) {
   // 现有逻辑 + renderResult 覆盖
 }
 ```
 
-#### `ui/tool-fragment.tsx` — 全新编写
+#### `ui/tool-block.tsx` — 全新编写
 
-通用工具 fallback UI。当 `FragmentRenderer` 遇到没有自定义渲染器的 TOOL_CALL 时使用。
+通用工具 fallback UI。当 `BlockRenderer` 遇到没有自定义渲染器的 tool_call 时使用。
 
 ```tsx
-export function GenericToolView({ fragment }: { fragment: CoreFragment }) {
+export function GenericToolView({ block }: { block: CoreBlock }) {
   // 显示：工具名 + 状态指示 + JSON 折叠的 input/output
 }
 ```
 
-#### `ui/fragment-renderer.tsx` — 全新编写（★ 扩展入口）
+#### `ui/block-renderer.tsx` — 全新编写（★ 扩展入口）
 
 ```tsx
-export interface FragmentRendererProps {
-  fragment: CoreFragment;
+export interface BlockRendererProps {
+  block: CoreBlock;
   /** 项目自定义渲染器，key 为 tool_name，优先级高于内置 */
-  customRenderers?: Record<string, React.ComponentType<{ fragment: CoreFragment }>>;
-  /** 传给内置 SearchFragmentView 的 props */
-  searchFragmentProps?: Partial<SearchFragmentViewProps>;
+  customRenderers?: Record<string, React.ComponentType<{ block: CoreBlock }>>;
+  /** 传给内置 SearchBlockView 的 props */
+  searchBlockProps?: Partial<SearchBlockViewProps>;
 }
 
-export function FragmentRenderer({ fragment, customRenderers, searchFragmentProps }: FragmentRendererProps) {
-  // 1. TOOL_CALL 类型 → 查 customRenderers[tool_name] → 查内置 → GenericToolView
+export function BlockRenderer({ block, customRenderers, searchBlockProps }: BlockRendererProps) {
+  // 1. tool_call 类型 → 查 customRenderers[tool_name] → 查内置 → GenericToolView
   // 2. 其他类型 → 返回 null（文本由上层 ChatResponse 渲染）
-  if (fragment.type === "TOOL_CALL" && fragment.tool_name) {
-    const Custom = customRenderers?.[fragment.tool_name];
-    if (Custom) return <Custom fragment={fragment} />;
+  if (block.type === "tool_call" && block.tool_name) {
+    const Custom = customRenderers?.[block.tool_name];
+    if (Custom) return <Custom block={block} />;
 
-    if (fragment.tool_name === "web_search") {
-      return <SearchFragmentView fragment={fragment} {...searchFragmentProps} />;
+    if (block.tool_name === "web_search") {
+      return <SearchBlockView block={block} {...searchBlockProps} />;
     }
 
-    return <GenericToolView fragment={fragment} />;
+    return <GenericToolView block={block} />;
   }
 
   return null;
@@ -771,48 +771,48 @@ export function FragmentRenderer({ fragment, customRenderers, searchFragmentProp
 | 2.1 | 创建 `lib/chat-core/server/tools/web-search.ts` | 提取自 `chat-completion.ts:66-243` + 新增 `createWebSearchTool` |
 | 2.2 | 创建 `lib/chat-core/server/stream-bridge.ts` | ★ 全新编写 |
 | 2.3 | 创建 `lib/chat-core/ui/chat-response.tsx` | 提取自 `message.tsx:319-428` + 增强 |
-| 2.4 | 创建 `lib/chat-core/ui/search-fragment.tsx` | 提取自 `chat-message-list.tsx:66-128` + 增强 |
-| 2.5 | 创建 `lib/chat-core/ui/tool-fragment.tsx` | ★ 全新编写 |
-| 2.6 | 创建 `lib/chat-core/ui/fragment-renderer.tsx` | ★ 全新编写 |
+| 2.4 | 创建 `lib/chat-core/ui/search-block.tsx` | 提取自 `chat-message-list.tsx:66-128` + 增强 |
+| 2.5 | 创建 `lib/chat-core/ui/tool-block.tsx` | ★ 全新编写 |
+| 2.6 | 创建 `lib/chat-core/ui/block-renderer.tsx` | ★ 全新编写 |
 | 2.7 | 创建统一导出 `index.ts` | - |
 
 ### Phase 3: session-chat 迁移到 core
 
 | 步骤 | 动作 |
 |---|---|
-| 3.1 | `features/session-chat/types.ts` — `ChatFragment` 扩展 tool 字段，引用 core 协议类型 |
-| 3.2 | `prisma/schema.prisma` — `MessageFragment` 增加 `toolName/toolCallId/toolInputJson/toolOutputJson` |
-| 3.3 | `src/server/session-chat/history-messages.ts` — 序列化 `TOOL_CALL` 字段，并兼容旧 `SEARCH` |
+| 3.1 | `features/session-chat/types.ts` — `ChatBlock` 扩展 tool 字段，引用 core 协议类型 |
+| 3.2 | `prisma/schema.prisma` — `MessageBlock` 增加 `toolName/toolCallId/toolInputJson/toolOutputJson` |
+| 3.3 | `src/server/session-chat/history-messages.ts` — 序列化 `tool_call` 字段，并兼容旧 `SEARCH` |
 | 3.4 | `features/session-chat/stream/parser.ts` — 将 `applyPathPatch`、`resolveArrayIndex` 替换为 core 导入，接入 `resolvePatchTarget` |
 | 3.5 | `features/session-chat/stream/stream.ts` — 将 stream 消费循环替换为 core 的 `consumePatchStream` |
 | 3.6 | `src/server/http/sse.ts` — 改为 re-export `lib/chat-core/server/sse` |
-| 3.7 | `src/server/session-chat/chat-completion.ts` — 重构为使用 core 的 patch-emitter + stream-bridge + web-search，新增写入 `TOOL_CALL` |
-| 3.8 | `features/session-chat/components/chat-message-list.tsx` — 使用 core 的 `FragmentRenderer` + `ChatResponse` |
+| 3.7 | `src/server/session-chat/chat-completion.ts` — 重构为使用 core 的 patch-emitter + stream-bridge + web-search，新增写入 `tool_call` |
+| 3.8 | `features/session-chat/components/chat-message-list.tsx` — 使用 core 的 `BlockRenderer` + `ChatResponse` |
 
 ### Phase 4: 验证 + 测试
 
 | 步骤 | 动作 |
 |---|---|
 | 4.1 | 现有 session-chat 功能完整可用（网络搜索 + 对话） |
-| 4.2 | 新增 TOOL_CALL fragment 的渲染验证 |
+| 4.2 | 新增 tool_call block 的渲染验证 |
 | 4.3 | 验证 agent-editor 可导入 core 组件 |
 
 ---
 
 ## 五、关键设计决策记录
 
-### D1: 为什么 Fragment 不独立为 `tools[]`
+### D1: 为什么 Block 不独立为 `tools[]`
 
-工具调用放在 `fragments[]` 里而非独立的 `tools[]` 数组：
-- target + p/o/v 协议统一（`t` 定位 response/fragment，`p` 定位对象内部字段）
+工具调用放在 `blocks[]` 里而非独立的 `tools[]` 数组：
+- target + p/o/v 协议统一（`t` 定位 response/block，`p` 定位对象内部字段）
 - 工具与文本的交错顺序天然保留
-- 前端渲染只需遍历 fragments，一个 loop 搞定
+- 前端渲染只需遍历 blocks，一个 loop 搞定
 
-### D2: 为什么 web_search 是 TOOL_CALL 而非保留 SEARCH
+### D2: 为什么 web_search 是 tool_call 而非保留 SEARCH
 
-升级后 SEARCH 类型迁移为 `TOOL_CALL + tool_name=web_search`：
+升级后 SEARCH 类型迁移为 `tool_call + tool_name=web_search`：
 - 统一工具模型，减少特殊分支
-- SEARCH 类型保留向后兼容（FragmentRenderer 内部可同时处理两者）
+- SEARCH 类型保留向后兼容（BlockRenderer 内部可同时处理两者）
 
 ### D3: 为什么不提供 `useChatCompletion` hook 在 core
 
@@ -840,10 +840,10 @@ bridgeAIStreamToPatches(fullStream, {
 
 ```tsx
 // ❌ Registry 模式
-FragmentRegistry.register("web_search", SearchView);
+BlockRegistry.register("web_search", SearchView);
 
 // ✅ Props 模式
-<FragmentRenderer customRenderers={{ web_search: MySearchView }} />
+<BlockRenderer customRenderers={{ web_search: MySearchView }} />
 ```
 
 Registry 是全局状态，难以测试和 SSR。Props 是 React 的标准模式，组件树内可见，无隐式依赖。

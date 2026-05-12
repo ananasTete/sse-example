@@ -1,5 +1,4 @@
 import type {
-  ChatCompletionOptions,
   ChatMessage,
   ChatStreamPatchContext,
 } from "../types";
@@ -11,23 +10,21 @@ import {
 } from "./parser";
 
 export function getChatMessageText(message: ChatMessage) {
-  const targetType = message.role === "USER" ? "REQUEST" : "RESPONSE";
-  return message.fragments
-    .filter((fragment) => fragment.type === targetType)
-    .map((fragment) => fragment.content ?? "")
+  const targetType = message.role === "USER" ? "request" : "response";
+  return message.blocks
+    .filter((block) => block.type === targetType)
+    .map((block) => block.content ?? "")
     .join("");
 }
 
 export async function processChatCompletionStream({
   response,
-  options,
   updateState,
   onReady,
   onSessionPatch,
   onTitle,
 }: {
   response: Response;
-  options: ChatCompletionOptions;
   updateState: ChatStateUpdater;
 } & ChatCompletionStreamCallbacks) {
   if (!response.body) return;
@@ -43,7 +40,6 @@ export async function processChatCompletionStream({
   let streamError: Error | null = null;
 
   const parser = createChatCompletionParser({
-    options,
     updateState,
     patchContext,
     onReady,

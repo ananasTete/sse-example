@@ -20,14 +20,14 @@ export function createUserMessage(
     feedback: null,
     inserted_at: toEpochSeconds(),
     search_enabled: options.searchEnabled,
-    fragments: [
+    blocks: [
       {
         id: messageId,
-        type: "REQUEST",
+        type: "request",
         content: options.prompt,
       },
     ],
-    has_pending_fragment: false,
+    has_pending_block: false,
     auto_continue: false,
   };
 }

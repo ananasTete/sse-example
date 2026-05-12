@@ -140,7 +140,7 @@ export function upsertChatSessionList(
   queryClient: QueryClient,
   draftSession: DraftSession,
 ) {
-  const { id, seq_id, title, title_type, pinned, model_type, updated_at } =
+  const { id, seq_id, title, title_type, pinned, updated_at } =
     draftSession.chat_session;
   upsertChatSessionListItem(queryClient, {
     id,
@@ -148,7 +148,6 @@ export function upsertChatSessionList(
     title: title ?? null,
     title_type: title_type ?? "WIP",
     pinned: pinned ?? false,
-    model_type: model_type ?? "default",
     updated_at: updated_at ?? Date.now() / 1000,
   });
 }

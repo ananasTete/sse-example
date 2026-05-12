@@ -1,4 +1,4 @@
-import type { CoreFragment, MessageCitation, WebSearchPayload } from "../types";
+import type { CoreBlock, MessageCitation, WebSearchPayload } from "../types";
 
 function getStringField(value: unknown, key: string) {
   if (typeof value !== "object" || value === null) return "";
@@ -12,26 +12,26 @@ function getNumberField(value: unknown, key: string) {
   return typeof field === "number" ? field : null;
 }
 
-function getWebSearchResults(fragment: CoreFragment) {
-  if (fragment.type === "SEARCH") {
-    return fragment.results ?? [];
+function getWebSearchResults(block: CoreBlock) {
+  if (block.type === "search") {
+    return block.results ?? [];
   }
 
-  if (fragment.type !== "TOOL_CALL" || fragment.tool_name !== "web_search") {
+  if (block.type !== "tool_call" || block.tool_name !== "web_search") {
     return [];
   }
 
-  const output = fragment.tool_output as Partial<WebSearchPayload> | null;
+  const output = block.output as Partial<WebSearchPayload> | null;
   return Array.isArray(output?.results) ? output.results : [];
 }
 
-export function extractCitationsFromFragments(
-  fragments: CoreFragment[],
+export function extractCitationsFromBlocks(
+  blocks: CoreBlock[],
 ): MessageCitation[] {
   const citationByIndex = new Map<number, MessageCitation>();
 
-  for (const fragment of fragments) {
-    for (const result of getWebSearchResults(fragment)) {
+  for (const block of blocks) {
+    for (const result of getWebSearchResults(block)) {
       const citeIndex = getNumberField(result, "cite_index");
       const url = getStringField(result, "url");
       if (citeIndex !== null && url) {
