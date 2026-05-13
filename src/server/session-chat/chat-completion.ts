@@ -938,6 +938,22 @@ export async function resumeChatCompletionStreamHandler(request: Request) {
     return createLifecycleSseResponse("done", { status: "finished" });
   }
 
+  if (message.status === "WIP") {
+    await prisma.chatMessage.updateMany({
+      where: {
+        chatSessionId: body.chat_session_id,
+        localId: body.message_id,
+        role: "ASSISTANT",
+        status: "WIP",
+      },
+      data: {
+        status: "FAILED",
+        incompleteMessage: "生成已中断",
+        hasPendingBlock: false,
+      },
+    });
+  }
+
   return createLifecycleSseResponse("error", {
     message: "生成已中断",
   });

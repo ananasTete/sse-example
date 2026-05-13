@@ -959,6 +959,65 @@ test("resume stream sends current snapshot then active deltas", async () => {
   assert.match(resumeText, /event: done/);
 });
 
+test("resume stream marks inactive wip message as failed", async () => {
+  const chatSessionId = await createSessionId();
+
+  await prisma.chatMessage.create({
+    data: {
+      localId: 1,
+      chatSessionId,
+      role: "USER",
+      status: "FINISHED",
+      blocks: {
+        create: {
+          localId: 1,
+          type: "request",
+          content: "hello",
+        },
+      },
+    },
+  });
+
+  await prisma.chatMessage.create({
+    data: {
+      localId: 2,
+      chatSessionId,
+      parentId: 1,
+      role: "ASSISTANT",
+      status: "WIP",
+      hasPendingBlock: true,
+      blocks: {
+        create: {
+          localId: 1,
+          type: "response",
+          content: "partial",
+        },
+      },
+    },
+  });
+
+  const response = await resumeChatCompletionStreamHandler(
+    createResumeStreamRequest({ chatSessionId, messageId: 2 }),
+  );
+  const sseText = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(sseText, /event: error/);
+  assert.match(sseText, /生成已中断/);
+
+  const assistant = await prisma.chatMessage.findFirstOrThrow({
+    where: {
+      chatSessionId,
+      localId: 2,
+      role: "ASSISTANT",
+    },
+  });
+
+  assert.equal(assistant.status, "FAILED");
+  assert.equal(assistant.incompleteMessage, "生成已中断");
+  assert.equal(assistant.hasPendingBlock, false);
+});
+
 test("session pagination uses updated_at and seq_id as a compound cursor", async () => {
   const updatedAt = new Date("2026-05-02T00:00:00.000Z");
 

@@ -29,6 +29,7 @@ export function ChatDetailView({ chatSessionId }: ChatDetailViewProps) {
     useResumeChatCompletion();
   const chatState = sessionQuery.data;
   const resumeKeyRef = useRef<string | null>(null);
+  const autoResumeCheckedSessionRef = useRef<string | null>(null);
 
   const handleSubmit = useCallback(
     async (prompt: string, options: { searchEnabled: boolean }) => {
@@ -60,6 +61,15 @@ export function ChatDetailView({ chatSessionId }: ChatDetailViewProps) {
   );
 
   useEffect(() => {
+    autoResumeCheckedSessionRef.current = null;
+    resumeKeyRef.current = null;
+  }, [chatSessionId]);
+
+  useEffect(() => {
+    if (!sessionQuery.isSuccess || !chatState) return;
+    if (autoResumeCheckedSessionRef.current === chatSessionId) return;
+
+    autoResumeCheckedSessionRef.current = chatSessionId;
     if (!activeAssistantMessage) return;
 
     const resumeKey = `${chatSessionId}:${activeAssistantMessage.message_id}`;
@@ -75,7 +85,13 @@ export function ChatDetailView({ chatSessionId }: ChatDetailViewProps) {
         onError: () => {},
       },
     );
-  }, [activeAssistantMessage, chatSessionId, resumeCompletion]);
+  }, [
+    activeAssistantMessage,
+    chatSessionId,
+    chatState,
+    resumeCompletion,
+    sessionQuery.isSuccess,
+  ]);
 
   const title = getSessionTitle(chatState?.chat_session.title);
   const isLoadingDetail = sessionQuery.isFetching && !sessionQuery.data;
