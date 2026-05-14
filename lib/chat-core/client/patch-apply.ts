@@ -1,4 +1,4 @@
-import type { PatchOp, BatchItem } from "../types";
+import type { PatchOp } from "../types";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
@@ -14,7 +14,8 @@ export function applyPathPatch(
   // path="" means operate on root — support "set" to replace all properties
   if (segments.length === 0) {
     if (op === "set" && isRecord(target) && isRecord(value)) {
-      for (const key of Object.keys(target)) delete (target as Record<string, unknown>)[key];
+      for (const key of Object.keys(target))
+        delete (target as Record<string, unknown>)[key];
       Object.assign(target, value);
     }
     return;
