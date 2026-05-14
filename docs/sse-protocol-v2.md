@@ -118,10 +118,10 @@ type MutationOp = "upsert" | "set" | "append" | "delete";
 | `""`                         | 实体自身       | upsert / delete 整个实体                |
 | `"status"`                   | 顶层属性       | `set` 状态                              |
 | `"content"`                  | 顶层属性       | `append` 文本                           |
-| `"output/results"`           | 嵌套属性       | `append` 搜索结果到 output.results 数组 |
+| `"output"`                   | 顶层属性       | `set` 搜索结果数组                      |
 | `"blocks/2"`                 | 数组索引       | `delete` blocks 中第 3 个元素           |
-| `"output/results/0"`         | 数组元素       | `set` 整体替换第 1 条 result            |
-| `"output/results/0/snippet"` | 数组元素内属性 | `set` 修改第 1 条 result 的 snippet     |
+| `"output/0"`                 | 数组元素       | `set` 整体替换第 1 条 result            |
+| `"output/0/snippet"`         | 数组元素内属性 | `set` 修改第 1 条 result 的 snippet     |
 
 客户端解析 path 时按 `/` 拆分为 segments，数字 segment 视为数组索引，逐层定位到目标属性后执行 op 操作。
 
@@ -142,7 +142,7 @@ type MutationOp = "upsert" | "set" | "append" | "delete";
 
 | block.type         | 说明     | 典型字段                                                 |
 | ------------------ | -------- | -------------------------------------------------------- |
-| `response`         | 文本回复 | `content`, `references`                                  |
+| `text`             | 文本回复 | `content`, `references`                                  |
 | `tool_call`        | 工具调用 | `tool_name`, `tool_call_id`, `input`, `output`, `status` |
 | `reasoning`        | 思考过程 | `content`                                                |
 | `artifact`         | 内联产物 | `artifact_id`, `language`, `content`                     |
@@ -225,7 +225,7 @@ data: {"target":{"type":"session","id":"session_x7k9"},"op":"set","path":"update
 
 data: {"target":{"type":"message","id":"msg_2"},"op":"upsert","path":"","value":{"id":"msg_2","parent_id":"msg_1","model":"","role":"assistant","thinking_enabled":false,"ban_edit":false,"ban_regenerate":false,"status":"wip","incomplete_message":null,"accumulated_token_usage":0,"feedback":null,"inserted_at":1778548419.387,"search_enabled":true,"blocks":[],"conversation_mode":"search","has_pending_block":false,"auto_continue":false}}
 
-data: {"target":{"type":"message","id":"msg_2"},"op":"append","path":"blocks","value":{"id":"block_1","type":"response","content":"","references":[],"status":"wip","stage_id":null}}
+data: {"target":{"type":"message","id":"msg_2"},"op":"append","path":"blocks","value":{"id":"block_1","type":"text","content":"","references":[],"status":"wip","stage_id":null}}
 
 data: {"target":{"type":"block","id":"block_1","parent":{"type":"message","id":"msg_2"}},"op":"append","path":"content","value":"我来"}
 
@@ -241,13 +241,13 @@ data: {"value":"模型"}
 
 data: {"value":"信息。"}
 
-data: {"target":{"type":"message","id":"msg_2"},"op":"append","path":"blocks","value":{"id":"block_2","type":"tool_call","tool_name":"web_search","tool_call_id":"call_00_OSj24csm7SsQjdyR8GJZ8930","status":"wip","content":null,"input":{"query":"DeepSeek 最新模型 2025"},"output":null,"references":[],"stage_id":null,"queries":[],"results":[]}}
+data: {"target":{"type":"message","id":"msg_2"},"op":"append","path":"blocks","value":{"id":"block_2","type":"tool_call","tool_name":"web_search","tool_call_id":"call_00_OSj24csm7SsQjdyR8GJZ8930","status":"wip","content":null,"input":[{"query":"DeepSeek 最新模型 2025"}],"output":[],"references":[],"stage_id":null}}
 
-data: {"target":{"type":"block","id":"block_2","parent":{"type":"message","id":"msg_2"}},"op":"set","path":"output","value":{"queries":[{"query":"DeepSeek 最新模型 2025"}],"results":[{"url":"https://wallstreetcn.com/articles/3765514","title":"DeepSeek新模型来了？ - 华尔街见闻","snippet":"2月11日，部分用户打开DeepSeek App后收到更新版本的提示。APP更新后（1.7.4），用户可体验到DeepSeek最新模型。本次升级后，模型上下文长度将从128K扩展至1M，接近提升10倍；知识库更新至2025年5月，多项核心能力获得实质性提升。","cite_index":1,"site_name":"wallstreetcn.com","query_indexes":[0]},{"url":"https://fishersama.com/deepseek-timeline","title":"DeepSeek 时间线与模型发布速览 - AI 工具箱","snippet":"2025年1月20日，DeepSeek推出了推理模型DeepSeek-R1，并同步开源其模型权重，通过大规模强化学习技术显著提升推理能力，性能媲美顶尖闭源产品，迅速引发全球关注。","cite_index":2,"site_name":"fishersama.com","query_indexes":[0]},{"url":"https://www.siliconflow.com/articles/zh-Hans/the-best-deepseek-ai-models-in-2025","title":"终极指南 - 2026年最佳DeepSeek-AI模型","snippet":"我们关于2026年最佳DeepSeek-AI模型的权威指南。DeepSeek-R1实现了OpenAI-o1级别的推理能力，DeepSeek-V3在编码和数学方面超越了GPT-4.5。","cite_index":4,"site_name":"siliconflow.com","query_indexes":[0]},{"url":"https://www.threads.com/@jackieyutw/post/DVYBItJkvRe","title":"中國AI公司DeepSeek計畫，本週推出新一代大型語言模型V4","snippet":"中國AI公司DeepSeek計畫，本週推出新一代大型語言模型V4，這將是自2025年初推出推理模型R1以來首次重大更新。新模型將具備多模態能力，可以同時處理","cite_index":5,"site_name":"threads.com","query_indexes":[0]},{"url":"https://api-docs.deepseek.com/zh-cn/news/news260424","title":"DeepSeek-V4 预览版：迈入百万上下文普惠时代","snippet":"V4-Pro与V4-Flash最大上下文长度为1M，均同时支持非思考模式与思考模式。","cite_index":6,"site_name":"api-docs.deepseek.com","query_indexes":[0]},{"url":"https://www.youtube.com/watch?v=Z_uNVTa8EYQ","title":"2025 最强开源大模型？DeepSeek V3.2 正式版实测 - YouTube","snippet":"分享最新AI资讯、源代码。","cite_index":7,"site_name":"youtube.com","query_indexes":[0]},{"url":"https://zhuanlan.zhihu.com/p/1979678585833952663","title":"2025 LLM 技术报告(11)：DeepSeek-V3.2 - 知乎专栏","snippet":"本文提出DeepSeek-V3.2，其关键技术突破如下：(1) DeepSeek Sparse Attention (DSA)：提出DSA，一种高效的注意力机制。","cite_index":8,"site_name":"zhuanlan.zhihu.com","query_indexes":[0]},{"url":"https://api-docs.deepseek.com/zh-cn/updates","title":"更新日志 - DeepSeek API Docs","snippet":"DeepSeek API已支持V4-Pro与V4-Flash，支持OpenAI ChatCompletions接口与Anthropic接口。","cite_index":9,"site_name":"api-docs.deepseek.com","query_indexes":[0]},{"url":"https://www.deepseek.com/","title":"DeepSeek | 深度求索","snippet":"DeepSeek-V4预览版本发布，具备世界顶级推理性能，Agent能力大幅提高。","cite_index":10,"site_name":"deepseek.com","query_indexes":[0]}]}}
+data: {"target":{"type":"block","id":"block_2","parent":{"type":"message","id":"msg_2"}},"op":"set","path":"output","value":[{"url":"https://wallstreetcn.com/articles/3765514","title":"DeepSeek新模型来了？ - 华尔街见闻","snippet":"...","cite_index":1,"site_name":"wallstreetcn.com","query_indexes":[0]}]}
 
 data: {"op":"set","path":"status","value":"finished"}
 
-data: {"target":{"type":"message","id":"msg_2"},"op":"append","path":"blocks","value":{"id":"block_3","type":"response","content":"","references":[],"status":"wip","stage_id":null}}
+data: {"target":{"type":"message","id":"msg_2"},"op":"append","path":"blocks","value":{"id":"block_3","type":"text","content":"","references":[],"status":"wip","stage_id":null}}
 
 data: {"target":{"type":"block","id":"block_3","parent":{"type":"message","id":"msg_2"}},"op":"append","path":"content","value":"根据搜索结果，DeepSeek 最新的模型是 **DeepSeek-V4**，于 **2026年4月24日** 发布预览版 "}
 
@@ -306,7 +306,7 @@ data: {"status":"finished"}
   "blocks": [
     {
       "id": "block_1",
-      "type": "response",
+      "type": "text",
       "content": "我来搜索一下 DeepSeek 最新的模型信息。",
       "references": [],
       "status": "wip",
@@ -328,7 +328,7 @@ data: {"status":"finished"}
     },
     {
       "id": "block_3",
-      "type": "response",
+      "type": "text",
       "content": "根据搜索结果，DeepSeek 最新的模型是 **DeepSeek-V4**...🎉",
       "references": [],
       "status": "finished",
@@ -343,7 +343,7 @@ data: {"status":"finished"}
 
 ### 2.5 Sub-agent 场景案例（`scope` 字段）
 
-以下演示主 agent 调度 `code_review` sub-agent 的场景。主 agent 写完代码后，发起 sub-agent 调用，sub-agent 产出自己的 reasoning 和 response block，通过 `scope` 标记嵌套归属。
+以下演示主 agent 调度 `code_review` sub-agent 的场景。主 agent 写完代码后，发起 sub-agent 调用，sub-agent 产出自己的 reasoning 和 text block，通过 `scope` 标记嵌套归属。
 
 ```json
 data: {"target":{"type":"block","id":"block_code","parent":{"type":"message","id":"msg_2"}},"op":"append","path":"content","value":"function add(a, b) { return a + b; }"}
@@ -356,7 +356,7 @@ data: {"op":"append","path":"content","value":"检查参数类型...没有类型
 
 data: {"value":"也没有处理非数字输入的情况。"}
 
-data: {"target":{"type":"block","id":"sub_block_result","parent":{"type":"block","id":"block_review"},"scope":[{"type":"agent","id":"code_review_agent_1"}]},"op":"upsert","path":"","value":{"id":"sub_block_result","type":"response","content":"","status":"wip"}}
+data: {"target":{"type":"block","id":"sub_block_result","parent":{"type":"block","id":"block_review"},"scope":[{"type":"agent","id":"code_review_agent_1"}]},"op":"upsert","path":"","value":{"id":"sub_block_result","type":"text","content":"","status":"wip"}}
 
 data: {"op":"append","path":"content","value":"建议：添加参数类型检查，处理 NaN 边界情况。"}
 
@@ -384,7 +384,7 @@ data: {"target":{"type":"block","id":"block_review","parent":{"type":"message","
 | 维度            | 当前 (v1)                                                                  | 新协议 (v2)                                                 |
 | --------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | SSE event types | `ready` / `update_session` / `title` / `error` / `close` + 无名 `data:` 帧 | named events (`ready`/`done`/`error`) + 默认事件 (mutation) |
-| 寻址            | `t: {type: "response"} \| {type: "block", id}` — 固定两层                  | `target: {type, id, parent?}` — 通用实体寻址                |
+| 寻址            | `t: {type: "response"} \| {type: "block", id}` — 固定两层              | `target: {type, id, parent?}` — 通用实体寻址                |
 | 操作            | `o: "APPEND" \| "SET" \| "BATCH"`                                          | `op: "upsert" \| "set" \| "append" \| "delete"`             |
 | 压缩            | 隐式 context-sticky                                                        | 显式 context-sticky，按上一条默认事件继承上下文             |
 | 初始化          | `data: {"v":{"response":{...}}}` 隐式 upsert                               | 显式 `op: "upsert"` + 完整快照                              |
@@ -517,7 +517,7 @@ export interface MutationContext {
 // ===== Domain Layer =====
 
 export type BlockType =
-  | "response"
+  | "text"
   | "tool_call"
   | "reasoning"
   | "artifact"
@@ -529,15 +529,25 @@ export interface CoreBlock {
   id: string;
   type: BlockType;
   status?: string;
-  content?: string | null;
+}
+
+export interface TextBlock extends CoreBlock {
+  type: "text";
+  content: string;
   references?: Array<Record<string, unknown>>;
-  stage_id?: string | null;
+}
+
+export interface ReasoningBlock extends CoreBlock {
+  type: "reasoning";
+  content: string;
+}
+
+export interface ToolCallBlock extends CoreBlock {
+  type: "tool_call";
   tool_name?: string;
   tool_call_id?: string;
   input?: Record<string, unknown> | unknown;
   output?: unknown;
-  queries?: Array<Record<string, unknown>>;
-  results?: Array<Record<string, unknown>>;
 }
 
 // ===== Search =====
@@ -557,15 +567,10 @@ export interface SearchResultPayload {
   query_indexes?: number[];
 }
 
-export interface WebSearchPayload {
-  queries: SearchQueryPayload[];
-  results: SearchResultPayload[];
-}
-
 export type WebSearchFn = (
   query: string,
   options?: { signal?: AbortSignal },
-) => Promise<WebSearchPayload>;
+) => Promise<SearchResultPayload[]>;
 
 export interface MessageCitation {
   cite_index: number;

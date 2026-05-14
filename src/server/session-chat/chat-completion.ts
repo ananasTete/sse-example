@@ -8,15 +8,14 @@ import { prisma } from "@/lib/prisma";
 import {
   SSE_HEADERS,
   createSseResponse,
-  sendSseFrame,
 } from "@/src/server/http/sse";
 import {
   bridgeAIStreamToPatches,
-  createMutationEmitter,
+  createPatchEmitter,
   createWebSearchTool,
 } from "@/lib/chat-core";
 import { applyPathPatch } from "@/lib/chat-core/client/patch-apply";
-import type { MutationEmitter, Target, WebSearchFn } from "@/lib/chat-core";
+import type { PatchEmitter, PatchOp, WebSearchFn } from "@/lib/chat-core";
 
 // 最新配置，不要改这里
 const MODEL_API_KEY_ENV = ["DEEP", "SEEK_API_KEY"].join("");
@@ -75,10 +74,11 @@ interface ActiveCompletionRun {
   controller: AbortController;
   subscribers: Set<ActiveCompletionSubscriber>;
   snapshot: Record<string, unknown> | null;
+  patchContext: { lastOp: PatchOp | null; lastPath: string | null };
 }
 
 interface ActiveCompletionSubscriber {
-  emitter: MutationEmitter;
+  emitter: PatchEmitter;
   close: () => void;
 }
 
@@ -192,14 +192,7 @@ function toResponseMessagePayload(input: {
 function createCompletionErrorSseResponse(message: string, status: number) {
   const stream = new ReadableStream({
     start(controller) {
-      const encoder = new TextEncoder();
-      sendSseFrame(controller, encoder, {
-        event: "lifecycle",
-        data: {
-          type: "error",
-          message,
-        },
-      });
+      createPatchEmitter(controller).sendError({ message });
       controller.close();
     },
   });
@@ -217,8 +210,9 @@ function createLifecycleSseResponse(
 ) {
   const stream = new ReadableStream({
     start(controller) {
-      const emitter = createMutationEmitter(controller);
-      emitter.sendLifecycle(event, data);
+      const emitter = createPatchEmitter(controller);
+      if (event === "done") emitter.sendDone(data as { status: "finished" | "failed" | "cancelled" });
+      else emitter.sendError(data as { message: string; code?: string });
       controller.close();
     },
   });
@@ -233,75 +227,226 @@ function cloneRecord(value: Record<string, unknown>) {
   return structuredClone(value);
 }
 
-function resolveSnapshotTarget(snapshot: Record<string, unknown>, target: Target) {
-  if (target.type === "message") {
-    return Number(target.id) === Number(snapshot.message_id) ? snapshot : null;
-  }
-
-  if (target.type !== "block") return null;
-
-  const blocks = snapshot.blocks;
-  if (!Array.isArray(blocks)) return null;
-
-  return (
-    blocks.find(
-      (block) =>
-        isRecord(block) && Number(block.id) === Number(target.id),
-    ) ?? null
-  );
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
 }
 
-function applyMutationToRunSnapshot(
-  run: ActiveCompletionRun,
-  mutation: Parameters<MutationEmitter["sendMutation"]>[0],
-) {
-  if (
-    mutation.target.type === "message" &&
-    Number(mutation.target.id) === run.assistantMessageLocalId &&
-    mutation.op === "upsert" &&
-    mutation.path === "" &&
-    isRecord(mutation.value)
-  ) {
-    run.snapshot = cloneRecord(mutation.value);
-    return;
+function toSnapshotBlock(block: {
+  type: string;
+  status: string | null;
+  content: string | null;
+  toolName: string | null;
+  toolCallId: string | null;
+  toolInputJson: unknown;
+  toolOutputJson: unknown;
+  queriesJson: unknown;
+  resultsJson: unknown;
+  referencesJson: unknown;
+  stageId: number | null;
+}) {
+  if (block.type === "text") {
+    return {
+      type: "text",
+      content: block.content ?? "",
+      references: asArray(block.referencesJson),
+      stage_id: block.stageId,
+    };
   }
 
+  if (block.type === "reasoning") {
+    return {
+      type: "reasoning",
+      content: block.content ?? "",
+    };
+  }
+
+  if (block.type === "tool_call") {
+    const input = block.toolInputJson != null ? [block.toolInputJson] : [];
+    const output =
+      block.toolName === "web_search"
+        ? asArray(block.toolOutputJson)
+        : block.toolOutputJson != null
+          ? [block.toolOutputJson]
+          : [];
+
+    return {
+      type: "tool_call",
+      status: block.status ?? "FINISHED",
+      content: block.content,
+      tool_name: block.toolName ?? "unknown",
+      tool_call_id: block.toolCallId ?? "",
+      input,
+      output,
+    };
+  }
+
+  if (block.type === "search") {
+    return {
+      type: "search",
+      status: block.status ?? "FINISHED",
+      content: block.content,
+      queries: asArray(block.queriesJson),
+      results: asArray(block.resultsJson),
+    };
+  }
+
+  return {
+    type: block.type,
+    content: block.content ?? "",
+    references: asArray(block.referencesJson),
+    stage_id: block.stageId,
+  };
+}
+
+function toMessageSnapshot(message: {
+  localId: number;
+  parentId: number | null;
+  model: string;
+  role: string;
+  thinkingEnabled: boolean;
+  banEdit: boolean;
+  banRegenerate: boolean;
+  status: string;
+  incompleteMessage: string | null;
+  accumulatedTokenUsage: number;
+  feedback: unknown;
+  insertedAt: Date;
+  searchEnabled: boolean;
+  conversationMode: string;
+  hasPendingBlock: boolean;
+  autoContinue: boolean;
+  blocks: Array<{
+    type: string;
+    status: string | null;
+    content: string | null;
+    toolName: string | null;
+    toolCallId: string | null;
+    toolInputJson: unknown;
+    toolOutputJson: unknown;
+    queriesJson: unknown;
+    resultsJson: unknown;
+    referencesJson: unknown;
+    stageId: number | null;
+  }>;
+}) {
+  return {
+    message_id: message.localId,
+    parent_id: message.parentId,
+    model: message.model,
+    role: message.role,
+    thinking_enabled: message.thinkingEnabled,
+    ban_edit: message.banEdit,
+    ban_regenerate: message.banRegenerate,
+    status: message.status,
+    incomplete_message: message.incompleteMessage,
+    accumulated_token_usage: message.accumulatedTokenUsage,
+    feedback: message.feedback,
+    inserted_at: toEpochSeconds(message.insertedAt),
+    search_enabled: message.searchEnabled,
+    blocks: message.blocks.map(toSnapshotBlock),
+    conversation_mode: message.conversationMode,
+    has_pending_block: message.hasPendingBlock,
+    auto_continue: message.autoContinue,
+  };
+}
+
+function createResumeSnapshotSseResponse(input: {
+  chatSessionId: string;
+  responseMessageId: number;
+  userMessageId: number;
+  snapshot: Record<string, unknown>;
+  terminal:
+    | { event: "done"; data: Parameters<PatchEmitter["sendDone"]>[0] }
+    | { event: "error"; data: Parameters<PatchEmitter["sendError"]>[0] };
+}) {
+  const stream = new ReadableStream({
+    start(controller) {
+      const emitter = createPatchEmitter(controller);
+      emitter.sendReady({
+        response_message_id: input.responseMessageId,
+        user_message_id: input.userMessageId,
+        session_id: input.chatSessionId,
+      });
+      emitter.sendUpsertMessage(input.snapshot);
+
+      if (input.terminal.event === "done") {
+        emitter.sendDone(input.terminal.data);
+      } else {
+        emitter.sendError(input.terminal.data);
+      }
+
+      controller.close();
+    },
+  });
+
+  return createSseResponse(stream);
+}
+
+function applyPatchToRunSnapshot(
+  run: ActiveCompletionRun,
+  o: PatchOp,
+  p: string,
+  v: unknown,
+) {
   if (!run.snapshot) return;
 
-  const target = resolveSnapshotTarget(run.snapshot, mutation.target);
-  if (!target) return;
+  // Save previous non-batch op for batch item inheritance.
+  const prevOp = run.patchContext.lastOp !== "batch" ? run.patchContext.lastOp : null;
 
-  if (mutation.path) {
-    applyPathPatch(target, mutation.path, mutation.op, mutation.value);
+  // Update sticky context
+  run.patchContext.lastOp = o;
+  run.patchContext.lastPath = p;
+
+  if (o === "batch" && Array.isArray(v)) {
+    for (const item of v as import("@/lib/chat-core").BatchItem[]) {
+      const itemOp = item.o ?? prevOp;
+      if (!itemOp) continue;
+      applyPathPatch(run.snapshot, item.p ?? p, itemOp, item.v);
+    }
+  } else if (o !== "batch") {
+    applyPathPatch(run.snapshot, p, o, v);
   }
 }
 
-function sendRunLifecycle(
-  run: ActiveCompletionRun,
-  type: Parameters<MutationEmitter["sendLifecycle"]>[0],
-  data?: Record<string, unknown>,
-) {
-  for (const subscriber of [...run.subscribers]) {
-    try {
-      subscriber.emitter.sendLifecycle(type, data);
-    } catch {
-      run.subscribers.delete(subscriber);
-    }
+function upsertRunSnapshot(run: ActiveCompletionRun, message: Record<string, unknown>) {
+  run.snapshot = cloneRecord(message);
+}
+
+function sendRunReady(run: ActiveCompletionRun, data: Parameters<PatchEmitter["sendReady"]>[0]) {
+  for (const sub of [...run.subscribers]) {
+    try { sub.emitter.sendReady(data); } catch { run.subscribers.delete(sub); }
   }
 }
 
-function sendRunMutation(
-  run: ActiveCompletionRun,
-  mutation: Parameters<MutationEmitter["sendMutation"]>[0],
-) {
-  applyMutationToRunSnapshot(run, mutation);
+function sendRunUpsertMessage(run: ActiveCompletionRun, message: Record<string, unknown>) {
+  upsertRunSnapshot(run, message);
+  for (const sub of [...run.subscribers]) {
+    try { sub.emitter.sendUpsertMessage(message); } catch { run.subscribers.delete(sub); }
+  }
+}
 
-  for (const subscriber of [...run.subscribers]) {
-    try {
-      subscriber.emitter.sendMutation(mutation);
-    } catch {
-      run.subscribers.delete(subscriber);
-    }
+function sendRunSession(run: ActiveCompletionRun, data: Parameters<PatchEmitter["sendSession"]>[0]) {
+  for (const sub of [...run.subscribers]) {
+    try { sub.emitter.sendSession(data); } catch { run.subscribers.delete(sub); }
+  }
+}
+
+function sendRunDone(run: ActiveCompletionRun, data: Parameters<PatchEmitter["sendDone"]>[0]) {
+  for (const sub of [...run.subscribers]) {
+    try { sub.emitter.sendDone(data); } catch { run.subscribers.delete(sub); }
+  }
+}
+
+function sendRunError(run: ActiveCompletionRun, data: Parameters<PatchEmitter["sendError"]>[0]) {
+  for (const sub of [...run.subscribers]) {
+    try { sub.emitter.sendError(data); } catch { run.subscribers.delete(sub); }
+  }
+}
+
+function sendRunPatch(run: ActiveCompletionRun, o: PatchOp, p: string, v: unknown) {
+  applyPatchToRunSnapshot(run, o, p, v);
+  for (const sub of [...run.subscribers]) {
+    try { sub.emitter.sendPatch(o, p, v); } catch { run.subscribers.delete(sub); }
   }
 }
 
@@ -400,7 +545,7 @@ async function createCompletionTurn(body: CompletionRequestBody) {
         blocks: {
           create: {
             localId: 1,
-            type: "request",
+            type: "text",
             content: body.prompt,
           },
         },
@@ -494,7 +639,16 @@ export async function chatCompletionHandler(
     userMessageLocalId: turn.userMessage.localId,
     controller: completionController,
     subscribers: new Set(),
-    snapshot: null,
+    snapshot: toResponseMessagePayload({
+      messageId: turn.assistantMessage.localId,
+      parentId: turn.userMessage.localId,
+      thinkingEnabled: body.thinking_enabled,
+      searchEnabled: body.search_enabled,
+      insertedAt: turn.assistantMessage.insertedAt,
+      blocks: [],
+      hasPendingBlock: true,
+    }),
+    patchContext: { lastOp: null, lastPath: null },
   };
   activeCompletionControllers.set(body.chat_session_id, activeRun);
 
@@ -510,14 +664,19 @@ export async function chatCompletionHandler(
   const stream = new ReadableStream({
     async start(controller) {
       const mainSubscriber = {
-        emitter: createMutationEmitter(controller),
+        emitter: createPatchEmitter(controller),
         close: () => controller.close(),
       };
       unsubscribeMain = addRunSubscriber(activeRun, mainSubscriber);
-      const emitter: MutationEmitter = {
-        sendLifecycle: (type, data) => sendRunLifecycle(activeRun, type, data),
-        sendMutation: (mutation) => sendRunMutation(activeRun, mutation),
-      };
+      const emitter = {
+        sendReady: (data: Parameters<PatchEmitter["sendReady"]>[0]) => sendRunReady(activeRun, data),
+        sendUpsertMessage: (msg: Record<string, unknown>) => sendRunUpsertMessage(activeRun, msg),
+        sendSession: (data: Parameters<PatchEmitter["sendSession"]>[0]) => sendRunSession(activeRun, data),
+        sendDone: (data: Parameters<PatchEmitter["sendDone"]>[0]) => sendRunDone(activeRun, data),
+        sendError: (data: Parameters<PatchEmitter["sendError"]>[0]) => sendRunError(activeRun, data),
+        sendPatch: (o: PatchOp, p: string, v: unknown) => sendRunPatch(activeRun, o, p, v),
+        sendBatch: (p: string, items: Parameters<PatchEmitter["sendBatch"]>[1]) => sendRunPatch(activeRun, "batch", p, items),
+      } satisfies PatchEmitter;
       const createdBlockIds = new Set<number>();
       const responseBlockDbIdByLocalId = new Map<number, number>();
       const responseContentByLocalId = new Map<number, string>();
@@ -533,11 +692,8 @@ export async function chatCompletionHandler(
 
       const sendInitialResponse = () => {
         responseInitialized = true;
-        emitter.sendMutation({
-          target: { type: "message", id: turn.assistantMessage.localId },
-          op: "upsert",
-          path: "",
-          value: toResponseMessagePayload({
+        emitter.sendUpsertMessage(
+          toResponseMessagePayload({
             messageId: turn.assistantMessage.localId,
             parentId: turn.userMessage.localId,
             thinkingEnabled: body.thinking_enabled,
@@ -546,7 +702,7 @@ export async function chatCompletionHandler(
             blocks: [],
             hasPendingBlock: false,
           }),
-        });
+        );
       };
 
       const ensureResponseInitialized = () => {
@@ -554,42 +710,36 @@ export async function chatCompletionHandler(
         sendInitialResponse();
       };
 
-      const createResponseBlock = async (localId: number) => {
-        if (responseBlockDbIdByLocalId.has(localId)) return;
+      const createResponseBlock = async (blockIndex: number) => {
+        if (responseBlockDbIdByLocalId.has(blockIndex)) return;
 
         const block = await prisma.messageBlock.create({
           data: {
-            localId,
+            localId: blockIndex + 1,
             messageId: turn.assistantMessage.id,
-            type: "response",
+            type: "text",
             content: "",
             referencesJson: [] as Prisma.InputJsonArray,
             stageId: null,
           },
         });
 
-        createdBlockIds.add(localId);
-        responseBlockDbIdByLocalId.set(localId, block.id);
-        responseContentByLocalId.set(localId, "");
-        lastPersistedContentByLocalId.set(localId, "");
-        lastPersistedAtByLocalId.set(localId, Date.now());
+        createdBlockIds.add(blockIndex);
+        responseBlockDbIdByLocalId.set(blockIndex, block.id);
+        responseContentByLocalId.set(blockIndex, "");
+        lastPersistedContentByLocalId.set(blockIndex, "");
+        lastPersistedAtByLocalId.set(blockIndex, Date.now());
       };
 
       const ensureEmptyResponseBlock = async () => {
         if (createdBlockIds.size > 0) return;
 
-        const localId = 1;
-        await createResponseBlock(localId);
-        emitter.sendMutation({
-          target: { type: "message", id: turn.assistantMessage.localId },
-          op: "append",
-          path: "blocks",
-          value: {
-            id: localId,
-            type: "response",
-            content: "",
-            references: [],
-          },
+        const blockIndex = 0;
+        await createResponseBlock(blockIndex);
+        emitter.sendPatch("add", "blocks", {
+          type: "text",
+          content: "",
+          references: [],
         });
       };
 
@@ -620,14 +770,14 @@ export async function chatCompletionHandler(
       };
 
       const createToolCallBlock = async (
-        localId: number,
+        blockIndex: number,
         toolName: string,
         toolCallId: string,
         input: unknown,
       ) => {
         await prisma.messageBlock.create({
           data: {
-            localId,
+            localId: blockIndex + 1,
             messageId: turn.assistantMessage.id,
             type: "tool_call",
             status: "WIP",
@@ -638,11 +788,11 @@ export async function chatCompletionHandler(
             toolOutputJson: Prisma.JsonNull,
           },
         });
-        createdBlockIds.add(localId);
+        createdBlockIds.add(blockIndex);
       };
 
       const updateToolCallBlock = async (
-        localId: number,
+        blockIndex: number,
         status: "FINISHED" | "FAILED",
         output: unknown,
       ) => {
@@ -650,7 +800,7 @@ export async function chatCompletionHandler(
           where: {
             messageId_localId: {
               messageId: turn.assistantMessage.id,
-              localId,
+              localId: blockIndex + 1,
             },
           },
           data: {
@@ -660,16 +810,14 @@ export async function chatCompletionHandler(
         });
       };
 
-      emitter.sendLifecycle("ready", {
+      emitter.sendReady({
         response_message_id: turn.assistantMessage.localId,
         user_message_id: turn.userMessage.localId,
+        session_id: body.chat_session_id,
       });
 
-      emitter.sendMutation({
-        target: { type: "session", id: body.chat_session_id },
-        op: "set",
-        path: "updated_at",
-        value: toEpochSeconds(turn.updatedSession.updatedAt),
+      emitter.sendSession({
+        updated_at: toEpochSeconds(turn.updatedSession.updatedAt),
       });
 
       try {
@@ -696,19 +844,36 @@ export async function chatCompletionHandler(
         await bridgeAIStreamToPatches(result.fullStream, {
           emitter,
           responseMessageId: turn.assistantMessage.localId,
-          ensureResponseInitialized,
+          onBeforeFirstPatch: ensureResponseInitialized,
           onResponseBlock: createResponseBlock,
           onToolCall: createToolCallBlock,
-          onToolResult: (localId, _toolCallId, output) =>
-            updateToolCallBlock(localId, "FINISHED", output),
-          onToolError: (localId, _toolCallId, error) =>
-            updateToolCallBlock(localId, "FAILED", error),
-          onContentAppend: async (localId, contentDelta) => {
+          onToolResult: (blockIndex, _toolCallId, output) =>
+            updateToolCallBlock(blockIndex, "FINISHED", output),
+          onToolError: (blockIndex, _toolCallId, error) =>
+            updateToolCallBlock(blockIndex, "FAILED", error),
+          transformToolOutput: (toolName, output) => {
+            if (toolName === "web_search") {
+              return Array.isArray(output) ? output : [];
+            }
+            return [output];
+          },
+          transformToolInput: (toolName, input) => {
+            if (
+              toolName === "web_search" &&
+              typeof input === "object" &&
+              input !== null &&
+              "query" in input
+            ) {
+              return [input];
+            }
+            return [input];
+          },
+          onContentAppend: async (blockIndex, contentDelta) => {
             responseContentByLocalId.set(
-              localId,
-              `${responseContentByLocalId.get(localId) ?? ""}${contentDelta}`,
+              blockIndex,
+              `${responseContentByLocalId.get(blockIndex) ?? ""}${contentDelta}`,
             );
-            await persistContent(localId);
+            await persistContent(blockIndex);
           },
           onFinish: (usage) => {
             tokenUsage = usage.totalTokens ?? 0;
@@ -749,39 +914,19 @@ export async function chatCompletionHandler(
         });
 
         if (!finished) {
-          emitter.sendLifecycle("done", { status: "aborted" });
+          emitter.sendDone({ status: "cancelled" });
           return;
         }
 
-        emitter.sendMutation({
-          target: { type: "message", id: turn.assistantMessage.localId },
-          op: "set",
-          path: "accumulated_token_usage",
-          value: tokenUsage,
+        emitter.sendPatch("set", "accumulated_token_usage", tokenUsage);
+        emitter.sendPatch("set", "status", finished.assistantMessage.status);
+
+        emitter.sendSession({
+          updated_at: toEpochSeconds(finished.session.updatedAt),
+          title: finished.session.title ?? "新会话",
         });
 
-        emitter.sendMutation({
-          target: { type: "message", id: turn.assistantMessage.localId },
-          op: "set",
-          path: "status",
-          value: finished.assistantMessage.status,
-        });
-
-        emitter.sendMutation({
-          target: { type: "session", id: body.chat_session_id },
-          op: "set",
-          path: "updated_at",
-          value: toEpochSeconds(finished.session.updatedAt),
-        });
-
-        emitter.sendMutation({
-          target: { type: "session", id: body.chat_session_id },
-          op: "set",
-          path: "title",
-          value: finished.session.title ?? "新会话",
-        });
-
-        emitter.sendLifecycle("done", { status: "finished" });
+        emitter.sendDone({ status: "finished" });
       } catch (error) {
         if (!responseInitialized) {
           ensureResponseInitialized();
@@ -809,19 +954,11 @@ export async function chatCompletionHandler(
         });
 
         if (responseInitialized) {
-          emitter.sendMutation({
-            target: { type: "message", id: turn.assistantMessage.localId },
-            op: "set",
-            path: "status",
-            value: "FAILED",
-          });
+          emitter.sendPatch("set", "status", "FAILED");
         }
 
-        emitter.sendLifecycle("error", {
-          message: errorMessage,
-        });
-
-        emitter.sendLifecycle("done", { status: "failed" });
+        emitter.sendError({ message: errorMessage });
+        emitter.sendDone({ status: "failed" });
       } finally {
         const activeController = activeCompletionControllers.get(
           body.chat_session_id,
@@ -873,23 +1010,16 @@ export async function resumeChatCompletionStreamHandler(request: Request) {
     let unsubscribe: (() => void) | null = null;
     const stream = new ReadableStream({
       start(controller) {
-        const emitter = createMutationEmitter(controller);
+        const emitter = createPatchEmitter(controller);
 
-        emitter.sendLifecycle("ready", {
+        emitter.sendReady({
           response_message_id: activeRun.assistantMessageLocalId,
           user_message_id: activeRun.userMessageLocalId,
+          session_id: body.chat_session_id,
         });
 
         if (activeRun.snapshot) {
-          emitter.sendMutation({
-            target: {
-              type: "message",
-              id: activeRun.assistantMessageLocalId,
-            },
-            op: "upsert",
-            path: "",
-            value: cloneRecord(activeRun.snapshot),
-          });
+          emitter.sendUpsertMessage(cloneRecord(activeRun.snapshot));
         }
 
         unsubscribe = addRunSubscriber(activeRun, {
@@ -915,14 +1045,16 @@ export async function resumeChatCompletionStreamHandler(request: Request) {
     return createSseResponse(stream);
   }
 
-  const message = await prisma.chatMessage.findFirst({
+  let message = await prisma.chatMessage.findFirst({
     where: {
       chatSessionId: body.chat_session_id,
       localId: body.message_id,
       role: "ASSISTANT",
     },
-    select: {
-      status: true,
+    include: {
+      blocks: {
+        orderBy: { localId: "asc" },
+      },
     },
   });
 
@@ -935,7 +1067,13 @@ export async function resumeChatCompletionStreamHandler(request: Request) {
   }
 
   if (message.status === "FINISHED") {
-    return createLifecycleSseResponse("done", { status: "finished" });
+    return createResumeSnapshotSseResponse({
+      chatSessionId: body.chat_session_id,
+      responseMessageId: message.localId,
+      userMessageId: message.parentId ?? 0,
+      snapshot: toMessageSnapshot(message),
+      terminal: { event: "done", data: { status: "finished" } },
+    });
   }
 
   if (message.status === "WIP") {
@@ -952,9 +1090,29 @@ export async function resumeChatCompletionStreamHandler(request: Request) {
         hasPendingBlock: false,
       },
     });
+
+    message = await prisma.chatMessage.findFirstOrThrow({
+      where: {
+        chatSessionId: body.chat_session_id,
+        localId: body.message_id,
+        role: "ASSISTANT",
+      },
+      include: {
+        blocks: {
+          orderBy: { localId: "asc" },
+        },
+      },
+    });
   }
 
-  return createLifecycleSseResponse("error", {
-    message: "生成已中断",
+  return createResumeSnapshotSseResponse({
+    chatSessionId: body.chat_session_id,
+    responseMessageId: message.localId,
+    userMessageId: message.parentId ?? 0,
+    snapshot: toMessageSnapshot(message),
+    terminal: {
+      event: "error",
+      data: { message: message.incompleteMessage ?? "生成已中断" },
+    },
   });
 }

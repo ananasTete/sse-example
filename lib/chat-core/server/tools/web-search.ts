@@ -3,7 +3,6 @@ import type {
   SearchQueryPayload,
   SearchResultPayload,
   WebSearchFn,
-  WebSearchPayload,
 } from "../../types";
 
 export const TAVILY_API_KEY_ENV = "TAVILY_API_KEY";
@@ -104,10 +103,10 @@ export function toSearchResultPayload(
 export async function runTavilySearch(
   queryText: string,
   options: { signal?: AbortSignal } & WebSearchToolConfig = {},
-): Promise<WebSearchPayload> {
+): Promise<SearchResultPayload[]> {
   const query = toSearchQueryPayload(queryText);
   if (!query) {
-    return { queries: [], results: [] };
+    return [];
   }
 
   const apiKey = options.apiKey ?? process.env[TAVILY_API_KEY_ENV];
@@ -148,10 +147,7 @@ export async function runTavilySearch(
     .map((item, index) => toSearchResultPayload(item, index + 1))
     .filter((item): item is SearchResultPayload => item !== null);
 
-  return {
-    queries: [query],
-    results,
-  };
+  return results;
 }
 
 export function buildSearchSystemPrompt(searchResults: SearchResultPayload[]) {
@@ -178,7 +174,7 @@ export function buildSearchSystemPrompt(searchResults: SearchResultPayload[]) {
 }
 
 export function createWebSearchTool(config: WebSearchToolConfig = {}) {
-  return tool<{ query: string }, WebSearchPayload>({
+  return tool<{ query: string }, SearchResultPayload[]>({
     description:
       "搜索网络获取最新信息。回答中引用搜索结果时使用 <citation cite_index=\"N\">N</citation>。",
     inputSchema: jsonSchema<{ query: string }>({

@@ -1,7 +1,4 @@
-import type {
-  ChatMessage,
-  ChatStreamPatchContext,
-} from "../types";
+import type { ChatMessage, PatchContext } from "../types";
 import { consumePatchStream } from "@/lib/chat-core/client/stream-consumer";
 import {
   createChatCompletionParser,
@@ -10,10 +7,9 @@ import {
 } from "./parser";
 
 export function getChatMessageText(message: ChatMessage) {
-  const targetType = message.role === "USER" ? "request" : "response";
   return message.blocks
-    .filter((block) => block.type === targetType)
-    .map((block) => block.content ?? "")
+    .filter((block) => block.type === "text")
+    .map((block) => ("content" in block ? (block.content ?? "") : ""))
     .join("");
 }
 
@@ -23,19 +19,16 @@ export async function processChatCompletionStream({
   onReady,
   onSessionPatch,
   onTitle,
+  onDone,
 }: {
   response: Response;
   updateState: ChatStateUpdater;
 } & ChatCompletionStreamCallbacks) {
   if (!response.body) return;
 
-  // 用于记录上次消息的操作用于本次消息
-  const patchContext: ChatStreamPatchContext = {
-    responseMessageId: null,
-    responseMessageIndex: null,
-    lastTarget: null,
+  const patchContext: PatchContext = {
+    lastOp: null,
     lastPath: null,
-    lastOperation: null,
   };
   let streamError: Error | null = null;
 
@@ -45,6 +38,7 @@ export async function processChatCompletionStream({
     onReady,
     onSessionPatch,
     onTitle,
+    onDone,
     onError: (error) => {
       streamError = error;
     },

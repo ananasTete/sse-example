@@ -1,59 +1,89 @@
-export type MutationOp = "upsert" | "set" | "append" | "delete";
+// ===== Protocol Layer =====
 
-export type TargetType = "session" | "message" | "block" | "artifact" | "run";
+export type PatchOp = "add" | "append" | "set" | "batch";
 
-export interface Target {
-  type: TargetType;
-  id: string | number;
-  parent?: {
-    type: "message" | "run" | "block";
-    id: string | number;
-  };
-  scope?: Array<{ type: string; id: string | number }>;
-}
-
-export interface MutationEnvelope {
-  run_id?: string;
-  seq?: number;
-  event_id?: string;
-  target?: Target;
-  op?: MutationOp;
-  path?: string;
-  value: unknown;
-}
-
-export type LifecycleType = "ready" | "done" | "error" | "keepalive";
-
-export interface LifecycleEnvelope {
-  type: LifecycleType;
-  run_id?: string;
-  seq?: number;
-  event_id?: string;
-  [key: string]: unknown;
-}
-
-export interface MutationContext {
-  responseMessageId: number | null;
-  responseMessageIndex: number | null;
-  lastTarget: Target | null;
-  lastPath: string | null;
-  lastOperation: MutationOp | null;
-}
-
-export type ChatPatchOperation = "APPEND" | "SET" | "BATCH";
-
-export type ChatPatchTarget =
-  | { type: "response" }
-  | { type: "block"; id: string | number };
-
-export interface ChatStreamPatch {
-  t?: ChatPatchTarget;
+export interface PatchEnvelope {
+  o?: PatchOp;
   p?: string;
-  o?: ChatPatchOperation;
-  v?: unknown;
+  v: unknown;
 }
 
-export type ChatStreamPatchContext = MutationContext;
+/** A single item inside a batch — inherits parent o/p if omitted */
+export interface BatchItem {
+  o?: Exclude<PatchOp, "batch">;
+  p?: string;
+  v: unknown;
+}
+
+export interface PatchContext {
+  lastOp: PatchOp | null;
+  lastPath: string | null;
+}
+
+// Named event payloads
+export interface ReadyPayload {
+  response_message_id: number;
+  user_message_id: number;
+  session_id: string;
+}
+
+export interface SessionPayload {
+  title?: string;
+  updated_at?: number;
+}
+
+export type RunStatus = "finished" | "failed" | "cancelled";
+
+export interface DonePayload {
+  status: RunStatus;
+}
+
+export interface ErrorPayload {
+  message: string;
+  code?: string;
+}
+
+// ===== Domain Layer =====
+
+export type MessageRole = "USER" | "ASSISTANT";
+export type MessageStatus = "WIP" | "FINISHED" | "FAILED";
+export type BlockStatus = "WIP" | "FINISHED" | "FAILED";
+
+export interface TextBlock {
+  type: "text";
+  content: string;
+  references?: Array<Record<string, unknown>>;
+}
+
+export interface ToolCallBlock {
+  type: "tool_call";
+  tool_name: string;
+  tool_call_id: string;
+  status: BlockStatus;
+  input: unknown;
+  output: unknown;
+}
+
+export interface ReasoningBlock {
+  type: "reasoning";
+  content: string;
+}
+
+export type Block =
+  | TextBlock
+  | ToolCallBlock
+  | ReasoningBlock
+  | Record<string, unknown>;
+
+export interface CoreMessage {
+  message_id: number;
+  parent_id: number | null;
+  role: MessageRole;
+  status: MessageStatus;
+  blocks: Block[];
+}
+
+// ===== Search =====
 
 export interface SearchQueryPayload {
   query: string;
@@ -70,15 +100,10 @@ export interface SearchResultPayload {
   query_indexes?: number[];
 }
 
-export interface WebSearchPayload {
-  queries: SearchQueryPayload[];
-  results: SearchResultPayload[];
-}
-
 export type WebSearchFn = (
   query: string,
   options?: { signal?: AbortSignal },
-) => Promise<WebSearchPayload>;
+) => Promise<SearchResultPayload[]>;
 
 export interface MessageCitation {
   cite_index: number;
@@ -87,19 +112,15 @@ export interface MessageCitation {
   site_name?: string;
 }
 
-export type BlockType = "request" | "response" | "search" | "tool_call";
+// ===== Built-in Tool Block Types =====
 
-export interface CoreBlock {
-  id: number;
-  type: BlockType | string;
-  status?: string;
-  content?: string | null;
-  references?: Array<Record<string, unknown>>;
-  stage_id?: number | null;
-  tool_name?: string;
-  tool_call_id?: string;
-  input?: Record<string, unknown> | unknown;
-  output?: unknown;
-  queries?: Array<Record<string, unknown>>;
-  results?: Array<Record<string, unknown>>;
+export interface WebSearchBlock
+  extends Omit<ToolCallBlock, "tool_name" | "input" | "output"> {
+  tool_name: "web_search";
+  input: SearchQueryPayload[];
+  output: SearchResultPayload[];
+}
+
+export function isWebSearchBlock(block: ToolCallBlock): block is WebSearchBlock {
+  return block.tool_name === "web_search";
 }

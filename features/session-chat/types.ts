@@ -1,17 +1,30 @@
 import type {
-  BlockType,
-  ChatPatchOperation,
-  ChatPatchTarget,
-  ChatStreamPatch,
-  ChatStreamPatchContext,
-  CoreBlock,
-  Target,
+  CoreMessage,
+  MessageRole,
+  MessageStatus,
+  BlockStatus,
+  PatchContext,
+  PatchOp,
+  ReadyPayload,
+  TextBlock,
+  ToolCallBlock,
+  ReasoningBlock,
+  WebSearchBlock,
 } from "@/lib/chat-core";
 
-export type ChatRole = "USER" | "ASSISTANT";
+export type { WebSearchBlock };
+export { isWebSearchBlock } from "@/lib/chat-core";
+
+export type ChatRole = MessageRole;
 export type ChatTitleType = "WIP" | "SYSTEM" | "USER";
-export type ChatMessageStatus = "WIP" | "FINISHED" | "FAILED";
-export type { ChatPatchOperation, ChatStreamPatch };
+export type ChatMessageStatus = MessageStatus;
+export type ChatBlockStatus = BlockStatus;
+
+export type { MessageRole, MessageStatus, BlockStatus };
+
+// ====================
+// session
+// ====================
 
 export interface ChatSession {
   id: string;
@@ -38,37 +51,6 @@ export interface ChatSessionListItem {
   updated_at: number;
 }
 
-export interface ChatBlock extends CoreBlock {
-  id: number;
-  type: BlockType | string;
-  status?: string;
-  content: string | null;
-  queries?: Array<Record<string, unknown>>;
-  results?: Array<Record<string, unknown>>;
-  references?: Array<Record<string, unknown>>;
-  stage_id?: number | null;
-}
-
-export interface ChatMessage {
-  message_id: number;
-  parent_id: number | null;
-  model: string;
-  role: ChatRole;
-  thinking_enabled: boolean;
-  ban_edit: boolean;
-  ban_regenerate: boolean;
-  status: ChatMessageStatus;
-  incomplete_message: string | null;
-  accumulated_token_usage: number;
-  feedback: unknown;
-  inserted_at: number;
-  search_enabled: boolean;
-  blocks: ChatBlock[];
-  conversation_mode?: string;
-  has_pending_block: boolean;
-  auto_continue: boolean;
-}
-
 export interface ChatState {
   chat_session: ChatSession;
   chat_messages: ChatMessage[];
@@ -81,42 +63,63 @@ export interface DraftSession {
   ttl_seconds: number;
 }
 
-export interface ChatCreateSessionResponse {
+// ====================
+// block
+// ====================
+
+export type { TextBlock, ReasoningBlock };
+export type { ToolCallBlock as ChatToolCallBlock };
+
+export type ChatMessageBlock = TextBlock | WebSearchBlock | ReasoningBlock;
+
+// ====================
+// message
+// ====================
+
+export interface ChatMessage extends CoreMessage {
+  role: ChatRole;
+  status: ChatMessageStatus;
+  blocks: ChatMessageBlock[];
+  model: string;
+  thinking_enabled: boolean;
+  ban_edit: boolean;
+  ban_regenerate: boolean;
+  incomplete_message: string | null;
+  accumulated_token_usage: number;
+  feedback: unknown;
+  inserted_at: number;
+  search_enabled: boolean;
+  conversation_mode?: string;
+  has_pending_block: boolean;
+  auto_continue: boolean;
+}
+
+export interface ApiResponse<T = undefined> {
   code?: number;
   msg?: string;
   data?: {
     biz_code?: number;
     biz_msg?: string;
-    biz_data?: {
-      chat_session?: ChatSession;
-      ttl_seconds?: number;
-    } | null;
+    biz_data?: T | null;
   };
 }
 
-export interface ChatHistoryMessagesResponse {
-  code?: number;
-  msg?: string;
-  data?: {
-    biz_code?: number;
-    biz_msg?: string;
-    biz_data?: ChatState | null;
-  };
-}
+// ====================
+// other
+// ====================
 
-export interface ChatSessionsPageResponse {
-  code?: number;
-  msg?: string;
-  data?: {
-    biz_code?: number;
-    biz_msg?: string;
-    biz_data?: {
-      chat_sessions?: ChatSessionListItem[];
-      has_more?: boolean;
-      next_cursor?: ChatSessionsPageCursor | null;
-    } | null;
-  };
-}
+export type ChatCreateSessionResponse = ApiResponse<{
+  chat_session?: ChatSession;
+  ttl_seconds?: number;
+}>;
+
+export type ChatHistoryMessagesResponse = ApiResponse<ChatState>;
+
+export type ChatSessionsPageResponse = ApiResponse<{
+  chat_sessions?: ChatSessionListItem[];
+  has_more?: boolean;
+  next_cursor?: ChatSessionsPageCursor | null;
+}>;
 
 export interface ChatSessionsPageCursor {
   updated_at: number;
@@ -129,16 +132,9 @@ export interface ChatSessionsPage {
   hasMore: boolean;
 }
 
-export interface ChatReadyEventPayload {
-  response_message_id: number;
-  user_message_id: number;
-}
+export type ChatReadyEventPayload = ReadyPayload;
 
-export type {
-  ChatStreamPatchContext,
-  ChatPatchTarget,
-  Target,
-};
+export type { PatchContext, PatchOp };
 
 export interface ChatCompletionOptions {
   chatSessionId: string;

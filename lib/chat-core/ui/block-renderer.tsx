@@ -1,12 +1,13 @@
 "use client";
 
 import type { ComponentType } from "react";
-import type { CoreBlock } from "../types";
 import {
   SearchBlockView,
   type SearchBlockViewProps,
 } from "./search-block";
 import { GenericToolView } from "./tool-block";
+
+type CoreBlock = { type: string; [key: string]: unknown };
 
 export interface BlockRendererProps {
   block: CoreBlock;
@@ -15,6 +16,23 @@ export interface BlockRendererProps {
     ComponentType<{ block: CoreBlock }>
   >;
   searchBlockProps?: Partial<Omit<SearchBlockViewProps, "block">>;
+}
+
+type RenderableToolCallBlock = CoreBlock & {
+  type: "tool_call";
+  tool_name: string;
+  tool_call_id?: string;
+  input?: unknown;
+  output?: unknown;
+  content?: string | null;
+};
+
+function isToolCallBlock(block: CoreBlock): block is RenderableToolCallBlock {
+  return (
+    block.type === "tool_call" &&
+    "tool_name" in block &&
+    typeof block.tool_name === "string"
+  );
 }
 
 export function BlockRenderer({
@@ -26,7 +44,7 @@ export function BlockRenderer({
     return <SearchBlockView block={block} {...searchBlockProps} />;
   }
 
-  if (block.type !== "tool_call" || !block.tool_name) {
+  if (!isToolCallBlock(block)) {
     return null;
   }
 

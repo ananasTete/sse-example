@@ -1,88 +1,73 @@
-import type { ChatPatchOperation, MutationOp } from "../types";
+import type { PatchOp, BatchItem } from "../types";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-export function resolveArrayIndex(array: unknown[], segment: string) {
-  const index = segment === "-1" ? array.length - 1 : Number(segment);
-
-  if (!Number.isInteger(index) || index < 0 || index >= array.length) {
-    return null;
-  }
-
-  return index;
-}
-
 export function applyPathPatch(
   target: unknown,
   path: string,
-  operation: ChatPatchOperation | MutationOp,
+  op: Exclude<PatchOp, "batch">,
   value: unknown,
 ) {
-  if (operation === "delete" && !path) return;
-
   const segments = path.split("/").filter(Boolean);
-  let cursor = target;
 
-  for (let index = 0; index < segments.length - 1; index += 1) {
-    if (Array.isArray(cursor)) {
-      const arrayIndex = resolveArrayIndex(cursor, segments[index]);
-      if (arrayIndex === null) return;
-
-      cursor = cursor[arrayIndex];
-      continue;
+  // path="" means operate on root — support "set" to replace all properties
+  if (segments.length === 0) {
+    if (op === "set" && isRecord(target) && isRecord(value)) {
+      for (const key of Object.keys(target)) delete (target as Record<string, unknown>)[key];
+      Object.assign(target, value);
     }
-
-    if (!isRecord(cursor)) return;
-    cursor = cursor[segments[index]];
+    return;
   }
 
-  const lastSegment = segments.at(-1);
-  if (!lastSegment) return;
+  let cursor = target;
 
-  if (Array.isArray(cursor)) {
-    const arrayIndex = resolveArrayIndex(cursor, lastSegment);
-    if (arrayIndex === null) return;
-
-    if (
-      (operation === "APPEND" || operation === "append") &&
-      Array.isArray(cursor[arrayIndex])
-    ) {
-      (cursor[arrayIndex] as unknown[]).push(value);
+  for (let i = 0; i < segments.length - 1; i++) {
+    if (Array.isArray(cursor)) {
+      const idx = Number(segments[i]);
+      if (!Number.isInteger(idx) || idx < 0 || idx >= cursor.length) return;
+      cursor = cursor[idx];
+    } else if (isRecord(cursor)) {
+      cursor = cursor[segments[i]];
+    } else {
       return;
     }
+  }
 
-    cursor[arrayIndex] =
-      (operation === "APPEND" || operation === "append") &&
-      typeof cursor[arrayIndex] === "string"
-        ? `${cursor[arrayIndex]}${String(value)}`
-        : value;
+  const last = segments.at(-1)!;
+
+  if (Array.isArray(cursor)) {
+    const idx = Number(last);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= cursor.length) return;
+
+    if (op === "append" && typeof cursor[idx] === "string") {
+      cursor[idx] = cursor[idx] + String(value);
+    } else if (op === "add" && Array.isArray(cursor[idx])) {
+      (cursor[idx] as unknown[]).push(value);
+    } else if (op === "set") {
+      cursor[idx] = value;
+    }
     return;
   }
 
   if (!isRecord(cursor)) return;
 
-  if (operation === "delete") {
-    delete cursor[lastSegment];
+  if (op === "add") {
+    const arr = cursor[last];
+    if (Array.isArray(arr)) {
+      arr.push(value);
+    }
     return;
   }
 
-  if (operation === "APPEND" || operation === "append") {
-    const currentValue = cursor[lastSegment];
-    if (Array.isArray(currentValue)) {
-      if (Array.isArray(value)) {
-        currentValue.push(...value);
-      } else {
-        currentValue.push(value);
-      }
-      return;
+  if (op === "append") {
+    const current = cursor[last];
+    if (typeof current === "string") {
+      cursor[last] = current + String(value);
     }
-
-    if (typeof currentValue === "string") {
-      cursor[lastSegment] = currentValue + String(value);
-      return;
-    }
+    return;
   }
 
-  cursor[lastSegment] = value;
+  // op === "set"
+  cursor[last] = value;
 }

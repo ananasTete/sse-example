@@ -1,7 +1,6 @@
 "use client";
 
-import type { UIEvent } from "react";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,8 +17,7 @@ function getSessionTitle(session: ChatSessionListItem) {
   return session.title?.trim() || "新会话";
 }
 
-const AUTO_LOAD_THRESHOLD_PX = 72;
-const CHAT_SESSION_PATH_PREFIX = "/deepseek-test/";
+const CHAT_SESSION_PATH_PREFIX = "/session-chat/";
 
 function getActiveChatSessionId(pathname: string) {
   if (!pathname.startsWith(CHAT_SESSION_PATH_PREFIX)) return null;
@@ -34,6 +32,8 @@ function getActiveChatSessionId(pathname: string) {
 export function ChatSidebar() {
   const navigate = useNavigate();
   const location = useLocation();
+  const sessionListScrollRef = useRef<HTMLDivElement | null>(null);
+  const loadMoreTriggerRef = useRef<HTMLDivElement | null>(null);
 
   // 获取会话列表
   const chatSessionList = useChatSessionList();
@@ -46,22 +46,21 @@ export function ChatSidebar() {
 
   // 切换到新会话
   const handleNewChat = useCallback(() => {
-    void navigate({ to: "/deepseek-test" });
+    void navigate({ to: "/session-chat" });
   }, [navigate]);
 
   // 跳转到历史会话
   const handleSelectChat = useCallback(
     (chatSessionId: string) => {
       void navigate({
-        to: "/deepseek-test/$chat_session_id",
+        to: "/session-chat/$chat_session_id",
         params: { chat_session_id: chatSessionId },
       });
     },
     [navigate],
   );
 
-  // 滚动到底部时请求新内容
-  const handleSessionListScroll = (event: UIEvent<HTMLDivElement>) => {
+  useEffect(() => {
     if (
       !chatSessionList.hasMore ||
       chatSessionList.isLoadingMore ||
@@ -70,13 +69,31 @@ export function ChatSidebar() {
       return;
     }
 
-    const target = event.currentTarget;
-    const distanceToBottom =
-      target.scrollHeight - target.scrollTop - target.clientHeight;
+    const root = sessionListScrollRef.current;
+    const triggerElement = loadMoreTriggerRef.current;
 
-    if (distanceToBottom > AUTO_LOAD_THRESHOLD_PX) return;
-    void chatSessionList.fetchNextPage();
-  };
+    if (!root || !triggerElement) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting) return;
+        void chatSessionList.fetchNextPage();
+      },
+      {
+        root,
+        rootMargin: "0px 0px 120px 0px",
+        threshold: 0.1,
+      },
+    );
+
+    observer.observe(triggerElement);
+    return () => observer.disconnect();
+  }, [
+    chatSessionList.hasMore,
+    chatSessionList.isFetching,
+    chatSessionList.isLoadingMore,
+    chatSessionList.fetchNextPage,
+  ]);
 
   return (
     <Sidebar collapsible="none" className="bg-[#f7f7f4]">
@@ -94,8 +111,8 @@ export function ChatSidebar() {
 
       <SidebarContent className="gap-0 overflow-hidden p-2">
         <div
+          ref={sessionListScrollRef}
           className="min-h-0 flex-1 overflow-y-auto pr-1"
-          onScroll={handleSessionListScroll}
         >
           {chatSessionList.items.map((session) => {
             const isActive = activeChatSessionId === session.id;
@@ -137,6 +154,7 @@ export function ChatSidebar() {
 
           {chatSessionList.hasMore ? (
             <div className="py-3 text-center text-xs text-[#85877f]">
+              <div ref={loadMoreTriggerRef} className="h-1 w-full" />
               {chatSessionList.isLoadingMore ? "加载中" : "继续向下滚动"}
             </div>
           ) : null}

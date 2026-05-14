@@ -22,8 +22,7 @@ export function createUserMessage(
     search_enabled: options.searchEnabled,
     blocks: [
       {
-        id: messageId,
-        type: "request",
+        type: "text",
         content: options.prompt,
       },
     ],

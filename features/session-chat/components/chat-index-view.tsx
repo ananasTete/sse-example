@@ -20,8 +20,10 @@ export function ChatIndexView() {
     isLoading: isDraftSessionLoading,
     isFetching: isDraftSessionFetching,
   } = useDraftSession();
+
   const { mutateAsync: createCompletion, isPending: isSending } =
     useChatCompletion();
+
   const isSubmitting =
     isSending || isDraftSessionLoading || isDraftSessionFetching;
 
@@ -54,7 +56,7 @@ export function ChatIndexView() {
 
         // 跳转到详情页
         await navigate({
-          to: "/deepseek-test/$chat_session_id",
+          to: "/session-chat/$chat_session_id",
           params: { chat_session_id: targetChatSessionId },
           replace: true,
         });

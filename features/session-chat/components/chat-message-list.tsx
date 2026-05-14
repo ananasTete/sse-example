@@ -16,7 +16,7 @@ import {
   BlockRenderer,
   extractCitationsFromBlocks,
 } from "@/lib/chat-core";
-import type { ChatBlock, ChatMessage } from "../types";
+import type { ChatMessage, ChatMessageBlock } from "../types";
 
 interface ChatMessageListProps {
   messages: ChatMessage[];
@@ -29,7 +29,7 @@ interface ChatMessageItemProps {
 
 function getUserMessageText(message: ChatMessage) {
   return message.blocks
-    .filter((f) => f.type === "request")
+    .filter((block) => block.type === "text")
     .map((f) => f.content ?? "")
     .join("");
 }
@@ -39,28 +39,31 @@ function AssistantBlocks({
   citations,
   isStreaming,
 }: {
-  blocks: ChatBlock[];
+  blocks: ChatMessageBlock[];
   citations: ReturnType<typeof extractCitationsFromBlocks>;
   isStreaming: boolean;
 }) {
-  const lastResponseId = blocks.findLast((f) => f.type === "response")?.id;
+  const lastTextIndex = blocks.reduce(
+    (last, block, i) => (block.type === "text" ? i : last),
+    -1,
+  );
 
   return (
     <>
-      {blocks.map((block) => {
-        if (block.type === "response") {
+      {blocks.map((block, i) => {
+        if (block.type === "text") {
           return (
             <ChatResponse
-              key={block.id}
+              key={i}
               citations={citations}
-              isAnimating={isStreaming && block.id === lastResponseId}
+              isAnimating={isStreaming && i === lastTextIndex}
             >
               {block.content ?? ""}
             </ChatResponse>
           );
         }
 
-        return <BlockRenderer key={block.id} block={block} />;
+        return <BlockRenderer key={i} block={block as unknown as Record<string, unknown> & { type: string }} />;
       })}
     </>
   );
@@ -71,7 +74,7 @@ const ChatMessageItem = memo(function ChatMessageItem({
 }: ChatMessageItemProps) {
   const isUser = message.role === "USER";
   const isStreaming = message.role === "ASSISTANT" && message.status === "WIP";
-  const citations = isUser ? [] : extractCitationsFromBlocks(message.blocks);
+  const citations = isUser ? [] : extractCitationsFromBlocks(message.blocks as unknown as Array<Record<string, unknown> & { type: string }>);
 
   return (
     <Message

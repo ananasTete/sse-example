@@ -3,13 +3,27 @@
 import { cn } from "@/lib/utils";
 import { ExternalLink, Search } from "lucide-react";
 import type { ReactNode } from "react";
-import type { CoreBlock, WebSearchPayload } from "../types";
+
+type CoreBlock = { type: string; [key: string]: unknown };
 
 export interface SearchBlockViewProps {
   block: CoreBlock;
   className?: string;
   renderResult?: (result: Record<string, unknown>, index: number) => ReactNode;
 }
+
+type SearchBlockPayload = CoreBlock & {
+  type: "search";
+  content?: string | null;
+  queries?: Array<Record<string, unknown>>;
+  results?: Array<Record<string, unknown>>;
+};
+
+type ToolCallSearchPayload = CoreBlock & {
+  type: "tool_call";
+  input?: unknown;
+  output?: unknown;
+};
 
 function getStringField(value: unknown, key: string) {
   if (typeof value !== "object" || value === null) return "";
@@ -25,23 +39,24 @@ function getNumberField(value: unknown, key: string) {
 
 function getSearchPayload(block: CoreBlock) {
   if (block.type === "search") {
+    const searchBlock = block as SearchBlockPayload;
     return {
-      queries: block.queries ?? [],
-      results: block.results ?? [],
+      queries: searchBlock.queries ?? [],
+      results: searchBlock.results ?? [],
     };
   }
 
-  const output = block.output as Partial<WebSearchPayload> | null;
-  const input = block.input as { query?: unknown } | null;
-  const inputQuery = typeof input?.query === "string" ? input.query : "";
+  const toolBlock = block as ToolCallSearchPayload;
+  const input = Array.isArray(toolBlock.input) ? toolBlock.input : [];
+  const output = Array.isArray(toolBlock.output) ? toolBlock.output : [];
 
   return {
-    queries: Array.isArray(output?.queries)
-      ? output.queries
-      : inputQuery
-        ? [{ query: inputQuery }]
-        : [],
-    results: Array.isArray(output?.results) ? output.results : [],
+    queries: input
+      .map((item) => (typeof item === "object" && item !== null ? getStringField(item, "query") : ""))
+      .filter(Boolean),
+    results: output.filter(
+      (item) => typeof item === "object" && item !== null && getStringField(item, "url"),
+    ) as Array<Record<string, unknown>>,
   };
 }
 
@@ -51,13 +66,17 @@ export function SearchBlockView({
   renderResult,
 }: SearchBlockViewProps) {
   const payload = getSearchPayload(block);
-  const queries = payload.queries
-    .map((query) => getStringField(query, "query"))
-    .filter(Boolean);
-  const results = payload.results.filter((result) =>
-    Boolean(getStringField(result, "url")),
-  );
-  const isSearching = block.status !== "FINISHED";
+  const hasOutput = payload.results.length > 0;
+  const hasInput = payload.queries.length > 0;
+
+  let label: string;
+  if (hasOutput) {
+    label = `已搜索 ${payload.results.length} 个网页`;
+  } else if (hasInput) {
+    label = `正在搜索 ${payload.queries.map((q) => `"${q}"`).join(" ")}`;
+  } else {
+    label = "网络搜索中";
+  }
 
   return (
     <div
@@ -68,25 +87,12 @@ export function SearchBlockView({
     >
       <div className="flex items-center gap-2 font-medium">
         <Search className="size-4 text-[#4f7f52]" />
-        <span>{isSearching ? "正在搜索" : "网络搜索"}</span>
+        <span>{label}</span>
       </div>
 
-      {queries.length > 0 ? (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {queries.map((query, index) => (
-            <span
-              key={`${query}-${index}`}
-              className="rounded-full bg-white px-2 py-1 text-xs text-[#596154]"
-            >
-              {query}
-            </span>
-          ))}
-        </div>
-      ) : null}
-
-      {results.length > 0 ? (
+      {hasOutput ? (
         <div className="mt-2 grid gap-1.5">
-          {results.map((result, index) => {
+          {payload.results.map((result, index) => {
             if (renderResult) {
               return (
                 <div key={`${getStringField(result, "url")}-${index}`}>

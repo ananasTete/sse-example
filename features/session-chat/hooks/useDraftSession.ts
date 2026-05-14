@@ -4,7 +4,7 @@ import { chatKeys } from "./keys";
 import { createChatSession } from "./useCreateChatSessionMutation";
 import type { DraftSession } from "../types";
 
-const DRAFT_SESSION_SCOPE = "deepseek-test-index";
+const DRAFT_SESSION_SCOPE = "session-chat-index";
 const DRAFT_SESSION_GC_TIME_MS = 259200 * 1000;
 const DRAFT_SESSION_QUERY_KEY = chatKeys.draftSession(DRAFT_SESSION_SCOPE);
 
@@ -14,6 +14,10 @@ function isDraftSessionExpired(draftSession: DraftSession) {
   return Date.now() / 1000 >= expiresAt;
 }
 
+/**
+ * 在新页面调用。立即预创建会话，用于后续发消息。
+ * 提供 consume 确保缓存存在以及会话没过期用于场景在当前页面但不发起会话的场景
+ */
 export function useDraftSession() {
   const queryClient = useQueryClient();
   const createDraftSession = useCallback(() => createChatSession(), []);

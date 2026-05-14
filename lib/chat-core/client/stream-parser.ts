@@ -1,138 +1,37 @@
 import { createParser, type EventSourceMessage } from "eventsource-parser";
 import { produce } from "immer";
-import type {
-  MutationEnvelope,
-  MutationOp,
-  ChatStreamPatchContext,
-  Target,
-} from "../types";
+import type { PatchOp, PatchContext, ReadyPayload, SessionPayload, DonePayload, ErrorPayload, BatchItem } from "../types";
 import { applyPathPatch } from "./patch-apply";
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-const isMutationOp = (value: unknown): value is MutationOp =>
-  value === "upsert" ||
-  value === "set" ||
-  value === "append" ||
-  value === "delete";
+const isPatchOp = (value: unknown): value is PatchOp =>
+  value === "add" || value === "append" || value === "set" || value === "batch";
 
-const isTarget = (value: unknown): value is Target => {
-  if (!isRecord(value) || typeof value.type !== "string") return false;
-  if (
-    value.type !== "session" &&
-    value.type !== "message" &&
-    value.type !== "block" &&
-    value.type !== "artifact" &&
-    value.type !== "run"
-  ) {
-    return false;
-  }
-  return typeof value.id === "string" || typeof value.id === "number";
-};
-
-const isPartialMutationEnvelope = (
-  value: unknown,
-): value is MutationEnvelope =>
-  isRecord(value) &&
-  (!("target" in value) || isTarget(value.target)) &&
-  (!("op" in value) || isMutationOp(value.op)) &&
-  (!("path" in value) || typeof value.path === "string") &&
-  "value" in value;
-
-type ResolvedMutationEnvelope = MutationEnvelope & {
-  target: Target;
-  op: MutationOp;
-  path: string;
-};
-
-function resolveMutationEnvelope(
-  value: unknown,
-  context: ChatStreamPatchContext,
-): ResolvedMutationEnvelope | null {
-  if (!isPartialMutationEnvelope(value)) return null;
-
-  const target = value.target ?? context.lastTarget;
-  const op = value.op ?? context.lastOperation;
-  const path = value.path ?? context.lastPath;
-
-  if (!target || !op || path === null) return null;
-
-  return {
-    ...value,
-    target,
-    op,
-    path,
-  };
+export interface PatchStreamParserOptions<TState> {
+  /** Apply state update (immer-based) */
+  updateState: (updater: (state: TState | undefined) => TState | undefined) => void;
+  /** Handle ready event */
+  onReady?: (data: ReadyPayload) => void;
+  /** Handle upsert_message — client must replace message state with this snapshot */
+  onUpsertMessage?: (message: Record<string, unknown>) => void;
+  /** Handle session update */
+  onSession?: (data: SessionPayload) => void;
+  /** Handle done event */
+  onDone?: (data: DonePayload) => void;
+  /** Handle error event */
+  onError?: (data: ErrorPayload) => void;
+  /** Handle parse errors */
+  onParseError?: (error: Error) => void;
+  /** Resolve the message object from state to apply patches to */
+  resolveMessage: (state: TState) => unknown | null;
+  /** Patch context for sticky compression */
+  patchContext: PatchContext;
 }
 
-export interface MutationStreamParserOptions<TState> {
-  updateState: (
-    updater: (state: TState | undefined) => TState | undefined,
-  ) => void;
-  onLifecycle?: (event: string, data: Record<string, unknown>) => void;
-  onError?: (error: Error) => void;
-  isResponseMessage?: (value: unknown) => boolean;
-  getResponseMessageId?: (value: unknown) => number | null;
-  upsertResponse?: (draft: TState, response: unknown) => void;
-  resolveMutationTarget: (
-    draft: TState,
-    target: Target,
-  ) => unknown | null;
-  patchContext: ChatStreamPatchContext;
-}
-
-function applyMutationToTarget<TState>(
-  draft: TState,
-  options: MutationStreamParserOptions<TState>,
-  mutation: ResolvedMutationEnvelope,
-) {
-  if (
-    mutation.target.type === "message" &&
-    mutation.op === "upsert" &&
-    mutation.path === "" &&
-    options.isResponseMessage?.(mutation.value)
-  ) {
-    const responseMessageId =
-      options.getResponseMessageId?.(mutation.value) ?? null;
-    options.patchContext.responseMessageId = responseMessageId;
-    options.patchContext.responseMessageIndex = null;
-    options.upsertResponse?.(draft, mutation.value);
-    return;
-  }
-
-  const mutationTarget = options.resolveMutationTarget(draft, mutation.target);
-  if (!mutationTarget) return;
-
-  if (mutation.path) {
-    applyPathPatch(
-      mutationTarget,
-      mutation.path,
-      mutation.op,
-      mutation.value,
-    );
-  }
-}
-
-export function applyStreamData<TState>(
-  currentState: TState | undefined,
-  options: MutationStreamParserOptions<TState>,
-  data: unknown,
-) {
-  if (!currentState || !isRecord(data)) return currentState;
-  const mutation = resolveMutationEnvelope(data, options.patchContext);
-  if (!mutation) return currentState;
-
-  return produce(currentState, (draft) => {
-    applyMutationToTarget(draft as TState, options, mutation);
-    options.patchContext.lastTarget = mutation.target;
-    options.patchContext.lastPath = mutation.path;
-    options.patchContext.lastOperation = mutation.op;
-  });
-}
-
-export function createMutationStreamParser<TState>(
-  options: MutationStreamParserOptions<TState>,
+export function createPatchStreamParser<TState>(
+  options: PatchStreamParserOptions<TState>,
 ) {
   return createParser({
     onEvent: (event: EventSourceMessage) => {
@@ -140,26 +39,67 @@ export function createMutationStreamParser<TState>(
 
       try {
         const data = JSON.parse(event.data) as unknown;
+        if (!isRecord(data)) return;
 
+        // Named events
         if (event.event) {
-          if (isRecord(data)) {
-            options.onLifecycle?.(event.event, data);
+          switch (event.event) {
+            case "ready":
+              options.onReady?.(data as unknown as ReadyPayload);
+              break;
+            case "upsert_message":
+              options.onUpsertMessage?.(data);
+              break;
+            case "update_session":
+              options.onSession?.(data as unknown as SessionPayload);
+              break;
+            case "done":
+              options.onDone?.(data as unknown as DonePayload);
+              break;
+            case "error":
+              options.onError?.(data as unknown as ErrorPayload);
+              break;
           }
           return;
         }
 
-        options.updateState((currentState) =>
-          applyStreamData(currentState, options, data),
-        );
+        // Default event: patch
+        const ctx = options.patchContext;
+        const o = isPatchOp(data.o) ? (data.o as PatchOp) : ctx.lastOp;
+        const p = typeof data.p === "string" ? data.p : ctx.lastPath;
+        const v = data.v;
+
+        if (!o || p === null) return;
+
+        // Save previous non-batch op for batch item inheritance.
+        const prevOp = ctx.lastOp !== "batch" ? ctx.lastOp : null;
+
+        // Update sticky context
+        if (data.o !== undefined) ctx.lastOp = o;
+        if (data.p !== undefined) ctx.lastPath = p;
+
+        options.updateState((currentState) => {
+          if (!currentState) return currentState;
+          return produce(currentState, (draft) => {
+            const message = options.resolveMessage(draft as TState);
+            if (!message) return;
+
+            if (o === "batch" && Array.isArray(v)) {
+              for (const item of v as BatchItem[]) {
+                const itemOp = item.o ?? prevOp;
+                if (!itemOp) continue;
+                applyPathPatch(message, item.p ?? p, itemOp, item.v);
+              }
+            } else if (o !== "batch") {
+              applyPathPatch(message, p, o, v);
+            }
+          });
+        });
       } catch (error) {
-        options.onError?.(
+        options.onParseError?.(
           error instanceof Error ? error : new Error("Failed to parse stream"),
         );
       }
     },
   });
 }
-
-export const createPatchStreamParser = createMutationStreamParser;
-export type PatchStreamParserOptions<TState> =
-  MutationStreamParserOptions<TState>;

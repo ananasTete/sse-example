@@ -23,10 +23,15 @@ export function ChatDetailView({ chatSessionId }: ChatDetailViewProps) {
 
   // 获取会话历史
   const sessionQuery = useChatSessionQuery(chatSessionId);
+
+  // 发起新消息
   const { mutateAsync: createCompletion, isPending: isSending } =
     useChatCompletion();
+
+  // resume 旧消息
   const { mutate: resumeCompletion, isPending: isResuming } =
     useResumeChatCompletion();
+
   const chatState = sessionQuery.data;
   const resumeKeyRef = useRef<string | null>(null);
   const autoResumeCheckedSessionRef = useRef<string | null>(null);

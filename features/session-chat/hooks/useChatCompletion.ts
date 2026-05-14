@@ -2,7 +2,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { produce } from "immer";
 import { createUserMessage } from "../stream/messages";
 import { processChatCompletionStream } from "../stream/stream";
-import type { ChatSessionListItem, ChatSessionPatch, ChatState } from "../types";
+import type {
+  ChatSessionListItem,
+  ChatSessionPatch,
+  ChatState,
+} from "../types";
 import { chatKeys } from "./keys";
 import { updateChatSessionListItem } from "./useChatSessionList";
 
@@ -102,7 +106,7 @@ export function useChatCompletion() {
         parentMessageId: input.parentMessageId,
         thinkingEnabled: input.thinkingEnabled ?? false,
         searchEnabled: input.searchEnabled ?? false,
-        optimisticUserMessageId: nextOptimisticMessageId(),
+        optimisticUserMessageId: nextOptimisticMessageId(), // 临时 ID
       };
 
       // 乐观更新用户消息
@@ -145,6 +149,7 @@ export function useChatCompletion() {
               (state) => {
                 if (!state) return state;
 
+                // 将 ready 事件的 user_message_id 更新到乐观更新的 UI
                 return produce(state, (draft) => {
                   const optimistic = draft.chat_messages.find(
                     (m) =>
@@ -153,11 +158,6 @@ export function useChatCompletion() {
                   );
                   if (optimistic) {
                     optimistic.message_id = payload.user_message_id;
-                    for (const block of optimistic.blocks) {
-                      if (block.id === options.optimisticUserMessageId) {
-                        block.id = payload.user_message_id;
-                      }
-                    }
                     draft.chat_messages.sort(
                       (a, b) => a.message_id - b.message_id,
                     );
@@ -181,6 +181,7 @@ export function useChatCompletion() {
               title,
               title_type: "SYSTEM" as const,
             };
+            // 更新侧边栏 title
             updateChatSessionListItem(queryClient, input.chatSessionId, patch);
           },
         });
@@ -241,8 +242,7 @@ export function useResumeChatCompletion() {
           },
         });
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : "生成已中断";
+        const message = error instanceof Error ? error.message : "生成已中断";
 
         queryClient.setQueryData<ChatState | undefined>(
           chatKeys.session(input.chatSessionId),

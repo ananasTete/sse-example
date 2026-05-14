@@ -114,7 +114,7 @@ WHEN 在新页面刷新页面 THEN 重新预创建会话，服务端对预创建
                     "blocks": [
                         {
                             "id": 1,
-                            "type": "request",
+                            "type": "text",
                             "content": "hi"
                         }
                     ],
@@ -138,7 +138,7 @@ WHEN 在新页面刷新页面 THEN 重新预创建会话，服务端对预创建
                     "blocks": [
                         {
                             "id": 2,
-                            "type": "response",
+                            "type": "text",
                             "content": "你好！👋 很高兴见到你！\n\n有什么我可以帮你的吗？无论是学习、工作、生活中的问题，还是只是想聊聊天，我都很乐意陪你。随时开口吧！😊",
                             "references": [],
                             "stage_id": 1
@@ -159,6 +159,10 @@ WHEN 在新页面刷新页面 THEN 重新预创建会话，服务端对预创建
 
 ## SSE 消息
 
+当前流式协议以 [`docs/sse-protocol-v3.md`](../../docs/sse-protocol-v3.md) 为准。v3 使用 `ready`、`upsert_message`、`update_session`、`done`、`error` named events，默认事件使用 path-based `o/p/v` patch，block 通过数组 index 寻址。
+
+下面内容是历史调试样例，用于对照迁移前的数据形态。
+
 ```json
 event: ready
 data: {"response_message_id":2}
@@ -166,7 +170,7 @@ data: {"response_message_id":2}
 event: update_session
 data: {"updated_at":1777548191.925}
 
-data: {"v":{"response":{"message_id":2,"parent_id":1,"model":"","role":"ASSISTANT","thinking_enabled":false,"ban_edit":false,"ban_regenerate":false,"status":"WIP","incomplete_message":null,"accumulated_token_usage":0,"feedback":null,"inserted_at":1777548191.924,"search_enabled":false,"blocks":[{"id":2,"type":"response","content":"你好","references":[],"stage_id":1}],"conversation_mode":"DEFAULT","has_pending_block":false,"auto_continue":false}}}
+data: {"v":{"response":{"message_id":2,"parent_id":1,"model":"","role":"ASSISTANT","thinking_enabled":false,"ban_edit":false,"ban_regenerate":false,"status":"WIP","incomplete_message":null,"accumulated_token_usage":0,"feedback":null,"inserted_at":1777548191.924,"search_enabled":false,"blocks":[{"id":2,"type":"text","content":"你好","references":[],"stage_id":1}],"conversation_mode":"DEFAULT","has_pending_block":false,"auto_continue":false}}}
 
 data: {"p":"response/blocks/-1/content","o":"APPEND","v":"！"}
 
@@ -266,9 +270,9 @@ data: {"response_message_id":2}
 event: update_session
 data: {"updated_at":1777732952.603}
 
-data: {"v":{"response":{"message_id":2,"parent_id":1,"model":"","role":"ASSISTANT","thinking_enabled":false,"ban_edit":false,"ban_regenerate":false,"status":"WIP","incomplete_message":null,"accumulated_token_usage":0,"feedback":null,"inserted_at":1777732952.602,"search_enabled":true,"blocks":[{"id":1,"type":"search","status":"WIP","content":null,"queries":[{"query":"deepseek 最新的模型是什么"}],"results":[]}],"conversation_mode":"SEARCH","has_pending_block":false,"auto_continue":false}}}
+data: {"v":{"response":{"message_id":2,"parent_id":1,"model":"","role":"ASSISTANT","thinking_enabled":false,"ban_edit":false,"ban_regenerate":false,"status":"WIP","incomplete_message":null,"accumulated_token_usage":0,"feedback":null,"inserted_at":1777732952.602,"search_enabled":true,"blocks":[{"id":1,"type":"tool_call","tool_name":"web_search","tool_call_id":"call_search","status":"WIP","content":null,"input":[{"query":"deepseek 最新的模型是什么"}],"output":[]}],"conversation_mode":"SEARCH","has_pending_block":false,"auto_continue":false}}}
 
-data: {"p":"response/blocks/-1/results","v":[{"url":"https://wallstreetcn.com/articles/3765514","title":"DeepSeek新模型来了？","snippet":"# DeepSeek新模型来了？. 2月11日，部分用户打开DeepSeek App后收到更新版本的提示。APP更新后（1.7.4），用户可体验到DeepSeek最新模型。本次升级后，模型上下文长度将从128K扩展至1M，接近提升10倍；知识库更新至2025年5月，多项核心能力获得实质性提升。. 作者实测发现，DeepSeek在问答中称，当前的版本很可能也不是V4，**极有可能是V3系列的最终进化形态，或是V4正式亮相前的终极灰度版。**. 野村证券于2月10日发布报告称，**预计2026年2月中旬推出的DeepSeek V4模型，不会重现去年V3发布时引发的全球AI算力需求恐慌。**该行认为，**V4的核心价值在于通过底层架构创新推动AI应用商业化落地，而非颠覆现有AI价值链。**. 据测评，**新版本在复杂任务处理能力上已对齐Gemini 3 Pro及K2.5等主流闭源模型。**野村进一步指出，V4预计将引入mHC与Engram两项创新技术，从算法与工程层面突破算力芯片与内存瓶颈。内部初步测试显示，V4在编程任务中的表现已超越Anthropic Claude及OpenAI GPT系列同代模型。. ## 创新架构针对硬件瓶颈优化. 野村证券报告指出，算力芯片性能与HBM内存瓶颈，始终是国产大模型产业绕不开的硬约束。**即将发布的DeepSeek V4所引入的mHC（超连接与流形约束超连接）与Engram架构，正是从训练与推理两个维度，针对上述短板进行系统级优化。**. 简单说，它让神经网络层之间的“对话”更丰富、更灵活，同时通过严苛的数学“护栏”防止信息被放大或破坏。**实验证明，采用mHC的模型在数学推理等任务上表现更优。**. 一个“条件记忆”模块。它的设计理念是将“记忆”与“计算”解耦。. 模型中的静态知识（如实体、固定表达）被专门存储在一个稀疏的内存表中，这个表可以放在廉价的DRAM里。当需要推理时，再去快速查找。**这释放了昂贵的GPU内存（HBM），让其专注于动态计算。**. mHC技术通过改善训练稳定性和收敛效率，在一定程度对冲国产芯片在互联带宽与计算密度上的代际差距；而Engram架构则致力于重构内存调度机制，在HBM供应受限的背景下，以更高效的存取策略突破显存容量与带宽制约。野村认为，**这两项创新共同构成一套面向国产硬件生态的适配方案，具有明确的工程落地价值。**. 报告进一步指出，**V4发布带来的最直接商业影响，是训练与推理成本的实质性下降**。成本端的优化将有效激发下游应用需求，进而催生新一轮AI基础设施建设周期。在此过程中，**中国AI硬件厂商有望受益于需求放量与投资前置带来的双重拉动。**. ## 市场格局从\"一家独大\"转向\"群雄割据\". 野村报告回顾了DeepSeek-V3/R1发布一年后的市场格局变化。在2024年底，DeepSeek的两个模型曾占据OpenRouter上开源模型Token使用量的一半以上。. 但到2025年下半年，随着更多玩家加入，其市场份额已显著下降。市场从\"一家独大\"走向了\"群雄割据\"。**V4面临的竞争环境远比一年前复杂。DeepSeek的\"算力管理效率\"叠加\"性能提升\"加速了中国大语言模型与应用发展，也改变了全球竞争格局，推动开源模型更受关注。**. ## 软件公司迎来价值提升机遇. 在应用侧，更强大、更高效的V4将催生更强大的AI智能体。报告观察到，像阿里通义千问App等已经能够以更自动化的方式执行多步骤任务，AI智能体正从\"对话工具\"转型为能处理复杂任务的\"AI助手\"。. 这些能执行多任务的智能体需要更频繁地与底层大模型交互，将消耗更多Token，进而推高算力需求。**因此模型效能的提升不仅不会\"杀死软件\"，反而为领先的软件公司创造了价值。**野村强调，需要关注那些能率先利用新一代大模型能力打造出颠覆性AI原生应用或智能体的软件公司。它们的增长天花板可能因模型能力的飞跃而被再次推高。. ## DeepSeek识图模式是个新模型？一手实测在此. ## DeepSeek不惜代价保住它！V4关键特性被挖出来了. ## 高盛：DeepSeek V4对中国AI意味着什么？. ## Deepseek V4第一波测评来了！. ## DeepSeek V4冲击波：百万上下文成标配，Agent底座之争打响在即.","cite_index":1,"site_name":"wallstreetcn.com","query_indexes":[0]}]}
+data: {"p":"response/blocks/-1/output","v":[{"url":"https://wallstreetcn.com/articles/3765514","title":"DeepSeek新模型来了？","snippet":"...","cite_index":1,"site_name":"wallstreetcn.com","query_indexes":[0]}]}
 
 data: {"v":[{"url":"https://wallstreetcn.com/articles/3765514","title":"DeepSeek新模型来了？","snippet":"# DeepSeek新模型来了？. 2月11日，部分用户打开DeepSeek App后收到更新版本的提示。APP更新后（1.7.4），用户可体验到DeepSeek最新模型。本次升级后，模型上下文长度将从128K扩展至1M，接近提升10倍；知识库更新至2025年5月，多项核心能力获得实质性提升。. 作者实测发现，DeepSeek在问答中称，当前的版本很可能也不是V4，**极有可能是V3系列的最终进化形态，或是V4正式亮相前的终极灰度版。**. 野村证券于2月10日发布报告称，**预计2026年2月中旬推出的DeepSeek V4模型，不会重现去年V3发布时引发的全球AI算力需求恐慌。**该行认为，**V4的核心价值在于通过底层架构创新推动AI应用商业化落地，而非颠覆现有AI价值链。**. 据测评，**新版本在复杂任务处理能力上已对齐Gemini 3 Pro及K2.5等主流闭源模型。**野村进一步指出，V4预计将引入mHC与Engram两项创新技术，从算法与工程层面突破算力芯片与内存瓶颈。内部初步测试显示，V4在编程任务中的表现已超越Anthropic Claude及OpenAI GPT系列同代模型。. ## 创新架构针对硬件瓶颈优化. 野村证券报告指出，算力芯片性能与HBM内存瓶颈，始终是国产大模型产业绕不开的硬约束。**即将发布的DeepSeek V4所引入的mHC（超连接与流形约束超连接）与Engram架构，正是从训练与推理两个维度，针对上述短板进行系统级优化。**. 简单说，它让神经网络层之间的“对话”更丰富、更灵活，同时通过严苛的数学“护栏”防止信息被放大或破坏。**实验证明，采用mHC的模型在数学推理等任务上表现更优。**. 一个“条件记忆”模块。它的设计理念是将“记忆”与“计算”解耦。. 模型中的静态知识（如实体、固定表达）被专门存储在一个稀疏的内存表中，这个表可以放在廉价的DRAM里。当需要推理时，再去快速查找。**这释放了昂贵的GPU内存（HBM），让其专注于动态计算。**. mHC技术通过改善训练稳定性和收敛效率，在一定程度对冲国产芯片在互联带宽与计算密度上的代际差距；而Engram架构则致力于重构内存调度机制，在HBM供应受限的背景下，以更高效的存取策略突破显存容量与带宽制约。野村认为，**这两项创新共同构成一套面向国产硬件生态的适配方案，具有明确的工程落地价值。**. 报告进一步指出，**V4发布带来的最直接商业影响，是训练与推理成本的实质性下降**。成本端的优化将有效激发下游应用需求，进而催生新一轮AI基础设施建设周期。在此过程中，**中国AI硬件厂商有望受益于需求放量与投资前置带来的双重拉动。**. ## 市场格局从\"一家独大\"转向\"群雄割据\". 野村报告回顾了DeepSeek-V3/R1发布一年后的市场格局变化。在2024年底，DeepSeek的两个模型曾占据OpenRouter上开源模型Token使用量的一半以上。. 但到2025年下半年，随着更多玩家加入，其市场份额已显著下降。市场从\"一家独大\"走向了\"群雄割据\"。**V4面临的竞争环境远比一年前复杂。DeepSeek的\"算力管理效率\"叠加\"性能提升\"加速了中国大语言模型与应用发展，也改变了全球竞争格局，推动开源模型更受关注。**. ## 软件公司迎来价值提升机遇. 在应用侧，更强大、更高效的V4将催生更强大的AI智能体。报告观察到，像阿里通义千问App等已经能够以更自动化的方式执行多步骤任务，AI智能体正从\"对话工具\"转型为能处理复杂任务的\"AI助手\"。. 这些能执行多任务的智能体需要更频繁地与底层大模型交互，将消耗更多Token，进而推高算力需求。**因此模型效能的提升不仅不会\"杀死软件\"，反而为领先的软件公司创造了价值。**野村强调，需要关注那些能率先利用新一代大模型能力打造出颠覆性AI原生应用或智能体的软件公司。它们的增长天花板可能因模型能力的飞跃而被再次推高。. ## DeepSeek识图模式是个新模型？一手实测在此. ## DeepSeek不惜代价保住它！V4关键特性被挖出来了. ## 高盛：DeepSeek V4对中国AI意味着什么？. ## Deepseek V4第一波测评来了！. ## DeepSeek V4冲击波：百万上下文成标配，Agent底座之争打响在即.","cite_index":1,"site_name":"wallstreetcn.com","query_indexes":[0]},{"url":"https://api-docs.deepseek.com/zh-cn/news/news251201","title":"DeepSeek V3.2 正式版：强化Agent 能力，融入思考推理","snippet":"# DeepSeek V3.2 正式版：强化 Agent 能力，融入思考推理. 两个月前，我们发布了实验性的 DeepSeek-V3.2-Exp，并收到了众多热心用户反馈的对比测试结果。目前未发现 V3.2-Exp 在任何特定场景中显著差于 V3.1-Terminus，这验证了 DSA 稀疏注意力机制的有效性。也感谢广大用户一直以来的积极反馈与支持，为我们的持续创新注入了更多信心与动力。. 今天，我们同时发布两个正式版模型：**DeepSeek-V3.2 和 DeepSeek-V3.2-Speciale**。官方网页端、App 和 API 均已更新为正式版 DeepSeek-V3.2，欢迎使用。Speciale 版本目前仅以临时 API 服务形式开放，以供社区评测与研究。. 新模型技术报告已同步发布：<https://modelscope.cn/models/deepseek-ai/DeepSeek-V3.2/resolve/master/assets/paper.pdf>. # 推理能力全球领先. * DeepSeek-V3.2 的目标是平衡推理能力与输出长度，适合日常使用，例如问答场景和通用 Agent 任务场景。在公开的推理类 Benchmark 测试中，DeepSeek-V3.2 达到了 GPT-5 的水平，仅略低于 Gemini-3.0-Pro；相比 Kimi-K2-Thinking，V3.2 的输出长度大幅降低，显著减少了计算开销与用户等待时间。. * DeepSeek-V3.2-Speciale 的目标是将开源模型的推理能力推向极致，探索模型能力的边界。V3.2-Speciale 是 DeepSeek-V3.2 的长思考增强版，同时结合了 DeepSeek-Math-V2 的定理证明能力。该模型具备出色的指令跟随、严谨的数学证明与逻辑验证能力，在主流推理基准测试上的性能表现媲美 Gemini-3.0-Pro（见下表）。更令人瞩目的是，V3.2-Speciale 模型成功斩获 IMO 2025（国际数学奥林匹克）、CMO 2025（中国数学奥林匹克）、ICPC World Finals 2025（国际大学生程序设计竞赛全球总决赛）及 IOI 2025（国际信息学奥林匹克）金牌。其中，ICPC 与 IOI 成绩分别达到了人类选手第二名与第十名的水平。. Tips：在高度复杂任务上，Speciale 模型大幅优于标准版本，但消耗的 Tokens 也显著更多，成本更高。目前，DeepSeek-V3.2-Speciale 仅供研究使用，不支持工具调用，暂未针对日常对话与写作任务进行专项优化。. 表1：DeepSeek-V3.2 与其他模型在各类数学、代码与通用领域评测集上的得分（括号内为消耗 Tokens 总量约数）. # 思考融入工具调用. * 不同于过往版本在思考模式下无法调用工具的局限，DeepSeek-V3.2 是我们推出的首个将思考融入工具使用的模型，并且同时支持思考模式与非思考模式的工具调用。我们提出了一种大规模 Agent 训练数据合成方法，构造了大量「难解答，易验证」的强化学习任务（1800+ 环境，85,000+ 复杂指令），大幅提高了模型的泛化能力。. 表2：DeepSeek-V3.2 与其他模型在各类智能体工具调用评测集上的得分. * 如上表所示，DeepSeek-V3.2 模型在智能体评测中达到了当前开源模型的最高水平，大幅缩小了开源模型与闭源模型的差距。值得说明的是，V3.2 并没有针对这些测试集的工具进行特殊训练，所以我们相信，V3.2 在真实应用场景中能够展现出较强的泛化性。. 示例为通过 LobeChat 使用 DeepSeek-V3.2 的深度思考+工具调用能力得到更加详细准确的回复. # 开源. \\*\\* HuggingFace: <https://huggingface.co/deepseek-ai/DeepSeek-V3.2>. \\*\\* ModelScope: <https://modelscope.cn/models/deepseek-ai/DeepSeek-V3.2>. \\*\\* HuggingFace: <https://huggingface.co/deepseek-ai/DeepSeek-V3.2-Speciale>. \\*\\* ModelScope: <https://modelscope.cn/models/deepseek-ai/DeepSeek-V3.2-Speciale>. # 网页端、APP 与 API 更新. DeepSeek-V3.2 是我们当前正式提供服务的模型，官网网页、APP、API 模型均已由 DeepSeek-V3.2-Exp 升级为正式版 DeepSeek-V3.2，使用方式不变。. 同时，为了方便社区评测与研究，我们非正式部署了 DeepSeek-V3.2-Speciale 的 API 服务，API 用户可以通过设置 `base_url=\"https://api.deepseek.com/v3.2_speciale_expires_on_20251215\"` 访问该模型。该模型 API 价格不变，只支持思考模式下的对话功能，不支持工具调用等功能，最大输出长度默认为 128K，支持时间截止至北京时间 2025-12-15 23:59。. # 思考模式下的工具调用. 本次 API 更新支持了 DeepSeek-V3.2 思考模式下的工具调用能力。当前在思考模式下，模型能够经过多轮的思考 + 工具调用，最终给出更详尽准确的回答。下图为思考模式下进行工具调用的 API 请求示意图：. * 更详细的使用方法请参考 API 文档：<https://api-docs.deepseek.com/zh-cn/guides/thinking_mode>. DeepSeek-V3.2 的思考模式也增加了对 Claude Code 的支持，用户可以通过将模型名改为 deepseek-reasoner，或在 Claude Code CLI 中按 Tab 键开启思考模式进行使用。但需要注意的是，思考模式未充分适配 Cline、RooCode 等使用非标准工具调用的组件，我们建议用户在使用此类组件时继续使用非思考模式。.","cite_index":2,"site_name":"api-docs.deepseek.com","query_indexes":[0]}]}
 
@@ -290,7 +294,7 @@ data: {"v":[{"url":"https://wallstreetcn.com/articles/3765514","title":"DeepSeek
 
 data: {"p":"response/blocks/-1/status","o":"SET","v":"FINISHED"}
 
-data: {"p":"response","o":"BATCH","v":[{"p":"blocks","o":"APPEND","v":{"id":2,"type":"response","content":"","references":[],"stage_id":1}},{"p":"has_pending_block","o":"SET","v":false}]}
+data: {"p":"response","o":"BATCH","v":[{"p":"blocks","o":"APPEND","v":{"id":2,"type":"text","content":"","references":[],"stage_id":1}},{"p":"has_pending_block","o":"SET","v":false}]}
 
 data: {"p":"response/blocks/-1/content","o":"APPEND","v":"根据"}
 

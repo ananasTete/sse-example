@@ -1,12 +1,14 @@
 # chat-core 公共能力架构方案
 
+当前流式协议以 [`docs/sse-protocol-v3.md`](../../docs/sse-protocol-v3.md) 为准：named events 承载生命周期和 session 更新，默认 SSE 事件使用 path-based `o/p/v` patch，block 通过数组 index 寻址。
+
 ## 一、目标
 
 将 `session-chat` 中的核心能力提取为 `lib/chat-core`，使其成为 **session-chat、agent-editor 以及未来 agent 项目** 的共享基础设施。
 
 ### 必须达成
 
-1. **保留 target + p/o/v patch 增量输出协议** — 所有项目统一使用此协议进行流式状态同步
+1. **统一 v3 path-based `o/p/v` patch 增量输出协议** — 所有项目统一使用此协议进行流式状态同步
 2. **升级为 agent 架构** — 后端基于 `ai-sdk` 的 `streamText` + `tools`，支持多步工具调用
 3. **web_search 作为内置工具** — 基于 Tavily，默认读取环境变量，也支持显式 config 覆盖
 4. **Streamdown + Citation 作为内置 UI** — 默认提供 markdown 流式渲染和引用组件
@@ -123,8 +125,8 @@ createPatchStreamParser()          ← core: eventsource-parser → applyStreamD
 ```
 blocks: [
   { type: "tool_call", tool_name: "web_search", status: "FINISHED",
-    input: { query: "..." }, output: { queries: [...], results: [...] } },
-  { type: "response", content: "根据搜索结果..." }
+    input: [{ query: "..." }], output: [{ url: "...", title: "...", snippet: "...", cite_index: 1 }] },
+  { type: "text", content: "根据搜索结果..." }
 ]
 ```
 
@@ -133,9 +135,9 @@ blocks: [
 ```
 blocks: [
   { type: "tool_call", tool_name: "web_search",        status: "FINISHED", ... },
-  { type: "response", content: "初步分析..." },
+  { type: "text", content: "初步分析..." },
   { type: "tool_call", tool_name: "generate_character", status: "FINISHED", ... },
-  { type: "response", content: "最终结论..." }
+  { type: "text", content: "最终结论..." }
 ]
 ```
 
@@ -152,11 +154,11 @@ blocks: [
 { "t": { "type": "response" }, "p": "blocks", "o": "APPEND", "v": {
     "id": 1, "type": "tool_call", "tool_name": "web_search",
     "status": "WIP", "tool_call_id": "call_abc",
-    "input": { "query": "最新消息" }, "output": null
+    "input": [{ "query": "最新消息" }], "output": []
 }}
 
 // 2. 工具执行完成
-{ "t": { "type": "block", "id": 1 }, "p": "output", "o": "SET", "v": { "queries": [...], "results": [...] } }
+{ "t": { "type": "block", "id": 1 }, "p": "output", "o": "SET", "v": [{ "url": "...", "title": "...", "snippet": "...", "cite_index": 1 }] }
 { "t": { "type": "block", "id": 1 }, "p": "status", "o": "SET", "v": "FINISHED" }
 
 // 3. 文本响应开始
@@ -208,7 +210,7 @@ interface PersistedToolCallBlock {
 - `MessageBlock` 增加 `toolName`、`toolCallId`、`toolInputJson`、`toolOutputJson`
 - 历史序列化将 `tool_call` 输出为 `tool_name/tool_call_id/input/output/status`
 - 旧 `SEARCH` 历史可在读取时映射为 `tool_call + tool_name=web_search`，`queries/results` 放入 `output`
-- `extractCitationsFromBlocks` 同时支持旧 `SEARCH.results` 与新 `tool_call(web_search).output.results`
+- `extractCitationsFromBlocks` 同时支持旧 `SEARCH.results` 与新 `tool_call(web_search).output`
 - 新写入统一落 `tool_call`，避免继续扩大 `SEARCH` 特例
 
 ---
@@ -286,15 +288,10 @@ export interface SearchResultPayload {
   query_indexes?: number[];
 }
 
-export interface WebSearchPayload {
-  queries: SearchQueryPayload[];
-  results: SearchResultPayload[];
-}
-
 export type WebSearchFn = (
   query: string,
   options?: { signal?: AbortSignal },
-) => Promise<WebSearchPayload>;
+) => Promise<SearchResultPayload[]>;
 
 // ---- 从 src/components/ai-elements/message.tsx 提取 ----
 export interface MessageCitation {
@@ -484,7 +481,7 @@ export async function bridgeAIStreamToPatches(
       t: { type: "response" },
       p: "blocks",
       o: "APPEND",
-      v: { id: blockId, type: "response", content: "", references: [] },
+      v: { id: blockId, type: "text", content: "", references: [] },
     });
     return blockId;
   };

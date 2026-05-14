@@ -1,7 +1,14 @@
 "use client";
 
 import { Wrench } from "lucide-react";
-import type { CoreBlock } from "../types";
+
+type CoreBlock = { type: string; [key: string]: unknown };
+
+type GenericToolBlock = CoreBlock & {
+  tool_name: string;
+  input?: unknown;
+  output?: unknown;
+};
 
 function stringify(value: unknown) {
   if (value === undefined || value === null) return "";
@@ -13,7 +20,7 @@ function stringify(value: unknown) {
   }
 }
 
-export function GenericToolView({ block }: { block: CoreBlock }) {
+export function GenericToolView({ block }: { block: GenericToolBlock }) {
   const input = stringify(block.input);
   const output = stringify(block.output);
 
@@ -24,7 +31,7 @@ export function GenericToolView({ block }: { block: CoreBlock }) {
         <span>{block.tool_name ?? "tool"}</span>
         {block.status ? (
           <span className="ml-auto rounded-full bg-white px-2 py-0.5 text-xs text-[#746f65]">
-            {block.status}
+            {String(block.status)}
           </span>
         ) : null}
       </summary>

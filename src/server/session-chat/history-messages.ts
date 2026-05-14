@@ -21,17 +21,17 @@ function toBlockResponse(block: {
   referencesJson: unknown;
   stageId: number | null;
 }) {
-  if (block.type === "request") {
+  if (block.type === "text") {
     return {
-      id: block.localId,
-      type: "request",
+      type: "text",
       content: block.content ?? "",
+      references: asArray(block.referencesJson),
+      stage_id: block.stageId,
     };
   }
 
   if (block.type === "search") {
     return {
-      id: block.localId,
       type: "search",
       status: block.status ?? "FINISHED",
       content: block.content,
@@ -42,31 +42,27 @@ function toBlockResponse(block: {
 
   if (block.type === "tool_call") {
     const toolOutput = block.toolOutputJson;
-    const outputRecord =
-      typeof toolOutput === "object" && toolOutput !== null
-        ? (toolOutput as Record<string, unknown>)
-        : null;
+
+    const input = block.toolInputJson != null ? [block.toolInputJson] : [];
+    const output =
+      block.toolName === "web_search"
+        ? asArray(toolOutput)
+        : toolOutput != null
+          ? [toolOutput]
+          : [];
 
     return {
-      id: block.localId,
       type: "tool_call",
       status: block.status ?? "FINISHED",
       content: block.content,
       tool_name: block.toolName ?? "unknown",
       tool_call_id: block.toolCallId ?? "",
-      input: block.toolInputJson,
-      output: toolOutput,
-      ...(block.toolName === "web_search" && outputRecord
-        ? {
-            queries: asArray(outputRecord.queries),
-            results: asArray(outputRecord.results),
-          }
-        : {}),
+      input,
+      output,
     };
   }
 
   return {
-    id: block.localId,
     type: block.type,
     content: block.content ?? "",
     references: asArray(block.referencesJson),

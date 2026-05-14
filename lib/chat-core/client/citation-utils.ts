@@ -1,4 +1,19 @@
-import type { CoreBlock, MessageCitation, WebSearchPayload } from "../types";
+import type {
+  MessageCitation,
+} from "../types";
+
+type CoreBlock = { type: string; [key: string]: unknown };
+
+type SearchResultBlock = CoreBlock & {
+  type: "search";
+  results?: Array<Record<string, unknown>>;
+};
+
+type ToolCallResultBlock = CoreBlock & {
+  type: "tool_call";
+  tool_name: string;
+  output?: unknown;
+};
 
 function getStringField(value: unknown, key: string) {
   if (typeof value !== "object" || value === null) return "";
@@ -12,17 +27,24 @@ function getNumberField(value: unknown, key: string) {
   return typeof field === "number" ? field : null;
 }
 
+function isToolCallBlock(block: CoreBlock): block is ToolCallResultBlock {
+  return (
+    block.type === "tool_call" &&
+    "tool_name" in block &&
+    typeof block.tool_name === "string"
+  );
+}
+
 function getWebSearchResults(block: CoreBlock) {
   if (block.type === "search") {
-    return block.results ?? [];
+    return (block as SearchResultBlock).results ?? [];
   }
 
-  if (block.type !== "tool_call" || block.tool_name !== "web_search") {
+  if (!isToolCallBlock(block) || block.tool_name !== "web_search") {
     return [];
   }
 
-  const output = block.output as Partial<WebSearchPayload> | null;
-  return Array.isArray(output?.results) ? output.results : [];
+  return Array.isArray(block.output) ? block.output : [];
 }
 
 export function extractCitationsFromBlocks(

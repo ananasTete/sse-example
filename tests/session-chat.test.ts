@@ -304,11 +304,11 @@ test("completion failure before first token still creates a failed assistant mes
   assert.equal(assistant.hasPendingBlock, false);
   assert.equal(assistant.incompleteMessage, "Completion failed");
   assert.equal(assistant.blocks.length, 1);
-  assert.equal(assistant.blocks[0].type, "response");
+  assert.equal(assistant.blocks[0].type, "text");
   assert.equal(assistant.blocks[0].content, "");
 });
 
-test("completion without search persists a default response block", async () => {
+test("completion without search persists a default text block", async () => {
   const chatSessionId = await createSessionId();
 
   async function* stream() {
@@ -342,7 +342,7 @@ test("completion without search persists a default response block", async () => 
   assert.equal(assistant.searchEnabled, false);
   assert.equal(assistant.conversationMode, "DEFAULT");
   assert.equal(assistant.blocks.length, 1);
-  assert.equal(assistant.blocks[0].type, "response");
+  assert.equal(assistant.blocks[0].type, "text");
   assert.equal(assistant.blocks[0].content, "hello");
 });
 
@@ -374,7 +374,7 @@ test("history messages returns blocks payload", async () => {
   assert.equal(response.status, 200);
   assert.equal(assistant?.has_pending_block, false);
   assert.equal(assistant?.blocks.length, 1);
-  assert.equal(assistant?.blocks[0].type, "response");
+  assert.equal(assistant?.blocks[0].type, "text");
   assert.equal(assistant?.blocks[0].content, "hello");
   assert.equal(["frag", "ments"].join("") in (assistant ?? {}), false);
 });
@@ -399,67 +399,75 @@ test("completion compresses repeated mutation context", async () => {
   const contentMutations = events
     .filter((event) => event.event === undefined && event.data)
     .map((event) => event.data!)
-    .filter((data) => data.value === "你" || data.value === "好");
+    .filter((data) => data.v === "你" || data.v === "好");
 
   assert.equal(contentMutations.length, 2);
-  assert.deepEqual(contentMutations[0].target, {
-    type: "block",
-    id: 1,
-    parent: { type: "message", id: 2 },
-  });
-  assert.equal(contentMutations[0].path, "content");
-  assert.equal("op" in contentMutations[0], false);
-  assert.deepEqual(contentMutations[1], { value: "好" });
+  assert.equal(contentMutations[0].o, "append");
+  assert.equal(contentMutations[0].p, "blocks/0/content");
+  assert.deepEqual(contentMutations[1], { v: "好" });
 
   const statusMutation = events
     .filter((event) => event.event === undefined && event.data)
     .map((event) => event.data!)
-    .find((data) => data.path === "status");
-  const titleMutation = events
-    .filter((event) => event.event === undefined && event.data)
-    .map((event) => event.data!)
-    .find((data) => data.path === "title");
+    .find((data) => data.p === "status");
 
-  assert.deepEqual(statusMutation, { path: "status", value: "FINISHED" });
-  assert.deepEqual(titleMutation, { path: "title", value: "hello" });
+  assert.deepEqual(statusMutation, { o: "set", p: "status", v: "FINISHED" });
 });
 
 test("stream parser applies compressed mutation context", async () => {
-  const { applyStreamData } = await import(
+  const { createPatchStreamParser } = await import(
     "@/lib/chat-core/client/stream-parser"
   );
-  const context = {
-    responseMessageId: null,
-    responseMessageIndex: null,
-    lastTarget: null,
-    lastPath: null,
-    lastOperation: null,
-  };
-  const options = {
-    updateState: () => {},
-    patchContext: context,
-    resolveMutationTarget: (
-      draft: { blocks: Array<{ id: number; content: string }> },
-      target: { type: string; id: string | number },
-    ) =>
-      target.type === "block"
-        ? draft.blocks.find((block) => block.id === target.id) ?? null
-        : null,
+  const patchContext = { lastOp: null, lastPath: null };
+  let state: { blocks: Array<{ content: string }> } | undefined = {
+    blocks: [{ content: "" }],
   };
 
-  const firstState = applyStreamData(
-    { blocks: [{ id: 1, content: "" }] },
-    options,
-    {
-      target: { type: "block", id: 1 },
-      op: "append",
-      path: "content",
-      value: "你",
-    },
+  const parser = createPatchStreamParser({
+    updateState: (updater) => { state = updater(state) as typeof state; },
+    patchContext,
+    resolveMessage: (s) => s,
+  });
+
+  parser.feed(`data: ${JSON.stringify({ o: "append", p: "blocks/0/content", v: "你" })}\n\n`);
+  parser.feed(`data: ${JSON.stringify({ v: "好" })}\n\n`);
+
+  assert.equal(state?.blocks[0].content, "你好");
+});
+
+test("stream parser batch items inherit parent path", async () => {
+  const { createPatchStreamParser } = await import(
+    "@/lib/chat-core/client/stream-parser"
   );
-  const secondState = applyStreamData(firstState, options, { value: "好" });
+  const patchContext = { lastOp: null, lastPath: null };
+  let state:
+    | { status: string | number; accumulated_token_usage: number }
+    | undefined = {
+    status: "WIP",
+    accumulated_token_usage: 0,
+  };
 
-  assert.equal(secondState?.blocks[0].content, "你好");
+  const parser = createPatchStreamParser({
+    updateState: (updater) => {
+      state = updater(state) as typeof state;
+    },
+    patchContext,
+    resolveMessage: (s) => s,
+  });
+
+  parser.feed(
+    `data: ${JSON.stringify({ o: "set", p: "status", v: "WIP" })}\n\n`,
+  );
+  parser.feed(
+    `data: ${JSON.stringify({
+      o: "batch",
+      p: "accumulated_token_usage",
+      v: [{ v: 42 }],
+    })}\n\n`,
+  );
+
+  assert.equal(state?.status, "WIP");
+  assert.equal(state?.accumulated_token_usage, 42);
 });
 
 test("session parser callbacks apply compressed mutation context", async () => {
@@ -482,13 +490,7 @@ test("session parser callbacks apply compressed mutation context", async () => {
     },
     chat_messages: [],
   };
-  const patchContext = {
-    responseMessageId: null,
-    responseMessageIndex: null,
-    lastTarget: null,
-    lastPath: null,
-    lastOperation: null,
-  };
+  const patchContext = { lastOp: null, lastPath: null };
   const sessionPatches: unknown[] = [];
   const titles: string[] = [];
   const parser = createChatCompletionParser({
@@ -508,18 +510,10 @@ test("session parser callbacks apply compressed mutation context", async () => {
   });
 
   parser.feed(
-    `data: ${JSON.stringify({
-      target: { type: "session", id: "session-1" },
-      op: "set",
-      path: "updated_at",
-      value: 1,
-    })}\n\n`,
+    `event: update_session\ndata: ${JSON.stringify({ updated_at: 1 })}\n\n`,
   );
   parser.feed(
-    `data: ${JSON.stringify({
-      path: "title",
-      value: "hello",
-    })}\n\n`,
+    `event: update_session\ndata: ${JSON.stringify({ title: "hello" })}\n\n`,
   );
 
   assert.deepEqual(sessionPatches, [{ updated_at: 1 }, { title: "hello" }]);
@@ -532,19 +526,16 @@ test("completion with search streams and persists search blocks", async () => {
   let streamSystemPrompt = "";
 
   async function* searchStream() {
-    const searchOutput = {
-      queries: [{ query: "DeepSeek 最新模型 2026" }],
-      results: [
-        {
-          url: "https://example.com/deepseek-v4",
-          title: "DeepSeek V4 发布",
-          snippet: "DeepSeek V4 发布并开源。",
-          cite_index: 1,
-          site_name: "example.com",
-          query_indexes: [0],
-        },
-      ],
-    };
+    const searchOutput = [
+      {
+        url: "https://example.com/deepseek-v4",
+        title: "DeepSeek V4 发布",
+        snippet: "DeepSeek V4 发布并开源。",
+        cite_index: 1,
+        site_name: "example.com",
+        query_indexes: [0],
+      },
+    ];
     yield {
       type: "tool-call",
       toolCallId: "call_search",
@@ -578,34 +569,35 @@ test("completion with search streams and persists search blocks", async () => {
     }),
     {
       streamText,
-      webSearch: createWebSearchOverride({
-        queries: [{ query: "DeepSeek 最新模型 2026" }],
-        results: [
-          {
-            url: "https://example.com/deepseek-v4",
-            title: "DeepSeek V4 发布",
-            snippet: "DeepSeek V4 发布并开源。",
-            cite_index: 1,
-            site_name: "example.com",
-            query_indexes: [0],
-          },
-        ],
-      }),
+      webSearch: createWebSearchOverride([
+        {
+          url: "https://example.com/deepseek-v4",
+          title: "DeepSeek V4 发布",
+          snippet: "DeepSeek V4 发布并开源。",
+          cite_index: 1,
+          site_name: "example.com",
+          query_indexes: [0],
+        },
+      ]),
     },
   );
 
   const sseText = await response.text();
   assert.match(sseText, /"conversation_mode":"SEARCH"/);
-  assert.match(sseText, /"id":1,"type":"tool_call"/);
+  assert.match(sseText, /"type":"tool_call"/);
   assert.match(sseText, /"tool_name":"web_search"/);
-  assert.match(sseText, /"op":"set","path":"output"/);
-  assert.match(sseText, /"op":"append","path":"blocks"/);
-  assert.match(sseText, /"id":2,"type":"response"/);
+  assert.match(sseText, /"o":"set","p":"blocks\/0\/output"/);
+  assert.match(sseText, /"o":"add","p":"blocks"/);
+  assert.match(sseText, /"type":"text","content":""/);
   assert.match(
     sseText,
     /DeepSeek-V4<citation cite_index=\\"1\\">1<\/citation>/,
   );
-  assert.match(sseText, /"value":"FINISHED","path":"status"/);
+  assert.match(sseText, /"v":"FINISHED","o":"set","p":"blocks\/0\/status"/);
+  assert.doesNotMatch(
+    sseText,
+    /"type":"text","content":"","references":\[\],"status"/,
+  );
   assert.match(streamSystemPrompt, /web_search/);
   assert.match(streamSystemPrompt, /<citation cite_index="N">N<\/citation>/);
 
@@ -634,20 +626,17 @@ test("completion with search streams and persists search blocks", async () => {
   assert.deepEqual(assistant?.blocks[0].toolInputJson, {
     query: "DeepSeek 最新模型 2026",
   });
-  assert.deepEqual(assistant?.blocks[0].toolOutputJson, {
-    queries: [{ query: "DeepSeek 最新模型 2026" }],
-    results: [
-      {
-        url: "https://example.com/deepseek-v4",
-        title: "DeepSeek V4 发布",
-        snippet: "DeepSeek V4 发布并开源。",
-        cite_index: 1,
-        site_name: "example.com",
-        query_indexes: [0],
-      },
-    ],
-  });
-  assert.equal(assistant?.blocks[1].type, "response");
+  assert.deepEqual(assistant?.blocks[0].toolOutputJson, [
+    {
+      url: "https://example.com/deepseek-v4",
+      title: "DeepSeek V4 发布",
+      snippet: "DeepSeek V4 发布并开源。",
+      cite_index: 1,
+      site_name: "example.com",
+      query_indexes: [0],
+    },
+  ]);
+  assert.equal(assistant?.blocks[1].type, "text");
   assert.equal(
     assistant?.blocks[1].content,
     'DeepSeek-V4<citation cite_index="1">1</citation>',
@@ -659,19 +648,16 @@ test("search completion normalizes streamed citation tags to cite_index tags", a
   const chatSessionId = await createSessionId();
 
   async function* searchStream() {
-    const searchOutput = {
-      queries: [{ query: "DeepSeek 最新模型 2026" }],
-      results: [
-        {
-          url: "https://example.com/deepseek-v4",
-          title: "DeepSeek V4 发布",
-          snippet: "DeepSeek V4 发布并开源。",
-          cite_index: 1,
-          site_name: "example.com",
-          query_indexes: [0],
-        },
-      ],
-    };
+    const searchOutput = [
+      {
+        url: "https://example.com/deepseek-v4",
+        title: "DeepSeek V4 发布",
+        snippet: "DeepSeek V4 发布并开源。",
+        cite_index: 1,
+        site_name: "example.com",
+        query_indexes: [0],
+      },
+    ];
     yield {
       type: "tool-call",
       toolCallId: "call_search",
@@ -699,26 +685,23 @@ test("search completion normalizes streamed citation tags to cite_index tags", a
     }),
     {
       streamText: createStreamTextOverride(searchStream()),
-      webSearch: createWebSearchOverride({
-        queries: [{ query: "DeepSeek 最新模型 2026" }],
-        results: [
-          {
-            url: "https://example.com/deepseek-v4",
-            title: "DeepSeek V4 发布",
-            snippet: "DeepSeek V4 发布并开源。",
-            cite_index: 1,
-            site_name: "example.com",
-            query_indexes: [0],
-          },
-        ],
-      }),
+      webSearch: createWebSearchOverride([
+        {
+          url: "https://example.com/deepseek-v4",
+          title: "DeepSeek V4 发布",
+          snippet: "DeepSeek V4 发布并开源。",
+          cite_index: 1,
+          site_name: "example.com",
+          query_indexes: [0],
+        },
+      ]),
     },
   );
 
   const sseText = await response.text();
   assert.match(
     sseText,
-    /"value":"<citation cite_index=\\"1\\">1<\/citation>"/,
+    /"v":"<citation cite_index=\\"1\\">1<\/citation>"/,
   );
   assert.doesNotMatch(sseText, /cite=\\"1\\"/);
 
@@ -740,7 +723,23 @@ test("search completion normalizes streamed citation tags to cite_index tags", a
   );
 });
 
-test("search completion creates tool block before response text", async () => {
+test("citation normalization fixes caption close tag typo", async () => {
+  const { extractFlushableCitationMarkdown } = await import(
+    "@/lib/chat-core/server/citation"
+  );
+  const malformed =
+    '<citation cite_index="10">10</caption>。它具备**记忆功能**，可以在长时间对话中存储关键信息<citation cite_index="10">10</citation>';
+
+  const result = extractFlushableCitationMarkdown(malformed);
+
+  assert.equal(result.hold, "");
+  assert.equal(
+    result.flush,
+    '<citation cite_index="10">10</citation>。它具备**记忆功能**，可以在长时间对话中存储关键信息<citation cite_index="10">10</citation>',
+  );
+});
+
+test("search completion creates tool block before text block", async () => {
   const chatSessionId = await createSessionId();
 
   async function* searchStream() {
@@ -755,19 +754,16 @@ test("search completion creates tool block before response text", async () => {
       toolCallId: "call_search",
       toolName: "web_search",
       input: { query: "deepseek 最新模型" },
-      output: {
-        queries: [{ query: "deepseek 最新模型" }],
-        results: [
-          {
-            url: "https://example.com/deepseek-v4",
-            title: "DeepSeek V4 发布",
-            snippet: "DeepSeek V4 发布并开源。",
-            cite_index: 1,
-            site_name: "example.com",
-            query_indexes: [0],
-          },
-        ],
-      },
+      output: [
+        {
+          url: "https://example.com/deepseek-v4",
+          title: "DeepSeek V4 发布",
+          snippet: "DeepSeek V4 发布并开源。",
+          cite_index: 1,
+          site_name: "example.com",
+          query_indexes: [0],
+        },
+      ],
     };
     yield { type: "text-delta", text: "你好！" };
     yield { type: "finish", totalUsage: { totalTokens: 2 } };
@@ -781,27 +777,24 @@ test("search completion creates tool block before response text", async () => {
     }),
     {
       streamText: createStreamTextOverride(searchStream()),
-      webSearch: createWebSearchOverride({
-        queries: [{ query: "deepseek 最新模型" }],
-        results: [
-          {
-            url: "https://example.com/deepseek-v4",
-            title: "DeepSeek V4 发布",
-            snippet: "DeepSeek V4 发布并开源。",
-            cite_index: 1,
-            site_name: "example.com",
-            query_indexes: [0],
-          },
-        ],
-      }),
+      webSearch: createWebSearchOverride([
+        {
+          url: "https://example.com/deepseek-v4",
+          title: "DeepSeek V4 发布",
+          snippet: "DeepSeek V4 发布并开源。",
+          cite_index: 1,
+          site_name: "example.com",
+          query_indexes: [0],
+        },
+      ]),
     },
   );
 
   const sseText = await response.text();
-  assert.match(sseText, /"id":1,"type":"tool_call"/);
+  assert.match(sseText, /"type":"tool_call"/);
   assert.match(sseText, /"tool_name":"web_search"/);
-  assert.match(sseText, /"value":"FINISHED","path":"status"/);
-  assert.match(sseText, /"id":2,"type":"response"/);
+  assert.match(sseText, /"v":"FINISHED","o":"set","p":"blocks\/0\/status"/);
+  assert.match(sseText, /"type":"text","content":""/);
 
   const assistant = await prisma.chatMessage.findFirstOrThrow({
     where: {
@@ -820,7 +813,7 @@ test("search completion creates tool block before response text", async () => {
   assert.equal(assistant.blocks[0].type, "tool_call");
   assert.equal(assistant.blocks[0].toolName, "web_search");
   assert.equal(assistant.blocks[1].localId, 2);
-  assert.equal(assistant.blocks[1].type, "response");
+  assert.equal(assistant.blocks[1].type, "text");
   assert.equal(assistant.blocks[1].stageId, null);
 });
 
@@ -849,7 +842,7 @@ test("search completion failure clears pending state", async () => {
     );
 
     const sseText = await response.text();
-    assert.match(sseText, /"type":"response"/);
+    assert.match(sseText, /"type":"text"/);
     assert.match(sseText, /"FAILED"/);
     assert.match(sseText, /"Completion failed"/);
   } finally {
@@ -873,7 +866,7 @@ test("search completion failure clears pending state", async () => {
   assert.equal(assistant.searchEnabled, true);
   assert.equal(assistant.conversationMode, "SEARCH");
   assert.equal(assistant.blocks.length, 1);
-  assert.equal(assistant.blocks[0].type, "response");
+  assert.equal(assistant.blocks[0].type, "text");
   assert.equal(assistant.blocks[0].content, "");
 });
 
@@ -953,7 +946,7 @@ test("resume stream sends current snapshot then active deltas", async () => {
   assert.match(firstText, /"hello"/);
   assert.match(resumeText, /event: ready/);
   assert.match(resumeText, /"response_message_id":2/);
-  assert.match(resumeText, /"op":"upsert"/);
+  assert.match(resumeText, /event: upsert_message/);
   assert.match(resumeText, /"content":"hello"/);
   assert.match(resumeText, /" world"/);
   assert.match(resumeText, /event: done/);
@@ -971,7 +964,7 @@ test("resume stream marks inactive wip message as failed", async () => {
       blocks: {
         create: {
           localId: 1,
-          type: "request",
+          type: "text",
           content: "hello",
         },
       },
@@ -989,7 +982,7 @@ test("resume stream marks inactive wip message as failed", async () => {
       blocks: {
         create: {
           localId: 1,
-          type: "response",
+          type: "text",
           content: "partial",
         },
       },
