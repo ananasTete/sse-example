@@ -4,8 +4,8 @@ import {
   Outlet,
   Scripts,
 } from "@tanstack/react-router";
-import { QueryProvider } from "@/app/providers/query-provider";
-import "@/app/globals.css";
+import { QueryProvider } from "../app/providers/query-provider";
+import "../app/globals.css";
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (

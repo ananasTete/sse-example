@@ -5,7 +5,6 @@ import tseslint from "typescript-eslint";
 const ignores = [
   "node_modules/**",
   "dist/**",
-  ".next/**",
   ".output/**",
   "build/**",
   "out/**",
