@@ -8,31 +8,23 @@ import {
   useRef,
   useState,
 } from "react";
-import { useChat } from "@/features/ai-sdk/hooks/use-chat/useChat";
-import type {
-  MessagePart,
-  StructuredOutputPart,
-  ToolCallPart,
-} from "@/features/ai-sdk/hooks/use-chat/types";
-import type {
-  UseEditorAgentReturn,
-  Suggestion,
-  QuickAction,
-  SuggestionToolInput,
-} from "../types";
-import { AGENT_EDITOR_API, CHAT_ID, DEFAULT_MODEL } from "../types";
-import { ContextBar } from "./context-bar";
-import { MessageList } from "./message-list";
+import { useQueryClient } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import type { UseEditorAgentReturn } from "../types";
+import { agentChatKeys } from "../chat/hooks";
 import {
-  createCancelAllUpdater,
-  createApplySuggestionUpdater,
-  createFailSuggestionUpdater,
-} from "../utils/suggestion-utils";
-import {
-  applyEditorAIPatch,
-  type EditorAIPatchResult,
-} from "../services/editor-ai-context";
-import { saveStructuredOutputAction } from "../services/structured-output-actions";
+  fetchAgentChatSession,
+  upsertAgentChatSessionList,
+  useAgentChatCompletion,
+  useAgentChatSessionQuery,
+  useAgentDraftSession,
+  useAgentResumeChatCompletion,
+} from "../chat/hooks";
+import { AgentChatHistoryPopover } from "../chat/components/agent-chat-history-popover";
+import { AgentChatMessageList } from "../chat/components/agent-chat-message-list";
+import { AgentChatPromptInput } from "../chat/components/agent-chat-prompt-input";
+import type { AgentChatState } from "../chat/types";
 
 interface AgentChatProps {
   editorAgent: UseEditorAgentReturn;
@@ -42,550 +34,236 @@ export interface AgentChatHandle {
   submitFromSelectionPanel: (prompt: string) => boolean;
 }
 
-const rewriteCardPattern =
-  /:::rewrite-card\{([^}]*)\}\s*\n([\s\S]*?)\n:::/g;
-
-function parseDirectiveAttrs(source: string) {
-  const attrs: Record<string, string> = {};
-  const pattern = /(\w+)="([^"]*)"/g;
-  let match: RegExpExecArray | null;
-
-  while ((match = pattern.exec(source))) {
-    attrs[match[1]] = match[2];
-  }
-
-  return attrs;
-}
-
-function replaceRewriteCardContent(
-  content: string,
-  itemId: string,
-  nextContent: string,
-) {
-  return content.replace(rewriteCardPattern, (fullMatch, attrsText: string) => {
-    const attrs = parseDirectiveAttrs(attrsText);
-    if (attrs.id !== itemId) return fullMatch;
-    return `:::rewrite-card{${attrsText}}\n${nextContent}\n:::`;
-  });
-}
-
-function findRewriteCard(content: string, itemId: string) {
-  let match: RegExpExecArray | null;
-  rewriteCardPattern.lastIndex = 0;
-
-  while ((match = rewriteCardPattern.exec(content))) {
-    const attrs = parseDirectiveAttrs(match[1]);
-    if (attrs.id === itemId) {
-      return {
-        requestId: attrs.requestId,
-        content: match[2].trim(),
-      };
-    }
-  }
-
-  return null;
-}
-
-function updateStructuredOutputPart(
-  parts: MessagePart[],
-  partId: string,
-  updater: (part: StructuredOutputPart) => StructuredOutputPart,
-) {
-  return parts.map((part) => {
-    if (part.type !== "structured-output" || part.id !== partId) return part;
-    return updater(part);
-  });
-}
-
-function uniqueAdd(items: string[] = [], item: string) {
-  return items.includes(item) ? items : [...items, item];
-}
-
-function removeItem(items: string[] = [], item: string) {
-  return items.filter((current) => current !== item);
+function getSessionTitle(title: string | null | undefined) {
+  return title?.trim() || "新会话";
 }
 
 export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
-function AgentChat({ editorAgent }, ref) {
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const [patchError, setPatchError] = useState<string | null>(null);
+  function AgentChat(props, ref) {
+    void props.editorAgent;
 
-  const {
-    messages,
-    input,
-    isLoading,
-    handleInputChange,
-    setInput,
-    sendMessage,
-    updateMessageParts,
-    stop,
-  } = useChat({
-    api: AGENT_EDITOR_API,
-    chatId: CHAT_ID,
-    model: DEFAULT_MODEL,
-  });
+    const queryClient = useQueryClient();
+    const submitLockRef = useRef(false);
+    const resumeKeyRef = useRef<string | null>(null);
+    const autoResumeCheckedSessionRef = useRef<string | null>(null);
+    const [activeChatSessionId, setActiveChatSessionId] = useState<
+      string | null
+    >(null);
+    const [panelError, setPanelError] = useState<string | null>(null);
 
-  // 将指定消息中所有建议工具的状态设为 canceled
-  const cancelAllSuggestionsInMessage = useCallback(
-    (messageId: string) => {
-      updateMessageParts(messageId, createCancelAllUpdater());
-    },
-    [updateMessageParts],
-  );
+    const {
+      consume: consumeDraftSession,
+      isLoading: isDraftSessionLoading,
+      isFetching: isDraftSessionFetching,
+    } = useAgentDraftSession();
 
-  // 当选区被清除时（mode 从 selection 变为 fulltext），使所有建议失效
-  // 使用 ref 追踪是否已处理过模式切换，避免因 messages 变化导致重复处理
-  const prevModeRef = useRef(editorAgent.mode);
-  const modeChangeHandledRef = useRef(false);
+    const sessionQuery = useAgentChatSessionQuery(activeChatSessionId);
+    const { mutateAsync: createCompletion, isPending: isSending } =
+      useAgentChatCompletion();
+    const { mutate: resumeCompletion, isPending: isResuming } =
+      useAgentResumeChatCompletion();
 
-  useEffect(() => {
-    const prevMode = prevModeRef.current;
-    const currentMode = editorAgent.mode;
+    const chatState = sessionQuery.data;
+    const messages = chatState?.chat_messages ?? [];
+    const activeAssistantMessage = messages.findLast(
+      (message) => message.role === "ASSISTANT" && message.status === "WIP",
+    );
+    const isStreaming = isSending || isResuming;
+    const isPreparingDraft = isDraftSessionLoading || isDraftSessionFetching;
 
-    // 检测模式是否发生变化
-    if (prevMode !== currentMode) {
-      prevModeRef.current = currentMode;
-      modeChangeHandledRef.current = false; // 重置处理标记
-    }
+    useEffect(() => {
+      autoResumeCheckedSessionRef.current = null;
+      resumeKeyRef.current = null;
+    }, [activeChatSessionId]);
 
-    // 只在模式从 selection 变为 fulltext 且尚未处理时执行
-    if (
-      prevMode === "selection" &&
-      currentMode === "fulltext" &&
-      !modeChangeHandledRef.current
-    ) {
-      modeChangeHandledRef.current = true;
-      // 选区被清除，使所有建议失效
-      messages.forEach((msg) => {
-        if (msg.role === "assistant") {
-          cancelAllSuggestionsInMessage(msg.id);
-        }
-      });
-    }
-  }, [editorAgent.mode, messages, cancelAllSuggestionsInMessage]);
+    // resume
+    useEffect(() => {
+      if (!activeChatSessionId || !sessionQuery.isSuccess || !chatState) return;
+      if (autoResumeCheckedSessionRef.current === activeChatSessionId) return;
 
-  // ============ 全文模式：自动插入 diff 节点 ============
-  // 追踪已处理的工具调用，避免重复插入
-  const processedToolCallsRef = useRef<Set<string>>(new Set());
+      autoResumeCheckedSessionRef.current = activeChatSessionId;
+      if (!activeAssistantMessage) return;
 
-  useEffect(() => {
-    // 只在全文模式下处理
-    if (editorAgent.mode !== "fulltext") return;
+      const resumeKey = `${activeChatSessionId}:${activeAssistantMessage.message_id}`;
+      if (resumeKeyRef.current === resumeKey) return;
 
-    // 遍历所有消息，查找 suggest_edit 工具调用
-    messages.forEach((msg) => {
-      if (msg.role !== "assistant") return;
+      resumeKeyRef.current = resumeKey;
+      resumeCompletion(
+        {
+          chatSessionId: activeChatSessionId,
+          messageId: activeAssistantMessage.message_id,
+        },
+        {
+          onError: () => {},
+        },
+      );
+    }, [
+      activeAssistantMessage,
+      activeChatSessionId,
+      chatState,
+      resumeCompletion,
+      sessionQuery.isSuccess,
+    ]);
 
-      msg.parts.forEach((part) => {
-        if (part.type !== "tool-call") return;
-        const toolPart = part as ToolCallPart;
+    const createAndActivateSession = useCallback(async () => {
+      const draftSession = await consumeDraftSession();
+      const targetChatSessionId = draftSession.chat_session.id;
 
-        // 只处理 suggest_edit 工具
-        if (toolPart.toolName !== "suggest_edit") return;
+      queryClient.setQueryData<AgentChatState>(
+        agentChatKeys.session(targetChatSessionId),
+        {
+          chat_session: draftSession.chat_session,
+          chat_messages: [],
+        },
+      );
+      upsertAgentChatSessionList(queryClient, draftSession);
+      setActiveChatSessionId(targetChatSessionId);
+      return draftSession;
+    }, [consumeDraftSession, queryClient]);
 
-        // 只处理参数已可用的工具调用
-        if (
-          toolPart.state !== "input-available" &&
-          toolPart.state !== "output-available"
-        )
-          return;
+    const ensureActiveSession = useCallback(async () => {
+      if (activeChatSessionId) {
+        const cachedState = queryClient.getQueryData<AgentChatState>(
+          agentChatKeys.session(activeChatSessionId),
+        );
+        if (cachedState) return cachedState;
 
-        // 检查是否已处理过
-        if (processedToolCallsRef.current.has(toolPart.toolCallId)) return;
+        return queryClient.ensureQueryData({
+          queryKey: agentChatKeys.session(activeChatSessionId),
+          queryFn: () => fetchAgentChatSession(activeChatSessionId),
+          staleTime: Infinity,
+        });
+      }
 
-        // 标记为已处理
-        processedToolCallsRef.current.add(toolPart.toolCallId);
+      const draftSession = await createAndActivateSession();
+      return {
+        chat_session: draftSession.chat_session,
+        chat_messages: [],
+      } satisfies AgentChatState;
+    }, [activeChatSessionId, createAndActivateSession, queryClient]);
 
-        // 解析建议并插入 diff 节点
-        const input = toolPart.input as SuggestionToolInput | undefined;
-        if (!input?.suggestions) return;
+    const submitPrompt = useCallback(
+      async (prompt: string) => {
+        const messageText = prompt.trim();
+        if (!messageText || submitLockRef.current || isStreaming) return false;
 
-        // 批量插入 diff 节点（从后向前避免位置偏移）
-        const diffsToInsert = input.suggestions
-          .map((s, index) => ({
-            originalText: s.originalText || "",
-            newText: s.newText,
-            suggestionId: `${toolPart.toolCallId}-${index}`,
-          }))
-          .filter((d) => d.originalText); // 只处理有原文的建议
-
-        if (diffsToInsert.length > 0) {
-          // 使用 queueMicrotask 延迟执行，避免 flushSync 错误
-          queueMicrotask(() => {
-            editorAgent.insertMultipleDiffs(diffsToInsert);
+        submitLockRef.current = true;
+        setPanelError(null);
+        try {
+          const targetState = await ensureActiveSession();
+          await createCompletion({
+            chatSessionId: targetState.chat_session.id,
+            prompt: messageText,
+            parentMessageId: targetState.chat_session.current_message_id,
+            thinkingEnabled: false,
+            searchEnabled: false,
           });
+          return true;
+        } catch (error) {
+          const message =
+            error instanceof Error ? error.message : "发送失败，请重试";
+          setPanelError(message);
+          throw error;
+        } finally {
+          submitLockRef.current = false;
         }
-      });
-    });
-  }, [messages, editorAgent]);
-
-  const processedPatchCallsRef = useRef<Set<string>>(new Set());
-
-  useEffect(() => {
-    messages.forEach((msg) => {
-      if (msg.role !== "assistant") return;
-
-      msg.parts.forEach((part) => {
-        if (part.type !== "tool-call") return;
-        const toolPart = part as ToolCallPart;
-
-        if (toolPart.toolName !== "suggest_patch") return;
-        if (
-          toolPart.state !== "input-available" &&
-          toolPart.state !== "output-available"
-        )
-          return;
-        if (processedPatchCallsRef.current.has(toolPart.toolCallId)) return;
-
-        processedPatchCallsRef.current.add(toolPart.toolCallId);
-
-        const input = toolPart.input as
-          | { patches?: EditorAIPatchResult[] }
-          | undefined;
-        const patches = input?.patches ?? [];
-
-        queueMicrotask(() => {
-          const editor = editorAgent.editor;
-          if (!editor) {
-            setPatchError("编辑器未准备好，请稍后重试。");
-            return;
-          }
-
-          for (const patch of patches) {
-            const result = applyEditorAIPatch(editor, patch);
-            if (result.status === "stale") {
-              setPatchError(result.reason);
-            }
-          }
-        });
-      });
-    });
-  }, [messages, editorAgent]);
-
-  // 应用建议 - 更新 message part 中的状态
-  const handleApplySuggestion = useCallback(
-    (
-      messageId: string,
-      toolCallId: string,
-      index: number,
-      suggestion: Suggestion,
-    ) => {
-      // 选中模式：直接替换
-      if (suggestion.type === "rewrite") {
-        let success = false;
-        if (editorAgent.selectionInfo) {
-          success = editorAgent.replaceSelection(suggestion.newText);
-        }
-
-        if (!success) {
-          updateMessageParts(
-            messageId,
-            createFailSuggestionUpdater(toolCallId, index),
-          );
-          return;
-        }
-
-        // 更新状态
-        updateMessageParts(
-          messageId,
-          createApplySuggestionUpdater(toolCallId, index),
-        );
-        return;
-      }
-
-      // 全文编辑建议由编辑器 diffBlock 负责接受和拒绝。
-    },
-    [editorAgent, updateMessageParts],
-  );
-
-  // 定位建议
-  const handleLocateSuggestion = useCallback(
-    (suggestion: Suggestion) => {
-      if (suggestion.position) {
-        editorAgent.scrollToPosition(suggestion.position.from);
-      }
-    },
-    [editorAgent],
-  );
-
-  const markStructuredOutputSaved = useCallback(
-    (messageId: string, partId: string, itemId: string) => {
-      updateMessageParts(messageId, (parts) =>
-        updateStructuredOutputPart(parts, partId, (part) => ({
-          ...part,
-          uiState: {
-            ...part.uiState,
-            savingItemIds: removeItem(part.uiState?.savingItemIds, itemId),
-          },
-        })),
-      );
-    },
-    [updateMessageParts],
-  );
-
-  const markStructuredOutputFailed = useCallback(
-    (messageId: string, partId: string, itemId: string) => {
-      updateMessageParts(messageId, (parts) =>
-        updateStructuredOutputPart(parts, partId, (part) => ({
-          ...part,
-          uiState: {
-            ...part.uiState,
-            savingItemIds: removeItem(part.uiState?.savingItemIds, itemId),
-            failedItemIds: uniqueAdd(part.uiState?.failedItemIds, itemId),
-          },
-        })),
-      );
-    },
-    [updateMessageParts],
-  );
-
-  const handleEditStructuredOutput = useCallback(
-    (messageId: string, partId: string, itemId: string, content: string) => {
-      updateMessageParts(messageId, (parts) =>
-        updateStructuredOutputPart(parts, partId, (part) => ({
-          ...part,
-          content: replaceRewriteCardContent(part.content, itemId, content),
-          uiState: {
-            ...part.uiState,
-            savingItemIds: uniqueAdd(part.uiState?.savingItemIds, itemId),
-            failedItemIds: removeItem(part.uiState?.failedItemIds, itemId),
-          },
-        })),
-      );
-
-      void saveStructuredOutputAction({
-        messageId,
-        partId,
-        itemId,
-        action: "edit",
-        content,
-      })
-        .then(() => markStructuredOutputSaved(messageId, partId, itemId))
-        .catch(() => markStructuredOutputFailed(messageId, partId, itemId));
-    },
-    [markStructuredOutputFailed, markStructuredOutputSaved, updateMessageParts],
-  );
-
-  const handleApplyStructuredOutput = useCallback(
-    (messageId: string, partId: string, itemId: string, content: string) => {
-      const part = messages
-        .find((message) => message.id === messageId)
-        ?.parts.find(
-          (messagePart): messagePart is StructuredOutputPart =>
-            messagePart.type === "structured-output" && messagePart.id === partId,
-        );
-      const card = part ? findRewriteCard(part.content, itemId) : null;
-      const editor = editorAgent.editor;
-
-      updateMessageParts(messageId, (parts) =>
-        updateStructuredOutputPart(parts, partId, (currentPart) => ({
-          ...currentPart,
-          uiState: {
-            ...currentPart.uiState,
-            appliedItemId: itemId,
-            savingItemIds: uniqueAdd(currentPart.uiState?.savingItemIds, itemId),
-            failedItemIds: removeItem(currentPart.uiState?.failedItemIds, itemId),
-          },
-        })),
-      );
-
-      if (!editor || !card?.requestId) {
-        setPatchError("缺少可应用的选区上下文，请重新选择后生成。");
-      } else {
-        const result = applyEditorAIPatch(editor, {
-          requestId: card.requestId,
-          oldText: "",
-          newText: content,
-        });
-
-        if (result.status === "stale") {
-          setPatchError(result.reason);
-        }
-      }
-
-      void saveStructuredOutputAction({
-        messageId,
-        partId,
-        itemId,
-        action: "apply",
-        content,
-      })
-        .then(() => markStructuredOutputSaved(messageId, partId, itemId))
-        .catch(() => markStructuredOutputFailed(messageId, partId, itemId));
-    },
-    [
-      editorAgent.editor,
-      markStructuredOutputFailed,
-      markStructuredOutputSaved,
-      messages,
-      updateMessageParts,
-    ],
-  );
-
-  // ============ 激活与取消选中模式 ============
-
-  // 清除选中模式，用于快捷键和 context-bar 的取消按钮
-  const handleClearSelection = useCallback(() => {
-    editorAgent.clearSelectionMode();
-  }, [editorAgent]);
-
-  // 键盘快捷键
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-      // Escape 取消选中模式
-      if (e.key === "Escape") {
-        handleClearSelection();
-      }
-    },
-    [handleClearSelection],
-  );
-
-  // ============ 提交 ============
-
-  // 发送消息时附加上下文
-  const handleSendMessage = useCallback(
-    (text: string, options?: { requireSelection?: boolean }) => {
-      const messageText = text.trim();
-      if (!messageText || isLoading) return false;
-
-      setPatchError(null);
-
-      if (options?.requireSelection && !editorAgent.selectionInfo) {
-        setPatchError("选区已失效，请重新选择后生成。");
-        return false;
-      }
-
-      const request = editorAgent.createAIRequest(messageText);
-
-      if ((editorAgent.mode === "selection" || options?.requireSelection) && !request) {
-        setPatchError("选区已失效，请重新选择后生成。");
-        return false;
-      }
-
-      // 发送新消息前，使最近一条 assistant 消息中的建议失效
-      const lastAssistantMsg = messages.findLast(
-        (msg) => msg.role === "assistant",
-      );
-      if (lastAssistantMsg) {
-        cancelAllSuggestionsInMessage(lastAssistantMsg.id);
-      }
-
-      void sendMessage(request ? JSON.stringify(request) : messageText);
-      return true;
-    },
-    [
-      editorAgent,
-      isLoading,
-      messages,
-      cancelAllSuggestionsInMessage,
-      sendMessage,
-    ],
-  );
-
-  useImperativeHandle(
-    ref,
-    () => ({
-      submitFromSelectionPanel(prompt) {
-        return handleSendMessage(prompt, { requireSelection: true });
       },
-    }),
-    [handleSendMessage],
-  );
+      [createCompletion, ensureActiveSession, isStreaming],
+    );
 
-  // 表单提交
-  const handleFormSubmit = useCallback(
-    (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!input.trim() || isLoading) return;
+    useImperativeHandle(
+      ref,
+      () => ({
+        submitFromSelectionPanel(prompt) {
+          if (submitLockRef.current || isStreaming) return false;
 
-      if (handleSendMessage(input)) {
-        setInput("");
-      }
-    },
-    [input, isLoading, handleSendMessage, setInput],
-  );
+          void submitPrompt(prompt).catch(() => {});
+          return true;
+        },
+      }),
+      [isStreaming, submitPrompt],
+    );
 
-  // context-bar 快捷操作提交
-  const handleQuickAction = useCallback(
-    (_action: QuickAction, prompt: string) => {
-      handleSendMessage(prompt);
-    },
-    [handleSendMessage],
-  );
+    const handleNewChat = useCallback(() => {
+      if (submitLockRef.current || isStreaming) return;
+      setPanelError(null);
+      void createAndActivateSession().catch((error) => {
+        const message =
+          error instanceof Error ? error.message : "创建会话失败，请重试";
+        setPanelError(message);
+      });
+    }, [createAndActivateSession, isStreaming]);
 
-  return (
-    <div
-      className="h-full flex flex-col border-l border-[#e6ddd1] bg-[#faf7f3] text-[#2f2a24]"
-      style={{ fontFamily: "var(--font-chat)" }}
-    >
-      {/* 消息列表 */}
-      <MessageList
-        messages={messages}
-        onApplySuggestion={handleApplySuggestion}
-        onLocateSuggestion={handleLocateSuggestion}
-        onEditStructuredOutput={handleEditStructuredOutput}
-        onApplyStructuredOutput={handleApplyStructuredOutput}
-      />
+    const handleSelectChat = useCallback((chatSessionId: string) => {
+      setPanelError(null);
+      setActiveChatSessionId(chatSessionId);
+    }, []);
 
-      {/* 上下文提示条（选中模式） */}
-      {editorAgent.mode === "selection" && (
-        <ContextBar
-          selectionInfo={editorAgent.selectionInfo}
-          onQuickAction={handleQuickAction}
-          onClear={handleClearSelection}
-        />
-      )}
+    const title = getSessionTitle(chatState?.chat_session.title);
+    const isLoadingDetail =
+      Boolean(activeChatSessionId) && sessionQuery.isFetching && !chatState;
 
-      {patchError && (
-        <div className="border-t border-[#f0d5d5] bg-[#fff5f5] px-3 py-2 text-xs text-[#a34242]">
-          {patchError}
-        </div>
-      )}
-
-      {/* 输入区域 */}
-      <form
-        onSubmit={handleFormSubmit}
-        className="p-3 border-t border-[#e6ddd1] bg-[#faf7f3]"
+    return (
+      <div
+        className="flex h-full flex-col border-l border-[#e6ddd1] bg-[#faf7f3] text-[#2f2a24]"
+        style={{ fontFamily: "var(--font-chat)" }}
       >
-        <div className="flex gap-2">
-          <textarea
-            ref={inputRef}
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              editorAgent.mode === "selection"
-                ? "针对选中内容提问..."
-                : "请输入..."
-            }
-            className="flex-1 resize-none rounded-md border border-[#e2d9cc] bg-white/90 px-3 py-2 text-[13px] leading-5 text-[#2f2a24] placeholder:text-[#9b8f83] shadow-[0_1px_0_rgba(63,53,45,0.05)] focus:outline-none focus:ring-2 focus:ring-[#c9b89d] focus:border-[#c9b89d]"
-            rows={2}
-            disabled={isLoading}
-          />
-          <div className="flex flex-col gap-1">
-            {isLoading ? (
-              <button
-                type="button"
-                onClick={stop}
-                className="px-4 py-2 rounded-md bg-[#b24a4a] text-white text-sm shadow-[0_2px_6px_rgba(178,74,74,0.22)] hover:bg-[#9f3e3e]"
-              >
-                停止
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!input.trim()}
-                className="px-4 py-2 rounded-md bg-[#1f2a44] text-white text-sm shadow-[0_2px_6px_rgba(31,42,68,0.25)] hover:bg-[#162036] disabled:bg-[#e1d9cf] disabled:text-[#7e746a] disabled:cursor-not-allowed"
-              >
-                发送
-              </button>
-            )}
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-[#e6ddd1] bg-[#fbfbf8]/90 px-3 backdrop-blur">
+          <div className="min-w-0 flex-1 truncate text-sm font-medium text-[#242821]">
+            {title}
           </div>
-        </div>
-        <div className="text-xs text-[#a09286] mt-1">Escape 取消选中</div>
-      </form>
-    </div>
-  );
-});
+          <AgentChatHistoryPopover
+            activeChatSessionId={activeChatSessionId}
+            onSelect={handleSelectChat}
+          />
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="新会话"
+            disabled={isStreaming || isPreparingDraft}
+            onClick={handleNewChat}
+            className="text-[#4b4e48] hover:bg-black/[0.05]"
+          >
+            <Plus className="size-4" />
+          </Button>
+        </header>
+
+        {isLoadingDetail ? (
+          <div className="flex flex-1 items-center justify-center text-sm text-[#85877f]">
+            加载中
+          </div>
+        ) : sessionQuery.error ? (
+          <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-red-700">
+            {sessionQuery.error instanceof Error
+              ? sessionQuery.error.message
+              : "加载失败"}
+          </div>
+        ) : (
+          <>
+            <AgentChatMessageList messages={messages} isSending={isStreaming} />
+            {panelError ? (
+              <div
+                role="alert"
+                className="border-t border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700"
+              >
+                {panelError}
+              </div>
+            ) : null}
+            <div className="shrink-0 bg-gradient-to-t from-[#faf7f3] via-[#faf7f3] to-transparent px-3 pb-4 pt-3">
+              <AgentChatPromptInput
+                disabled={isStreaming}
+                isSending={isStreaming || isPreparingDraft}
+                onSubmit={async (prompt) => {
+                  await submitPrompt(prompt);
+                }}
+              />
+            </div>
+          </>
+        )}
+      </div>
+    );
+  },
+);
 
 AgentChat.displayName = "AgentChat";

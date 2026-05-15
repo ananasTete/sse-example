@@ -36,6 +36,11 @@ import { Route as ApiV0Chat_sessionFetch_pageRouteImport } from './routes/api/v0
 import { Route as ApiV0Chat_sessionCreateRouteImport } from './routes/api/v0/chat_session/create'
 import { Route as ApiV0ChatResume_streamRouteImport } from './routes/api/v0/chat/resume_stream'
 import { Route as ApiV0ChatHistory_messagesRouteImport } from './routes/api/v0/chat/history_messages'
+import { Route as ApiAgentEditorChat_sessionFetch_pageRouteImport } from './routes/api/agent-editor/chat_session/fetch_page'
+import { Route as ApiAgentEditorChat_sessionCreateRouteImport } from './routes/api/agent-editor/chat_session/create'
+import { Route as ApiAgentEditorChatResume_streamRouteImport } from './routes/api/agent-editor/chat/resume_stream'
+import { Route as ApiAgentEditorChatHistory_messagesRouteImport } from './routes/api/agent-editor/chat/history_messages'
+import { Route as ApiAgentEditorChatCompletionRouteImport } from './routes/api/agent-editor/chat/completion'
 import { Route as ApiAdvancedChatChatIdResumeRouteImport } from './routes/api/advanced-chat/$chatId.resume'
 import { Route as ApiAdvancedChatChatIdCompletionRouteImport } from './routes/api/advanced-chat/$chatId.completion'
 import { Route as ApiChatsChatIdRunsIndexRouteImport } from './routes/api/chats/$chatId/runs/index'
@@ -181,6 +186,36 @@ const ApiV0ChatHistory_messagesRoute =
     path: '/api/v0/chat/history_messages',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiAgentEditorChat_sessionFetch_pageRoute =
+  ApiAgentEditorChat_sessionFetch_pageRouteImport.update({
+    id: '/api/agent-editor/chat_session/fetch_page',
+    path: '/api/agent-editor/chat_session/fetch_page',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentEditorChat_sessionCreateRoute =
+  ApiAgentEditorChat_sessionCreateRouteImport.update({
+    id: '/api/agent-editor/chat_session/create',
+    path: '/api/agent-editor/chat_session/create',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentEditorChatResume_streamRoute =
+  ApiAgentEditorChatResume_streamRouteImport.update({
+    id: '/api/agent-editor/chat/resume_stream',
+    path: '/api/agent-editor/chat/resume_stream',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentEditorChatHistory_messagesRoute =
+  ApiAgentEditorChatHistory_messagesRouteImport.update({
+    id: '/api/agent-editor/chat/history_messages',
+    path: '/api/agent-editor/chat/history_messages',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiAgentEditorChatCompletionRoute =
+  ApiAgentEditorChatCompletionRouteImport.update({
+    id: '/api/agent-editor/chat/completion',
+    path: '/api/agent-editor/chat/completion',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const ApiAdvancedChatChatIdResumeRoute =
   ApiAdvancedChatChatIdResumeRouteImport.update({
     id: '/resume',
@@ -243,6 +278,11 @@ export interface FileRoutesByFullPath {
   '/chat/advanced/': typeof ChatAdvancedIndexRoute
   '/api/advanced-chat/$chatId/completion': typeof ApiAdvancedChatChatIdCompletionRoute
   '/api/advanced-chat/$chatId/resume': typeof ApiAdvancedChatChatIdResumeRoute
+  '/api/agent-editor/chat/completion': typeof ApiAgentEditorChatCompletionRoute
+  '/api/agent-editor/chat/history_messages': typeof ApiAgentEditorChatHistory_messagesRoute
+  '/api/agent-editor/chat/resume_stream': typeof ApiAgentEditorChatResume_streamRoute
+  '/api/agent-editor/chat_session/create': typeof ApiAgentEditorChat_sessionCreateRoute
+  '/api/agent-editor/chat_session/fetch_page': typeof ApiAgentEditorChat_sessionFetch_pageRoute
   '/api/v0/chat/history_messages': typeof ApiV0ChatHistory_messagesRoute
   '/api/v0/chat/resume_stream': typeof ApiV0ChatResume_streamRoute
   '/api/v0/chat_session/create': typeof ApiV0Chat_sessionCreateRoute
@@ -275,6 +315,11 @@ export interface FileRoutesByTo {
   '/chat/advanced': typeof ChatAdvancedIndexRoute
   '/api/advanced-chat/$chatId/completion': typeof ApiAdvancedChatChatIdCompletionRoute
   '/api/advanced-chat/$chatId/resume': typeof ApiAdvancedChatChatIdResumeRoute
+  '/api/agent-editor/chat/completion': typeof ApiAgentEditorChatCompletionRoute
+  '/api/agent-editor/chat/history_messages': typeof ApiAgentEditorChatHistory_messagesRoute
+  '/api/agent-editor/chat/resume_stream': typeof ApiAgentEditorChatResume_streamRoute
+  '/api/agent-editor/chat_session/create': typeof ApiAgentEditorChat_sessionCreateRoute
+  '/api/agent-editor/chat_session/fetch_page': typeof ApiAgentEditorChat_sessionFetch_pageRoute
   '/api/v0/chat/history_messages': typeof ApiV0ChatHistory_messagesRoute
   '/api/v0/chat/resume_stream': typeof ApiV0ChatResume_streamRoute
   '/api/v0/chat_session/create': typeof ApiV0Chat_sessionCreateRoute
@@ -311,6 +356,11 @@ export interface FileRoutesById {
   '/chat/advanced/': typeof ChatAdvancedIndexRoute
   '/api/advanced-chat/$chatId/completion': typeof ApiAdvancedChatChatIdCompletionRoute
   '/api/advanced-chat/$chatId/resume': typeof ApiAdvancedChatChatIdResumeRoute
+  '/api/agent-editor/chat/completion': typeof ApiAgentEditorChatCompletionRoute
+  '/api/agent-editor/chat/history_messages': typeof ApiAgentEditorChatHistory_messagesRoute
+  '/api/agent-editor/chat/resume_stream': typeof ApiAgentEditorChatResume_streamRoute
+  '/api/agent-editor/chat_session/create': typeof ApiAgentEditorChat_sessionCreateRoute
+  '/api/agent-editor/chat_session/fetch_page': typeof ApiAgentEditorChat_sessionFetch_pageRoute
   '/api/v0/chat/history_messages': typeof ApiV0ChatHistory_messagesRoute
   '/api/v0/chat/resume_stream': typeof ApiV0ChatResume_streamRoute
   '/api/v0/chat_session/create': typeof ApiV0Chat_sessionCreateRoute
@@ -348,6 +398,11 @@ export interface FileRouteTypes {
     | '/chat/advanced/'
     | '/api/advanced-chat/$chatId/completion'
     | '/api/advanced-chat/$chatId/resume'
+    | '/api/agent-editor/chat/completion'
+    | '/api/agent-editor/chat/history_messages'
+    | '/api/agent-editor/chat/resume_stream'
+    | '/api/agent-editor/chat_session/create'
+    | '/api/agent-editor/chat_session/fetch_page'
     | '/api/v0/chat/history_messages'
     | '/api/v0/chat/resume_stream'
     | '/api/v0/chat_session/create'
@@ -380,6 +435,11 @@ export interface FileRouteTypes {
     | '/chat/advanced'
     | '/api/advanced-chat/$chatId/completion'
     | '/api/advanced-chat/$chatId/resume'
+    | '/api/agent-editor/chat/completion'
+    | '/api/agent-editor/chat/history_messages'
+    | '/api/agent-editor/chat/resume_stream'
+    | '/api/agent-editor/chat_session/create'
+    | '/api/agent-editor/chat_session/fetch_page'
     | '/api/v0/chat/history_messages'
     | '/api/v0/chat/resume_stream'
     | '/api/v0/chat_session/create'
@@ -415,6 +475,11 @@ export interface FileRouteTypes {
     | '/chat/advanced/'
     | '/api/advanced-chat/$chatId/completion'
     | '/api/advanced-chat/$chatId/resume'
+    | '/api/agent-editor/chat/completion'
+    | '/api/agent-editor/chat/history_messages'
+    | '/api/agent-editor/chat/resume_stream'
+    | '/api/agent-editor/chat_session/create'
+    | '/api/agent-editor/chat_session/fetch_page'
     | '/api/v0/chat/history_messages'
     | '/api/v0/chat/resume_stream'
     | '/api/v0/chat_session/create'
@@ -440,6 +505,11 @@ export interface RootRouteChildren {
   ApiChatsChatIdRoute: typeof ApiChatsChatIdRouteWithChildren
   ApiAdvancedChatIndexRoute: typeof ApiAdvancedChatIndexRoute
   ApiChatsIndexRoute: typeof ApiChatsIndexRoute
+  ApiAgentEditorChatCompletionRoute: typeof ApiAgentEditorChatCompletionRoute
+  ApiAgentEditorChatHistory_messagesRoute: typeof ApiAgentEditorChatHistory_messagesRoute
+  ApiAgentEditorChatResume_streamRoute: typeof ApiAgentEditorChatResume_streamRoute
+  ApiAgentEditorChat_sessionCreateRoute: typeof ApiAgentEditorChat_sessionCreateRoute
+  ApiAgentEditorChat_sessionFetch_pageRoute: typeof ApiAgentEditorChat_sessionFetch_pageRoute
   ApiV0ChatHistory_messagesRoute: typeof ApiV0ChatHistory_messagesRoute
   ApiV0ChatResume_streamRoute: typeof ApiV0ChatResume_streamRoute
   ApiV0Chat_sessionCreateRoute: typeof ApiV0Chat_sessionCreateRoute
@@ -637,6 +707,41 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiV0ChatHistory_messagesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent-editor/chat_session/fetch_page': {
+      id: '/api/agent-editor/chat_session/fetch_page'
+      path: '/api/agent-editor/chat_session/fetch_page'
+      fullPath: '/api/agent-editor/chat_session/fetch_page'
+      preLoaderRoute: typeof ApiAgentEditorChat_sessionFetch_pageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent-editor/chat_session/create': {
+      id: '/api/agent-editor/chat_session/create'
+      path: '/api/agent-editor/chat_session/create'
+      fullPath: '/api/agent-editor/chat_session/create'
+      preLoaderRoute: typeof ApiAgentEditorChat_sessionCreateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent-editor/chat/resume_stream': {
+      id: '/api/agent-editor/chat/resume_stream'
+      path: '/api/agent-editor/chat/resume_stream'
+      fullPath: '/api/agent-editor/chat/resume_stream'
+      preLoaderRoute: typeof ApiAgentEditorChatResume_streamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent-editor/chat/history_messages': {
+      id: '/api/agent-editor/chat/history_messages'
+      path: '/api/agent-editor/chat/history_messages'
+      fullPath: '/api/agent-editor/chat/history_messages'
+      preLoaderRoute: typeof ApiAgentEditorChatHistory_messagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent-editor/chat/completion': {
+      id: '/api/agent-editor/chat/completion'
+      path: '/api/agent-editor/chat/completion'
+      fullPath: '/api/agent-editor/chat/completion'
+      preLoaderRoute: typeof ApiAgentEditorChatCompletionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/advanced-chat/$chatId/resume': {
       id: '/api/advanced-chat/$chatId/resume'
       path: '/resume'
@@ -785,6 +890,13 @@ const rootRouteChildren: RootRouteChildren = {
   ApiChatsChatIdRoute: ApiChatsChatIdRouteWithChildren,
   ApiAdvancedChatIndexRoute: ApiAdvancedChatIndexRoute,
   ApiChatsIndexRoute: ApiChatsIndexRoute,
+  ApiAgentEditorChatCompletionRoute: ApiAgentEditorChatCompletionRoute,
+  ApiAgentEditorChatHistory_messagesRoute:
+    ApiAgentEditorChatHistory_messagesRoute,
+  ApiAgentEditorChatResume_streamRoute: ApiAgentEditorChatResume_streamRoute,
+  ApiAgentEditorChat_sessionCreateRoute: ApiAgentEditorChat_sessionCreateRoute,
+  ApiAgentEditorChat_sessionFetch_pageRoute:
+    ApiAgentEditorChat_sessionFetch_pageRoute,
   ApiV0ChatHistory_messagesRoute: ApiV0ChatHistory_messagesRoute,
   ApiV0ChatResume_streamRoute: ApiV0ChatResume_streamRoute,
   ApiV0Chat_sessionCreateRoute: ApiV0Chat_sessionCreateRoute,
