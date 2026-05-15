@@ -109,376 +109,690 @@ interface DocumentSelectionReference {
 
 ---
 
-## 剧本编辑器序列化方案
+# 剧本编辑器节点系统 + AI 卡片改写 最终方案
 
-### 背景
+## 〇、方案总览
 
-编辑器面向剧本创作场景，采用台湾影视剧本的标准写作格式。文档由有限的、语义化的节点类型组成，每种格式通过 Tiptap 自定义节点实现。不需要通用富文本能力（无表格、引用、嵌套列表等），但需要保留节点类型信息以便 AI 理解文档结构，且反序列化时能无歧义地还原每个节点类型。
+这次重构包含两条主线：
 
-### 剧本写作格式规范
+1. **剧本节点重构**：用 7 种语义节点（场次 / 动作 / 角色 / 对话 / 转场 / 注释 / 字幕）替换现有结构，配合 5 个气泡菜单完成结构化输入。
+2. **AI 改写从 inline Diff 切到 ToolCall 卡片**：放弃 `DiffBlock`，AI 通过 `propose_edits` 工具返回结构化编辑建议，由聊天端卡片承载预览、多候选、应用、撤销等交互。
 
-| 元素 | 格式规则 | 说明 |
-|------|---------|------|
-| 场次标题 | **粗体**，格式：`编号. 内景/外景 地点 时间 人物` | 时间可为日/夜/晨/昏；跨内外用「内/外景」；该场出现人物皆须列出 |
-| 场景描写 | 前加 `△` 符号（CSS 渲染，非用户内容） | 通常在场次标题之后，交代场景画面 |
-| 动作描写 | 前加 `△` 符号（CSS 渲染，非用户内容） | 描述人物的具体动作行为 |
-| 对白 | 角色名置中 + 冒号，对白写于下一行置中，前后各空一行 | — |
-| 场次切换 | 新场次前空两行，编上场次编号 | — |
-
-### 格式示例
+两条主线对应的目录调整：
 
 ```
-1. 內景 教室 白天 小芸、阿良
+features/rich-editor/
+├── extensions/
+│   ├── script-nodes/                  // 七种节点 + 共享工具
+│   │   ├── index.ts
+│   │   ├── scene-heading.tsx          // atom + ReactNodeView
+│   │   ├── action.ts
+│   │   ├── character.ts
+│   │   ├── dialogue.ts
+│   │   ├── transition.ts
+│   │   ├── note.ts
+│   │   ├── subtitle.ts
+│   │   └── sequence-number-plugin.ts
+│   ├── script-menu-controller.ts      // 气泡菜单全局状态机
+│   ├── pending-edits-highlight.ts     // AI 卡片对应的左侧 indicator
+│   ├── ai-selection-highlight.ts      // 保留
+│   ├── ai-selection-boundary.ts       // 保留
+│   ├── slash-command.ts               // 保留，items 重排
+│   └── underline.ts                   // 保留
+├── script-menus/                      // 五个气泡菜单
+│   ├── shell.tsx
+│   ├── use-list-navigation.ts
+│   ├── location-menu.tsx
+│   ├── time-menu.tsx
+│   ├── int-ext-menu.tsx
+│   ├── character-menu.tsx
+│   ├── transition-menu.tsx
+│   └── script-menus.css
+├── bubble-menu/                       // 保留，bubble-menu-config 同步更新
+├── slash-command/                     // 保留，commands 同步更新
+├── editor.css
+├── editor.tsx
+└── index.tsx
 
-△一間寬敞明亮的教室，窗外陽光灑進來，照在學生的臉上。
-△小芸坐在窗邊，一邊寫著筆記，一邊偷看同學阿良。
-
-小芸：
-你昨天有唸書嗎？
-
-阿良：
-沒有耶，我昨天打電動到半夜……
-
-△小芸翻了個白眼，繼續低頭寫筆記。
-△阿良趁機把手機藏在課本後面，繼續玩著手遊。
-
-
-2. 外景 公園 下午 小芸、阿良
-
-△陽光透過樹葉灑在長椅上，風吹過來帶著微微的涼意。
-△小芸坐在長椅上吃著冰淇淋，表情放鬆。
-△阿良慢慢走近，手上拿著兩瓶飲料。
-
-阿良：
-你怎麼一個人跑來公園？
-
-小芸：
-想一個人靜靜，結果還是被你找到了。
-
-△兩人相視而笑，氣氛輕鬆。
+features/agent-editor/
+├── services/
+│   ├── editor-ai-context.ts           // 重写：选区扩展 + 不再生成 snapshot
+│   ├── propose-edits-schema.ts        // 新增：tool call 协议
+│   ├── anchor-resolver.ts             // 新增：anchor → from/to 解析
+│   ├── edit-applier.ts                // 新增：apply / undo 单条 edit
+│   └── edits-store.ts                 // 新增：卡片组状态（zustand）
+├── components/
+│   ├── ai-edits-cards.tsx             // 新增：卡片组容器
+│   ├── ai-edit-card.tsx               // 新增：单卡片
+│   └── ai-edit-card.css
+└── hooks/
+    └── use-editor-agent.ts            // 改：去掉 patch / snapshot 逻辑
 ```
 
-> 注意：场景描写和动作描写在编辑器中显示 `△` 前缀（通过 CSS `::before` 伪元素），用户不可编辑/删除。区别在于语义：场景描写交代环境，动作描写交代人物行为。在编辑器中通过不同节点类型区分，导出 HTML 时不包含 `△`。
+`extensions/diff-block.tsx`、`hooks/use-stream-writer.ts`、`server/chat/editor-ai-protocol.ts` 中与 inline diff 相关的代码 **全部废弃**；`use-stream-writer` 如果其它流式场景仍需要保留，可移到独立目录、不再绑定 AI 改写。
 
-### 节点类型与自定义节点实现
+---
 
-每种格式元素对应一个 Tiptap 自定义 Node，通过 `Node.create()` 定义：
+## 一、剧本节点 Schema
 
-| 节点类型 | 英文标识 | 样式 | 说明 | 自定义节点名 |
-|---------|---------|------|------|------------|
-| 场次标题 | scene_heading | 左对齐、粗体 | 格式：`编号. 内/外景 地点 时间 人物` | `sceneHeading` |
-| 场景描写 | scene | 左对齐 | 环境/氛围描述，显示 `△` 前缀（CSS） | `scene` |
-| 动作描写 | action | 左对齐 | 人物动作行为，显示 `△` 前缀（CSS） | `action` |
-| 角色名 | character | 居中 | 说话人名称，回车进入对白前自动补 `:` | `character` |
-| 对白 | dialogue | 居中 | 角色的台词 | `dialogue` |
-| 通用文本 | text | 左对齐 | 不属于以上类型的段落 | `paragraph` |
+### 1.1 SceneHeading（atom + ReactNodeView）
 
-#### 回车键行为（节点自动切换）
-
-| 当前节点 | 回车后进入 | 说明 |
-|---------|-----------|------|
-| `sceneHeading` | `scene` | 场次标题后自然进入场景描写 |
-| `scene` | `action` | 场景描写后自然进入动作描写 |
-| `action` | `action` | 连续动作描写 |
-| `character` | `dialogue` | 角色名后自动补 `:`，并自然进入对白 |
-| `dialogue` | `action` | 对白结束后回到动作描写 |
-
-### 自定义节点实现方案
-
-```typescript
-import { Node, mergeAttributes } from "@tiptap/core";
-
-// 场次标题节点
-export const SceneHeading = Node.create({
+```ts
+{
   name: "sceneHeading",
   group: "block",
-  content: "inline*",
-
-  addAttributes() {
-    return {
-      number: { default: 1 },
-      location: { default: "內景" },
-      place: { default: "" },
-      time: { default: "白天" },
-      characters: { default: "" },
-    };
+  atom: true,
+  selectable: true,
+  draggable: false,
+  attrs: {
+    location: "",   // 地点
+    time: "",       // 日 / 夜 / 午 / 晨 / 暮 / 接续 / 稍后 / 片刻后 / 同时
+    intExt: "",     // 内 / 外 / 内/外 / 外/内
   },
-
-  parseHTML() {
-    return [{ tag: "scene-heading" }];
-  },
-
+  parseHTML() { return [{ tag: "scene-heading", getAttrs }]; },
   renderHTML({ HTMLAttributes }) {
-    return [
-      "scene-heading",
-      mergeAttributes(HTMLAttributes, {
-        style: "font-weight: bold;",
-      }),
-      0,
-    ];
+    return ["scene-heading", { ... 三个属性 ... }];
   },
-
-  // 回车 → 进入 scene 节点
-  addKeyboardShortcuts() {
-    return {
-      Enter: ({ editor }) => {
-        if (!this.editor.isActive("sceneHeading")) return false;
-        return editor.chain().splitBlock().setNode("scene").run();
-      },
-    };
-  },
-});
-
-// 场景描写节点（环境/氛围描述）
-// CSS: scene::before { content: "△"; }
-export const Scene = Node.create({
-  name: "scene",
-  group: "block",
-  content: "inline*",
-
-  parseHTML() {
-    return [{ tag: "scene" }];
-  },
-
-  renderHTML({ HTMLAttributes }) {
-    return [
-      "scene",
-      mergeAttributes(HTMLAttributes),
-      0,
-    ];
-  },
-
-  // 回车 → 进入 action 节点
-  addKeyboardShortcuts() {
-    return {
-      Enter: ({ editor }) => {
-        if (!this.editor.isActive("scene")) return false;
-        return editor.chain().splitBlock().setNode("action").run();
-      },
-    };
-  },
-});
-
-// 动作描写节点（人物行为）
-// CSS: action::before { content: "△"; }
-export const Action = Node.create({
-  name: "action",
-  group: "block",
-  content: "inline*",
-
-  parseHTML() {
-    return [{ tag: "action" }];
-  },
-
-  renderHTML({ HTMLAttributes }) {
-    return [
-      "action",
-      mergeAttributes(HTMLAttributes),
-      0,
-    ];
-  },
-});
-
-// 角色名节点
-export const Character = Node.create({
-  name: "character",
-  group: "block",
-  content: "inline*",
-
-  parseHTML() {
-    return [{ tag: "character" }];
-  },
-
-  renderHTML({ HTMLAttributes }) {
-    return [
-      "character",
-      mergeAttributes(HTMLAttributes, {
-        style: "text-align: center;",
-      }),
-      0,
-    ];
-  },
-
-  // 回车 → 进入 dialogue 节点
-  addKeyboardShortcuts() {
-    return {
-      Enter: ({ editor }) => {
-        if (!this.editor.isActive("character")) return false;
-        return editor.chain().splitBlock().setNode("dialogue").run();
-      },
-    };
-  },
-});
-
-// 对白节点
-export const Dialogue = Node.create({
-  name: "dialogue",
-  group: "block",
-  content: "inline*",
-
-  parseHTML() {
-    return [{ tag: "dialogue" }];
-  },
-
-  renderHTML({ HTMLAttributes }) {
-    return [
-      "dialogue",
-      mergeAttributes(HTMLAttributes, {
-        style: "text-align: center;",
-      }),
-      0,
-    ];
-  },
-
-  // 回车 → 回到 action 节点
-  addKeyboardShortcuts() {
-    return {
-      Enter: ({ editor }) => {
-        if (!this.editor.isActive("dialogue")) return false;
-        return editor.chain().splitBlock().setNode("action").run();
-      },
-    };
-  },
-});
-```
-
-### 序列化格式（HTML 标签方案）
-
-**方案选择**：采用小写语义化 HTML 自定义标签，直接利用 Tiptap 的 `renderHTML` / `parseHTML` 机制。剧本节点扩展注册完成后，序列化可复用 `editor.getHTML()` / `DOMSerializer`，反序列化可复用 `editor.commands.setContent(html)`。
-
-每个节点的 `renderHTML` 输出对应的自定义标签：
-
-```typescript
-// Scene 节点
-renderHTML({ HTMLAttributes }) {
-  return ["scene", mergeAttributes(HTMLAttributes), 0];
-}
-parseHTML() {
-  return [{ tag: "scene" }];
-}
-
-// Action 节点
-renderHTML({ HTMLAttributes }) {
-  return ["action", mergeAttributes(HTMLAttributes), 0];
-}
-parseHTML() {
-  return [{ tag: "action" }];
-}
-
-// Character 节点
-renderHTML({ HTMLAttributes }) {
-  return ["character", mergeAttributes(HTMLAttributes), 0];
-}
-parseHTML() {
-  return [{ tag: "character" }];
-}
-
-// Dialogue 节点
-renderHTML({ HTMLAttributes }) {
-  return ["dialogue", mergeAttributes(HTMLAttributes), 0];
-}
-parseHTML() {
-  return [{ tag: "dialogue" }];
-}
-
-// SceneHeading 节点
-renderHTML({ HTMLAttributes }) {
-  return ["scene-heading", mergeAttributes(HTMLAttributes), 0];
-}
-parseHTML() {
-  return [{ tag: "scene-heading" }];
+  addNodeView() { return ReactNodeViewRenderer(SceneHeadingView); },
 }
 ```
 
-#### 序列化输出示例
+NodeView 内部结构：
+
+```
+[N.] [Location chip]  [Time chip] / [IntExt chip]
+```
+
+* `N.` 与 `/` 用 `contentEditable={false}` 包裹（满足 R1.3、R1.5）。
+* 三个 chip 都是 button，点击 dispatch `openScriptMenu(name, { pos })`。
+* 空值显示占位文本（`选择地点` / `时间` / `内外景`）。
+* `parseHTML.getAttrs` 兼容旧版纯文本 `<scene-heading>1. 内景 教室 日 ...</scene-heading>`：正则尝试拆 attrs，失败时把整段文本塞进 `location`。
+
+### 1.2 自动序号插件
+
+`sequence-number-plugin.ts`：
+
+* 纯装饰，不写回 attrs；
+* `decorations(state)` 中遍历 `doc.descendants`，每遇 `sceneHeading` 就 `Decoration.widget(pos + 1, makeBadge(n), { side: -1 })`；
+* 插入 / 删除 / 移动后 React 一次性重算，满足 R1.2 / R1.4；
+* 序号 widget 不进入 `getHTML`。
+
+### 1.3 其它六个节点
+
+| 节点 | tag | content | Enter 后 | 自动弹菜单 | 关键样式 |
+| --- | --- | --- | --- | --- | --- |
+| `action` | `<action>` | `inline*` | `action` | — | 普通段落 |
+| `character` | `<character>` | `inline*` | `dialogue` | 进入空节点弹 Character_Menu | 不再强制 center，CSS 控制 |
+| `dialogue` | `<dialogue>` | `inline*` | `character` | — | 不再强制 center |
+| `transition` | `<transition>` | `inline*` | `action` | 进入节点弹 Transition_Menu | `text-align: right` |
+| `note` | `<note>` | `inline*` | `action` | — | blockquote 风格（左竖线 / 缩进 / 斜体灰字） |
+| `subtitle` | `<subtitle>` | `inline*` | `action` | — | `padding-left: 32px; font-weight: 700; font-style: italic` |
+
+`scene` 节点删除（R5.1 / R11.2）。`character` 不再自动追加 `:`，由 CSS 显示提示符或不显示由产品决定。
+
+### 1.4 节点流转表
+
+```
+sceneHeading.Enter  → 新建 action（atom 节点的 keymap 在节点选中态处理）
+action.Enter        → action
+character.Enter     → dialogue
+dialogue.Enter      → character
+transition.Enter    → action
+note.Enter          → action
+subtitle.Enter      → action
+```
+
+`Tab` 在 location 菜单内捕获用于切到 time 菜单，不动节点 keymap。
+
+### 1.5 序列化结果
+
+`getHTML()`：
 
 ```html
-<scene-heading>1. 內景 教室 白天 小芸、阿良</scene-heading>
-<scene>一間寬敞明亮的教室，窗外陽光灑進來，照在學生的臉上。</scene>
-<action>小芸坐在窗邊，一邊寫著筆記，一邊偷看同學阿良。</action>
-<character>小芸:</character>
-<dialogue>你昨天有唸書嗎？</dialogue>
-<character>阿良:</character>
-<dialogue>沒有耶，我昨天打電動到半夜……</dialogue>
-<action>小芸翻了個白眼，繼續低頭寫筆記。</action>
-<action>阿良趁機把手機藏在課本後面，繼續玩著手遊。</action>
-<scene-heading>2. 外景 公園 下午 小芸、阿良</scene-heading>
-<scene>陽光透過樹葉灑在長椅上，風吹過來帶著微微的涼意。</scene>
-<action>小芸坐在長椅上吃著冰淇淋，表情放鬆。</action>
-<action>阿良慢慢走近，手上拿著兩瓶飲料。</action>
-<character>阿良:</character>
-<dialogue>你怎麼一個人跑來公園？</dialogue>
-<character>小芸:</character>
-<dialogue>想一個人靜靜，結果還是被你找到了。</dialogue>
-<action>兩人相視而笑，氣氛輕鬆。</action>
+<scene-heading location="教室" time="日" int-ext="内"></scene-heading>
+<action>小芸坐在窗邊...</action>
+<character>小芸</character>
+<dialogue>你昨天有念书吗？</dialogue>
+<character>阿良</character>
+<dialogue>沒有耶...</dialogue>
+<transition>淡出至</transition>
+<subtitle>三天后</subtitle>
+<note>这里需要一段空镜过渡。</note>
 ```
 
-#### 为什么选 HTML 标签方案？
+`getJSON()`：sceneHeading 是 `{ type, attrs }`、其余节点是 `{ type, content: [{ type: "text", text }] }`。序号、`/`、占位文字均不进入序列化。
 
-| 维度 | `[type] content` 自定义标记 | `<scene-heading>content</scene-heading>` HTML 标签 |
-|------|---------------------------|--------------------------------|
-| 序列化 | 手写遍历 doc 拼字符串 | 剧本节点注册后复用 `editor.getHTML()` / `DOMSerializer` |
-| 反序列化 | 手写正则解析回节点 | 剧本节点注册后复用 `editor.commands.setContent(html)` |
-| 开发成本 | 高 — 两套代码要写要维护 | 自定义节点负责 HTML 映射，业务层复用 Tiptap 能力 |
-| 选区标记 | 在纯文本上插标记再拼前缀 | **inline atom 节点，DOMSerializer 自动输出** |
-| AI 理解 | 好 | 同样好 — AI 对 HTML 标签很熟悉 |
-| Token 开销 | 较少 | 略多（闭合标签），可接受 |
-| 扩展性 | 不方便加属性 | 天然支持（`<scene-heading number="1">`) |
-| 边界情况 | 内容含 `[` 需转义、多行内容需处理 | 无此问题 |
+### 1.6 旧文档兼容
 
-### 选区标记插入
+`<scene>` 节点解析为 `<action>`：通过 `extension.addExtensions` 注册一个仅做 parseHTML 的兼容节点，挂在 `action` 的 parseHTML 数组里：
 
-复用项目现有方案：
-
-1. **`SelectionStartBoundary` / `SelectionEndBoundary`** — 已有的 inline atom 节点扩展
-2. 在选区位置插入这两个标记节点到文档中
-3. 通过 `DOMSerializer.fromSchema` 将整个文档（含标记节点）序列化为 HTML
-4. 输出纯 HTML 格式
-
-```typescript
-function serializeWithSelection(editor: Editor, from: number, to: number): string {
-  const { state } = editor;
-  const { doc, schema } = state;
-
-  // 1. 在选区位置插入标记节点（不修改编辑器状态）
-  let tr = state.tr;
-  tr.insert(to, schema.nodes.selectionEndBoundary.create());
-  tr.insert(from, schema.nodes.selectionStartBoundary.create());
-
-  // 2. 用 DOMSerializer 导出 HTML
-  const serializer = DOMSerializer.fromSchema(schema);
-  const fragment = serializer.serializeFragment(tr.doc.content);
-
-  // 3. 转为 HTML 字符串
-  const div = document.createElement("div");
-  div.appendChild(fragment);
-  return div.innerHTML;
+```ts
+parseHTML() {
+  return [{ tag: "action" }, { tag: "scene" }];
 }
 ```
 
-#### 带选区标记的输出示例
+旧 `<scene-heading>` 纯文本格式由 sceneHeading 的 `parseHTML.getAttrs` 兜底。
 
-```html
-<character>小芸:</character>
-<dialogue>你昨天有<selection-start></selection-start>唸書嗎？</dialogue>
-<action>小芸翻了個白眼，繼續低頭<selection-end></selection-end>寫筆記。</action>
+---
+
+## 二、气泡菜单系统
+
+### 2.1 控制器（PluginKey）
+
+`extensions/script-menu-controller.ts`：
+
+```ts
+type ScriptMenuName = "location" | "time" | "intExt" | "character" | "transition";
+interface ScriptMenuState {
+  open: ScriptMenuName | null;
+  pos: number | null;        // 节点位置
+  openedFor: number | null;  // 防止节点位置不变时重复 open
+}
+
+editor.commands.openScriptMenu(name, { pos })
+editor.commands.closeScriptMenu()
 ```
 
-选中整个节点时：
+通过 transaction meta 派发 `open` / `switch` / `close`。React 端用 `useEditorState` 订阅。
 
-```html
-<character>小芸:</character>
-<dialogue><selection-start></selection-start>你昨天有唸書嗎？<selection-end></selection-end></dialogue>
+### 2.2 通用 Shell
+
+`script-menus/shell.tsx`：
+
+* `useFloating({ placement: "bottom-start", middleware: [offset(8), flip, shift] })`，参考已有 slash-command 的虚拟 reference 思路。
+* 锚点：通过 `editor.view.nodeDOM(pos)` 取根节点，再 `querySelector('[data-script-chip="..."]')` 找 chip；character / transition 锚到节点本身。
+* 统一处理 `Escape`、外部 pointerdown、Tab 拦截。
+
+`use-list-navigation.ts`：纯逻辑 hook，输入 items + 初始 index，输出 activeIndex 与 keydown 处理。
+
+### 2.3 各菜单实现要点
+
+| 菜单 | 触发 | 数据 | 选择动作 |
+| --- | --- | --- | --- |
+| Location_Menu | 点 location chip / 斜杠插入 sceneHeading 后自动 | 文档内 sceneHeading.location 去重 | `updateAttributes` + close；Tab → 切到 Time_Menu；空匹配显示"创建 xxx" |
+| Time_Menu | 点 time chip / Location 后 Tab | 固定 `["日","夜","午","晨","暮","接续","稍后","片刻后","同时"]` | `updateAttributes` + close |
+| IntExt_Menu | 点 intExt chip | 固定 `["内","外","内/外","外/内"]` | `updateAttributes` + close |
+| Character_Menu | 进入空 character 节点 / 斜杠 / 点击 character 节点 | 文档内 character 节点 textContent 去重 | 写文本到节点 → split → 切 dialogue；空匹配显示"创建 xxx" |
+| Transition_Menu | 进入 transition 节点（点击或斜杠） | 固定 8 项 | 写文本到节点；允许用户继续手动编辑 |
+
+需求 R12 通过 Shell 统一满足：
+
+* R12.1 Esc 关闭：Shell `keydown` capture；
+* R12.2 外部点击关闭：Shell 在 floating 元素外 `pointerdown` 派发 close meta；
+* R12.3 不超出视口：`flip` + `shift` middleware。
+
+### 2.4 防重复弹出
+
+控制器中存 `openedFor: nodePos`，节点位置不变就不重复 open；只有节点切换或 close 后才允许下一次自动 open。这是 character / transition "进入即弹"的关键。
+
+---
+
+## 三、斜杠命令与块选择菜单
+
+### 3.1 `slash-command/commands.ts`
+
+`script` 段保留 7 项，删除 `scene`：
+
+```
+sceneHeading / action / character / dialogue / transition / note / subtitle
 ```
 
-标记节点作为 inline atom 自然出现在正确位置，无需手动计算偏移。
+`runSlashCommand` 内的扩展：
 
-### 当前阶段 vs 未来
+* 选 `sceneHeading` → `setNode("sceneHeading", { location:"", time:"", intExt:"" })` + `openScriptMenu("location", { pos })`；
+* 选 `character` → `setNode + openScriptMenu("character")`；
+* 选 `transition` → `setNode + openScriptMenu("transition")`；
+* 其它三项仅 setNode。
 
-| 阶段 | 方案 | 说明 |
-|------|------|------|
-| 当前 | 纯文本 + `SelectionStartBoundary` / `SelectionEndBoundary` | 剧本 node schema 未定义前，先用纯文本跑通流程 |
-| 下一步 | 实现自定义节点 | 定义 `sceneHeading` / `scene` / `action` / `character` / `dialogue` 五个核心节点 + 回车键行为 + 语义化 HTML 标签 renderHTML |
-| 最终 | 直接用 `DOMSerializer` + 现有选区标记方案 | 节点稳定并注册后，`getHTML()` 作为序列化结果，`setContent(html)` 负责反序列化 |
+### 3.2 `bubble-menu/bubble-menu-config.ts`
 
-切换时只需替换 `buildSelectionReference` 内部的序列化实现，接口不变。
+移除 `scene`，新增 `transition` / `note` / `subtitle`，图标分别用 `MoveRight` / `StickyNote` / `Captions`。其余条目保留。
+
+---
+
+## 四、AI 选区处理
+
+`features/agent-editor/services/editor-ai-context.ts` 重写：
+
+```ts
+const STRUCTURAL_NODE_NAMES = new Set([
+  "sceneHeading",   // atom
+  "character",
+  "transition",
+]);
+
+function expandRangeToStructuralNodes(state, from, to) {
+  let nextFrom = from;
+  let nextTo = to;
+  state.doc.nodesBetween(from, to, (node, pos) => {
+    if (!STRUCTURAL_NODE_NAMES.has(node.type.name)) return true;
+    nextFrom = Math.min(nextFrom, pos);
+    nextTo = Math.max(nextTo, pos + node.nodeSize);
+    return false;
+  });
+  return { from: nextFrom, to: nextTo };
+}
+
+export function createEditorAIRequest(editor, message) {
+  const base = getAISelectionRange(editor.state) ?? editor.state.selection;
+  if (!base || base.from >= base.to) return null;
+
+  const { from, to } = expandRangeToStructuralNodes(editor.state, base.from, base.to);
+  const oldText = editor.state.doc.textBetween(from, to, "\n\n");
+  if (!oldText.trim()) return null;
+
+  // 插入 selection 边界节点用于序列化（沿用现有逻辑）
+  const tr = editor.state.tr
+    .insert(to, endBoundary.create())
+    .insert(from, startBoundary.create());
+
+  return {
+    requestId: nanoid(),
+    message,
+    selection: {
+      contentWithSelection: serializeDocContent(tr.doc),
+      oldText,
+    },
+  };
+}
+```
+
+要点：
+
+* 不再生成 `EditorAIPendingSnapshot`、不再注册 `editorAIPendingRegistry`；
+* 选区在前端就被规整到结构化节点边界外，AI 看到的永远是完整节点；
+* `oldText` 同时返回，方便服务端 prompt 拼接，避免重复解析 HTML。
+
+BubbleMenu 端的高亮维持现状，不做选区扩展（按你的意见）。
+
+---
+
+## 五、Tool Call 协议：`propose_edits`
+
+### 5.1 类型定义（`features/agent-editor/services/propose-edits-schema.ts`）
+
+```ts
+export type ProposeEditsArgs = {
+  summary: string;
+  edits: Edit[];
+};
+
+export type Edit = {
+  id: string;
+  rationale?: string;
+  anchor: Anchor;
+  operation: Operation;
+};
+
+export type Anchor =
+  | {
+      kind: "text-range";
+      oldText: string;
+      before?: string;   // ~20 字符上下文
+      after?: string;
+    }
+  | {
+      kind: "node";
+      nodeType: ScriptNodeType;
+      matchText?: string;
+      matchAttrs?: Record<string, unknown>;
+      occurrence?: number; // 同 matchAttrs 多次命中时的序号，从 0 起
+    }
+  | {
+      kind: "between-nodes";
+      afterMatchText: string;
+    };
+
+export type Operation =
+  | { kind: "replace-text"; alternatives: TextAlternative[] }
+  | { kind: "update-node-attrs"; alternatives: AttrsAlternative[] }
+  | { kind: "replace-nodes"; alternatives: NodesAlternative[] }
+  | { kind: "insert-nodes"; nodes: NodeJSON[] }
+  | { kind: "delete" };
+
+export type TextAlternative  = { id: string; label?: string; newText: string };
+export type AttrsAlternative = { id: string; label?: string; attrs: Record<string, unknown> };
+export type NodesAlternative = { id: string; label?: string; nodes: NodeJSON[] };
+
+export type ScriptNodeType =
+  | "sceneHeading" | "action" | "character"
+  | "dialogue"     | "transition" | "note" | "subtitle";
+
+export type NodeJSON = { type: ScriptNodeType; attrs?: Record<string, unknown>; content?: NodeJSON[] | { type: "text"; text: string }[] };
+```
+
+`alternatives` 数组承载"一处位置的多个候选"，长度 1 即单一改写。
+
+### 5.2 服务端注册
+
+服务端通过 ai-sdk v6 注册 `propose_edits` tool（zod schema 镜像上面的 TS 类型），系统 prompt 明确：
+
+* 任何对剧本的修改建议都必须通过 `propose_edits` 工具返回；
+* 普通文本回复用于解释、追问、不需要改写时；
+* 每条 edit 必须给出 anchor，`text-range` 锚点要附带 `before` / `after` 上下文（除非全文唯一）；
+* 多候选时按"主推 → 备选"排序，至多 3 个。
+
+### 5.3 Anchor 解析（`anchor-resolver.ts`）
+
+```ts
+export type ResolvedAnchor =
+  | { kind: "range"; from: number; to: number }
+  | { kind: "node"; from: number; to: number; nodeType: string }
+  | { kind: "insert"; pos: number };
+
+export type ResolveResult =
+  | { ok: true; resolved: ResolvedAnchor }
+  | { ok: false; reason: "not-found" | "ambiguous" | "stale" };
+
+export function resolveAnchor(editor: Editor, anchor: Anchor): ResolveResult;
+```
+
+实现要点：
+
+* `text-range`：用 `doc.textBetween` 全文搜 oldText；多于 1 处时用 before/after 前后缀验证；仍歧义返回 `ambiguous`。
+* `node`：遍历 `doc.descendants` 匹配 nodeType + matchText / matchAttrs；按 occurrence 取目标。
+* `between-nodes`：找到 `afterMatchText` 所在 textblock 的 nodeAfter 位置作为插入点。
+
+---
+
+## 六、Edit 应用与撤销
+
+`edit-applier.ts`：
+
+```ts
+export interface AppliedSnapshot {
+  editId: string;
+  alternativeId: string;
+  prevSlice: { from: number; to: number; jsonContent: NodeJSON[] };
+  appliedRange: { from: number; to: number };
+}
+
+export function applyEdit(editor, edit, alternativeId): AppliedSnapshot | null;
+export function undoEdit(editor, snapshot: AppliedSnapshot): boolean;
+```
+
+应用规则：
+
+* `replace-text`：解析 anchor 得 `{ from, to }` → `chain().insertContentAt({ from, to }, alternative.newText, { updateSelection: false }).run()`；
+* `update-node-attrs`：`updateAttributes(nodeType, attrs)` 在解析得到的节点位置执行；
+* `replace-nodes`：将 alternative.nodes 转为 ProseMirror Slice，`tr.replaceWith(from, to, fragment)`；
+* `insert-nodes`：在 `pos` 处插入；
+* `delete`：`tr.delete(from, to)`。
+
+撤销：用 `prevSlice` 的 JSON 还原原片段，再写回；不依赖全局 undo，避免串台。
+
+批量应用顺序：从文档末尾向前 apply，避免位置漂移。
+
+---
+
+## 七、卡片状态机与 Store
+
+`edits-store.ts`（zustand）：
+
+```ts
+type EditState = "pending" | "applied" | "rejected" | "stale" | "superseded";
+
+interface EditEntry {
+  edit: Edit;
+  state: EditState;
+  appliedAlternativeId?: string;
+  appliedSnapshot?: AppliedSnapshot;
+  resolveError?: string;
+}
+
+interface EditsStore {
+  entries: Record<string, EditEntry>;     // editId → entry
+  groups: Array<{ requestId: string; editIds: string[]; summary: string }>;
+
+  ingestToolCall(requestId, args: ProposeEditsArgs): void;
+  setState(editId, state, payload?): void;
+  apply(editor, editId, alternativeId): void;
+  undo(editor, editId): void;
+  applyAll(editor, requestId): void;
+  rejectAll(editor, requestId): void;
+  refreshResolution(editor): void;        // 文档变化后重新解析所有 pending
+}
+```
+
+文档变化（编辑器 `update` 事件）触发 `refreshResolution`，把无法解析的 pending edit 标记为 `stale` / `superseded`。已应用的 entry 不重新解析，但用户编辑了它的 appliedRange 后标 `superseded`，禁用撤销（避免反向 patch 把用户改动覆盖）。
+
+---
+
+## 八、卡片 UI
+
+### 8.1 卡片组容器 `ai-edits-cards.tsx`
+
+挂在聊天面板里 ai-sdk 的 `tool-invocation` part 渲染处。每收到一次 `propose_edits` 工具调用，往 store 增量插入一个 group；卡片组顶部包含：
+
+* 标题 = `summary`
+* 进度条 = `已应用 X / N`
+* 操作 = `[全部应用] [全部拒绝] [仅查看未应用]`
+* 列表 = `EditCard[]`
+
+### 8.2 单卡片 `ai-edit-card.tsx`
+
+布局：
+
+```
+┌────────────────────────────────────────────┐
+│ ✏️ {operation 标题} · {锚点摘要}           │
+│ {rationale}                                │
+├────────────────────────────────────────────┤
+│ Original                                   │
+│ ▸ {oldText 预览}                           │
+├────────────────────────────────────────────┤
+│ ◉ 选项 1 · {label}                         │
+│   {alternative 预览}                       │
+│ ○ 选项 2 · {label}                         │
+│   ...                                      │
+├────────────────────────────────────────────┤
+│ 状态徽章        [📍] [拒绝] [应用所选 ✓]   │
+└────────────────────────────────────────────┘
+```
+
+* `replace-text` / `replace-nodes`：渲染 Original + alternatives 文本预览；
+* `update-node-attrs`：渲染 attrs 差异表（`时间: 午 → 暮`）；
+* `insert-nodes`：只显示 alternatives 内容预览，标"新增"；
+* `delete`：显示 oldText，标"删除"，无 alternatives。
+
+候选切换：
+
+* radio 切换 alternative；
+* hover 候选时 → 编辑器内目标 anchor 显示 ghost preview（用 `pendingEditsHighlight` 插件画一个浅色 background + dashed outline 的 inline Decoration）；
+* 应用后卡片折叠为一行：`✓ 已应用：选项 1 — {预览}`，右侧 `[使用其他选项 ▾] [撤销]`。
+
+锚点摘要由前端按 `Anchor` 类型生成（如 `场次 2 · 对话` / `场次 2 · 场次行`）。
+
+### 8.3 编辑器 indicator
+
+`extensions/pending-edits-highlight.ts`：
+
+* 插件 state 通过 zustand subscribe → `view.dispatch(tr.setMeta(...))`，避免 React 与 ProseMirror 双向打架；
+* `decorations` 中按 entry 状态生成左侧 indicator：
+  * pending → 浅蓝竖条
+  * applied → 浅绿竖条
+  * stale / superseded → 灰色 + 虚线
+* hover 卡片 → 对应竖条加粗 + scrollIntoView；hover 竖条 → 卡片 highlight + 滚到视口（双向通过 store 暴露 `focusedEditId`）。
+
+---
+
+## 九、典型流程
+
+### 9.1 用户划词 → 卡片改写
+
+1. 用户在编辑器里划词，BubbleMenu 出现。
+2. 点 AI 按钮，写指令 `让小芸的语气更俏皮`。
+3. 前端 `createEditorAIRequest` 走 `expandRangeToStructuralNodes`，把选区扩到结构化节点边界外，发请求体 `{ requestId, message, selection: { contentWithSelection, oldText } }`。
+4. 服务端调用 `propose_edits` 工具返回。
+5. 聊天面板渲染卡片组，每张卡片 anchor 解析成功后亮起 indicator。
+6. 用户切换候选 → 编辑器对应位置 ghost preview。
+7. 点击 `应用所选` → `applyEdit` → 文档真正更新，卡片折叠，indicator 变绿。
+8. 用户反悔 → 点 `撤销` → `undoEdit` 用 `prevSlice` 还原。
+
+### 9.2 多处更新
+
+服务端在一次 `propose_edits` 里返回 N 个 edit。卡片组按 entry 列出，文档侧 indicator 全部画出来。用户可逐张操作，也可点 `全部应用` 一次性按"末尾→开头"顺序应用。
+
+### 9.3 一处多候选
+
+`alternatives` 长度 ≥ 2 即在卡片内显示 radio。切换候选只改 `selectedAlternativeId`，不会触发实际编辑；只有点 `应用所选` 才真正改文档。已应用后切换需先撤销再应用新候选（`使用其他选项 ▾` 按钮内部就是"undo + apply 新 alt" 两步）。
+
+### 9.4 SceneHeading 的 attrs 改写
+
+LLM 返回示例：
+
+```json
+{
+  "id": "edit-2",
+  "anchor": { "kind": "node", "nodeType": "sceneHeading", "matchAttrs": { "location": "公园", "time": "午", "intExt": "外" } },
+  "operation": {
+    "kind": "update-node-attrs",
+    "alternatives": [
+      { "id": "a", "label": "暮", "attrs": { "time": "暮" } },
+      { "id": "b", "label": "夜", "attrs": { "time": "夜" } }
+    ]
+  }
+}
+```
+
+卡片显示 `时间: 午 → 暮`（按 attrs diff 渲染），应用即 `editor.chain().updateAttributes("sceneHeading", { time: "暮" })`。这是 inline diff 完全做不到的能力。
+
+---
+
+## 十、需求映射速查
+
+| 需求 | 实现位置 |
+| --- | --- |
+| R1.1 / 1.5 | `scene-heading.tsx` ReactNodeView |
+| R1.2 / 1.4 | `sequence-number-plugin.ts` Decoration |
+| R1.3 | atom 节点 + `contentEditable={false}` |
+| R2.* | `script-menus/location-menu.tsx` |
+| R3.* | `script-menus/time-menu.tsx` |
+| R4.* | `script-menus/int-ext-menu.tsx` |
+| R5.* | `extensions/script-nodes/action.ts`（合并 scene） |
+| R6.* | `script-menus/character-menu.tsx` + character 节点切换钩子 |
+| R7.* | `extensions/script-nodes/dialogue.ts` |
+| R8.* | `transition.ts` + `transition-menu.tsx` + CSS 右对齐 |
+| R9 | `note.ts` + CSS blockquote 风格 |
+| R10 | `subtitle.ts` + CSS 加粗斜体 + padding-left:32px |
+| R11.1 | `slash-command/commands.ts` 七项 |
+| R11.2 | 移除 `scene` 节点及引用 |
+| R11.3 | `sceneHeading` 的 Enter 节点选中态 keymap |
+| R12.* | `script-menus/shell.tsx` |
+
+---
+
+## 十一、迁移 / 实施 Roadmap
+
+按"小步、可独立验证"的顺序：
+
+**Phase 1 — 节点骨架（最小破坏）**
+
+* 拆分 `script-nodes/` 目录；
+* 删除 `Scene` 扩展并清理 `editor.tsx`、`bubble-menu-config`、`slash-command/commands` 的引用；
+* 新增 action（合并 Scene）、transition、note、subtitle 四个简单节点 + 流转 keymap；
+* 更新 `DEFAULT_EDITOR_CONTENT`、`editor.css`；
+* 验证：斜杠菜单可插入七种节点（sceneHeading 暂时显示纯文本占位）；视觉满足 R8.1 / R9 / R10。
+
+**Phase 2 — SceneHeading 结构化节点**
+
+* `sceneHeading` 改 atom + 三 attrs + ReactNodeView；
+* 加 `sequence-number-plugin`；
+* parseHTML 兼容旧文本格式；
+* 验证：插入、删除、移动后序号自动续；旧文档可正常加载。
+
+**Phase 3 — 气泡菜单基础设施**
+
+* `script-menu-controller`、`script-menus/shell.tsx`、`use-list-navigation`；
+* 验证：手动 `editor.commands.openScriptMenu("time", { pos })` 能弹空菜单，Esc / 外点关闭。
+
+**Phase 4 — Time / IntExt 菜单**
+
+* 固定列表，写回 attrs；点击 chip 即弹。
+
+**Phase 5 — Location 菜单**
+
+* 收集已有 location、搜索、创建项、Tab 串联到 Time。
+
+**Phase 6 — Character 菜单**
+
+* 节点切换钩子触发 open；选择后 split 到 dialogue。
+
+**Phase 7 — Transition 菜单**
+
+* 进入节点自动弹；写文本。
+
+**Phase 8 — AI 选区扩展**
+
+* 重写 `editor-ai-context.ts` 的 `createEditorAIRequest`；
+* 删除 `editorAIPendingRegistry` / `applyEditorAIPatch` / `EditorAIPendingSnapshot`；
+* 服务端 `extractSelectionText` 同步移除（被 ToolCall 替代）。
+
+**Phase 9 — Tool Call 基础设施**
+
+* `propose-edits-schema.ts`、`anchor-resolver.ts`、`edit-applier.ts`、`edits-store.ts`；
+* 服务端注册 `propose_edits` tool；
+* 不接 UI，单元测试 + 手测 e2e（控制台 dispatch 验证 apply / undo）。
+
+**Phase 10 — 卡片 UI**
+
+* `ai-edits-cards.tsx` + `ai-edit-card.tsx`，先支持 `replace-text` 单候选；
+* 在 chat panel 集成 ai-sdk `tool-invocation` part 渲染。
+
+**Phase 11 — 多候选 + 多卡片 + indicator**
+
+* alternatives radio + ghost preview；
+* `pending-edits-highlight.ts` 插件 + 双向滚动定位；
+* `[全部应用] / [全部拒绝]`。
+
+**Phase 12 — 结构化操作扩展**
+
+* `update-node-attrs` / `replace-nodes` / `insert-nodes` / `delete`；
+* 卡片渲染 attrs diff；
+* SceneHeading attrs 改写场景跑通。
+
+**Phase 13 — DiffBlock 下线**
+
+* 移除 `extensions/diff-block.tsx`；
+* 清理 `use-stream-writer.ts` 中 AI 改写相关分支（如有其他流式场景需求则保留通用部分）；
+* 清理 `server/chat/editor-ai-protocol.ts` 中 patch / extractSelectionText 逻辑；
+* 删除关联测试或迁移到新协议测试。
+
+**Phase 14 — Prompt 与文档收尾**
+
+* 更新 `features/rich-editor/README.md`、`features/agent-editor/README.md`；
+* 服务端 prompt 强约束 `propose_edits` 工具调用规范；
+* 关键回归测试：选区扩展、anchor 解析（含跨场次）、apply / undo 顺序、stale 检测。
+
+---
+
+## 十二、关键风险清单
+
+| 风险 | 对策 |
+| --- | --- |
+| atom 节点 NodeView 内 chip 点击丢焦 | chip `onMouseDown={e => e.preventDefault()}`，再手动 dispatch open meta |
+| 自动弹菜单（character / transition）反复打开 | 控制器记 `openedFor: pos`，节点位置不变就不重复 open |
+| Tab 在浏览器默认换焦点 | Shell 在 capture 阶段 `preventDefault` |
+| 序号 Decoration 与 collab/undo 冲突 | 装饰为派生数据，不写回 doc，不进 history |
+| anchor `text-range` 全文歧义 | LLM prompt 强制要求 before/after 上下文；前端歧义时给卡片 `stale` 状态 |
+| 用户在 pending 期间编辑文档 | 编辑器 update 事件触发 `refreshResolution`；卡片标 stale，禁用应用 |
+| 一次性"全部应用"位置漂移 | 按 from 倒序应用 |
+| 已应用 entry 之上又编辑 | 标 `superseded`，禁用撤销 |
+| LLM 输出非法 JSON / 缺字段 | propose-edits-schema 用 zod 校验 + 服务端拦截重试 |
+| 旧文档 `<scene>` 兼容 | sceneHeading parseHTML.getAttrs 兜底 + action.parseHTML 接 `<scene>` |
+
+---
+
+## 十三、对外契约（最重要的不变量）
+
+* 编辑器对外暴露的 `getJSON()` / `getHTML()` 用新 schema；序列化结果稳定，可作为存储格式。
+* 服务端可消费的两个入口：
+  * 请求体 `{ requestId, message, selection: { contentWithSelection, oldText } }`；
+  * 响应通过 `propose_edits` 工具返回 `ProposeEditsArgs`。
+* 前端单卡片状态机：`pending → applied / rejected / stale / superseded`，applied 可 `undo` 回到 `pending`。
+* SceneHeading 永远不进入文本 diff 流程；其结构化变更走 `update-node-attrs`。
+
+---
+
+按这个方案落地，可以先在新会话里冻结三个文件作为协议合同：`propose-edits-schema.ts`、`anchor-resolver.ts` 接口、`edits-store.ts` 接口。剩下的 13 个 Phase 都可以在不破坏这三个合同的前提下并行推进。
