@@ -20,6 +20,11 @@ import {
   Strikethrough,
   Code,
   ChevronRight,
+  Clapperboard,
+  Map,
+  Activity,
+  User,
+  MessageSquare,
 } from "lucide-react";
 
 export type SlashCommandId =
@@ -35,6 +40,11 @@ export type SlashCommandId =
   | "orderedList"
   | "codeBlock"
   | "blockquote"
+  | "sceneHeading"
+  | "scene"
+  | "action"
+  | "character"
+  | "dialogue"
   | "alignLeft"
   | "alignCenter"
   | "alignRight"
@@ -126,6 +136,42 @@ const rootSections: SlashMenuSection[] = [
         label: "Quote",
         icon: Quote,
         keywords: ["quote", "blockquote"],
+      },
+    ],
+  },
+  {
+    id: "script",
+    title: "Script",
+    items: [
+      {
+        id: "sceneHeading",
+        label: "Scene Heading",
+        icon: Clapperboard,
+        keywords: ["scene heading", "scene title", "slugline"],
+      },
+      {
+        id: "scene",
+        label: "Scene",
+        icon: Map,
+        keywords: ["setting", "environment"],
+      },
+      {
+        id: "action",
+        label: "Action",
+        icon: Activity,
+        keywords: ["movement", "description"],
+      },
+      {
+        id: "character",
+        label: "Character",
+        icon: User,
+        keywords: ["speaker", "role"],
+      },
+      {
+        id: "dialogue",
+        label: "Dialogue",
+        icon: MessageSquare,
+        keywords: ["line", "speech"],
       },
     ],
   },

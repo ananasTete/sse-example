@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from "react";
 import { useEditorState } from "@tiptap/react";
+import { DOMSerializer } from "@tiptap/pm/model";
 import { getAISelectionRange } from "@/features/rich-editor/extensions/ai-selection-highlight";
 import { createEditorAIRequest } from "../services/editor-ai-context";
 import type { DocumentSelectionReference } from "../chat/types";
@@ -348,8 +349,8 @@ export function useEditorAgent({
   // ===============================================
 
   /**
-   * 从当前 plugin state 读取选区范围，构建带 <selection-start/> / <selection-end/>
-   * 标记的文档引用。纯字符串操作，不修改文档。
+   * 从当前 plugin state 读取选区范围，构建带 selection boundary
+   * 标记的完整 HTML 文档引用。
    *
    * 无选区时返回 null（全文模式下不需要 reference）。
    */
@@ -360,23 +361,20 @@ export function useEditorAgent({
       const range = getAISelectionRange(editor.state);
       if (!range || range.from >= range.to) return null;
 
-      const doc = editor.state.doc;
-      const docSize = doc.content.size;
+      const startBoundary = editor.state.schema.nodes.selectionStartBoundary;
+      const endBoundary = editor.state.schema.nodes.selectionEndBoundary;
+      if (!startBoundary || !endBoundary) return null;
 
-      const beforeSelection = doc.textBetween(0, range.from, "\n\n");
-      const selectedText = doc.textBetween(range.from, range.to, "\n\n");
-      const afterSelection = doc.textBetween(range.to, docSize, "\n\n");
-
-      const contentWithSelection =
-        beforeSelection +
-        "<selection-start/>" +
-        selectedText +
-        "<selection-end/>" +
-        afterSelection;
+      const tr = editor.state.tr
+        .insert(range.to, endBoundary.create())
+        .insert(range.from, startBoundary.create());
+      const serializer = DOMSerializer.fromSchema(editor.state.schema);
+      const container = document.createElement("div");
+      container.appendChild(serializer.serializeFragment(tr.doc.content));
 
       return {
         type: "selection",
-        content_with_selection: contentWithSelection,
+        content_with_selection: container.innerHTML,
         is_full_content: true,
         origin_id: originId,
         origin_type: "document" as const,

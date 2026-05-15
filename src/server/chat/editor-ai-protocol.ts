@@ -57,12 +57,22 @@ function htmlToText(html: string) {
   return decodeHtmlEntities(html.replace(/<[^>]*>/g, ""));
 }
 
+const TEXT_BLOCK_TAGS =
+  "p|h[1-6]|li|blockquote|scene-heading|scene|action|character|dialogue";
+
 function selectionHtmlToText(html: string) {
+  const adjacentBlocks = new RegExp(
+    `</(?:${TEXT_BLOCK_TAGS})>\\s*<(?:${TEXT_BLOCK_TAGS})\\b[^>]*>`,
+    "gi",
+  );
+  const openingBlocks = new RegExp(`<(?:${TEXT_BLOCK_TAGS})\\b[^>]*>`, "gi");
+  const closingBlocks = new RegExp(`</(?:${TEXT_BLOCK_TAGS})>`, "gi");
+
   return htmlToText(
     html
-      .replace(/<\/(?:p|h[1-6]|li|blockquote)>\s*<(?:p|h[1-6]|li|blockquote)\b[^>]*>/gi, "\n\n")
-      .replace(/<(?:p|h[1-6]|li|blockquote)\b[^>]*>/gi, "")
-      .replace(/<\/(?:p|h[1-6]|li|blockquote)>/gi, ""),
+      .replace(adjacentBlocks, "\n\n")
+      .replace(openingBlocks, "")
+      .replace(closingBlocks, ""),
   );
 }
 

@@ -13,27 +13,37 @@ import {
 import { DiffBlock, DiffChange } from "./extensions/diff-block";
 import { Underline } from "./extensions/underline";
 import { SlashCommand } from "./extensions/slash-command";
+import {
+  Action,
+  Character,
+  Dialogue,
+  Scene,
+  SceneHeading,
+} from "./extensions/script-nodes";
 import { BubbleMenu } from "./bubble-menu";
 import { SlashCommandMenu } from "./slash-command";
 import { useEffect } from "react";
 import "./editor.css";
 
 export const DEFAULT_EDITOR_CONTENT = `
-  <h1>Welcome to Tiptap Editor</h1>
-  <p>This is a <strong>rich text editor</strong> with a powerful <em>bubble menu</em>.</p>
-  <p>Select some text to see the formatting options!</p>
-  <h2>Features</h2>
-  <ul>
-    <li>Bold, Italic, Underline, Strikethrough</li>
-    <li>Text color and background color</li>
-    <li>Headings (H1-H6)</li>
-    <li>Lists and blockquotes</li>
-    <li>Text alignment</li>
-  </ul>
-  <blockquote>
-    <p>This is a blockquote. It can contain multiple paragraphs.</p>
-  </blockquote>
-  <p>Try selecting this paragraph and applying some <code>formatting</code>!</p>
+  <scene-heading>1. 內景 教室 白天 小芸、阿良</scene-heading>
+  <scene>一間寬敞明亮的教室，窗外陽光灑進來，照在學生的臉上。</scene>
+  <action>小芸坐在窗邊，一邊寫著筆記，一邊偷看同學阿良。</action>
+  <character style="text-align: center;">小芸:</character>
+  <dialogue style="text-align: center;">你昨天有唸書嗎？</dialogue>
+  <character style="text-align: center;">阿良:</character>
+  <dialogue style="text-align: center;">沒有耶，我昨天打電動到半夜……</dialogue>
+  <action>小芸翻了個白眼，繼續低頭寫筆記。</action>
+  <action>阿良趁機把手機藏在課本後面，繼續玩著手遊。</action>
+  <scene-heading>2. 外景 公園 下午 小芸、阿良</scene-heading>
+  <scene>陽光透過樹葉灑在長椅上，風吹過來帶著微微的涼意。</scene>
+  <action>小芸坐在長椅上吃著冰淇淋，表情放鬆。</action>
+  <action>阿良慢慢走近，手上拿著兩瓶飲料。</action>
+  <character style="text-align: center;">阿良:</character>
+  <dialogue style="text-align: center;">你怎麼一個人跑來公園？</dialogue>
+  <character style="text-align: center;">小芸:</character>
+  <dialogue style="text-align: center;">想一個人靜靜，結果還是被你找到了。</dialogue>
+  <action>兩人相視而笑，氣氛輕鬆。</action>
 `;
 
 export interface TiptapEditorRef {
@@ -64,10 +74,23 @@ const TiptapEditor = ({
       StarterKit,
       Underline,
       SlashCommand,
+      SceneHeading,
+      Scene,
+      Action,
+      Character,
+      Dialogue,
       TextAlign.configure({
-        types: ["heading", "paragraph"],
+        types: [
+          "heading",
+          "paragraph",
+          "sceneHeading",
+          "scene",
+          "action",
+          "character",
+          "dialogue",
+        ],
         alignments: ["left", "center", "right"],
-        defaultAlignment: "left",
+        defaultAlignment: null,
       }),
       TextStyle,
       Color,

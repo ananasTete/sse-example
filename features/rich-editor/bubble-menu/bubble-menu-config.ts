@@ -11,8 +11,14 @@ import {
   ListOrdered,
   Code2,
   Quote,
+  Clapperboard,
+  Map,
+  Activity,
+  User,
+  MessageSquare,
   type LucideIcon,
 } from "lucide-react";
+import { getScriptNodeDefaultAttributes } from "../extensions/script-nodes";
 
 interface NodeTypeOption {
   id: string;
@@ -120,6 +126,71 @@ export const nodeTypes = [
     isActive: (editor) => editor.isActive("blockquote"),
     command: (editor) => {
       editor.chain().focus().toggleBlockquote().run();
+    },
+  },
+  {
+    id: "sceneHeading",
+    label: "Scene Heading",
+    icon: Clapperboard,
+    isActive: (editor) => editor.isActive("sceneHeading"),
+    command: (editor) => {
+      editor
+        .chain()
+        .focus()
+        .setNode("sceneHeading", getScriptNodeDefaultAttributes("sceneHeading"))
+        .run();
+    },
+  },
+  {
+    id: "scene",
+    label: "Scene",
+    icon: Map,
+    isActive: (editor) => editor.isActive("scene"),
+    command: (editor) => {
+      editor
+        .chain()
+        .focus()
+        .setNode("scene", getScriptNodeDefaultAttributes("scene"))
+        .run();
+    },
+  },
+  {
+    id: "action",
+    label: "Action",
+    icon: Activity,
+    isActive: (editor) => editor.isActive("action"),
+    command: (editor) => {
+      editor
+        .chain()
+        .focus()
+        .setNode("action", getScriptNodeDefaultAttributes("action"))
+        .run();
+    },
+  },
+  {
+    id: "character",
+    label: "Character",
+    icon: User,
+    isActive: (editor) => editor.isActive("character"),
+    command: (editor) => {
+      editor
+        .chain()
+        .focus()
+        .setNode("character", getScriptNodeDefaultAttributes("character"))
+        .run();
+    },
+  },
+  {
+    id: "dialogue",
+    label: "Dialogue",
+    icon: MessageSquare,
+    isActive: (editor) => editor.isActive("dialogue"),
+    command: (editor) => {
+      editor
+        .chain()
+        .focus()
+        .setNode("dialogue", getScriptNodeDefaultAttributes("dialogue"))
+        .run();
     },
   },
 ] as const satisfies readonly NodeTypeOption[];

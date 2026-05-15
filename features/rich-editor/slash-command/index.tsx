@@ -23,6 +23,7 @@ import {
   SlashCommandPluginKey,
   type SlashCommandPluginState,
 } from "../extensions/slash-command";
+import { getScriptNodeDefaultAttributes } from "../extensions/script-nodes";
 import "./slash-command.css";
 
 interface SlashCommandMenuProps {
@@ -79,6 +80,21 @@ function runSlashCommand(editor: Editor, commandId: SlashCommandId, slashFrom: n
       break;
     case "blockquote":
       chain.toggleBlockquote();
+      break;
+    case "sceneHeading":
+      chain.setNode("sceneHeading", getScriptNodeDefaultAttributes("sceneHeading"));
+      break;
+    case "scene":
+      chain.setNode("scene", getScriptNodeDefaultAttributes("scene"));
+      break;
+    case "action":
+      chain.setNode("action", getScriptNodeDefaultAttributes("action"));
+      break;
+    case "character":
+      chain.setNode("character", getScriptNodeDefaultAttributes("character"));
+      break;
+    case "dialogue":
+      chain.setNode("dialogue", getScriptNodeDefaultAttributes("dialogue"));
       break;
     case "alignLeft":
       chain.setTextAlign("left");

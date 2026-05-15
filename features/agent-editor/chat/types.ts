@@ -136,11 +136,11 @@ export interface AgentChatCompletionOptions {
 
 /**
  * 带选区标记的文档引用
- * content_with_selection 中用 <selection-start/> 和 <selection-end/> 标记选区范围
+ * content_with_selection 中用成对的 selection boundary 标签标记选区范围
  */
 export interface DocumentSelectionReference {
   type: "selection";
-  /** 带选区标记的完整文档文本 */
+  /** 带选区标记的完整文档 HTML */
   content_with_selection: string;
   /** true = 包含完整文档；false = 因文档过长而截断 */
   is_full_content: boolean;
