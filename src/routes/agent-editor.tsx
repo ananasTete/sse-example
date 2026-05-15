@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import type { Editor } from "@tiptap/react";
 import TiptapEditor from "@/features/rich-editor/editor";
@@ -7,6 +7,7 @@ import {
   type AgentChatHandle,
 } from "@/features/agent-editor/components/agent-chat";
 import { useEditorAgent } from "@/features/agent-editor/hooks/use-editor-agent";
+import { EditorAgentProvider } from "@/features/agent-editor/context/editor-agent-context";
 import { ErrorBoundary } from "@/features/agent-editor/components/error-boundary";
 import {
   loadAgentEditorDocument,
@@ -22,45 +23,56 @@ function AgentEditorPage() {
   const agentChatRef = useRef<AgentChatHandle>(null);
   const [editorScrollElement, setEditorScrollElement] =
     useState<HTMLDivElement | null>(null);
-  const [initialContent] = useState(
-    () => loadAgentEditorDocument()?.raw,
-  );
+  const [initialContent] = useState(() => loadAgentEditorDocument()?.raw);
   const editorAgent = useEditorAgent({ editor });
 
   const handleEditorReady = (editorInstance: Editor) => {
     setEditor(editorInstance);
   };
 
-  const handleSelectionAISubmit = useCallback((prompt: string) => {
-    return agentChatRef.current?.submitFromSelectionPanel(prompt) ?? false;
-  }, []);
+  // Actions 引用稳定，不会因选区变化触发消费者 re-render
+  const actions = useMemo(
+    () => ({
+      submit: (prompt: string) => {
+        return agentChatRef.current?.submitFromSelectionPanel(prompt) ?? false;
+      },
+      clearSelection: () => {
+        editorAgent.clearSelectionMode();
+      },
+    }),
+    [editorAgent.clearSelectionMode],
+  );
 
   return (
-    <div className="h-screen p-4 bg-[#fbf7f2]">
-      <div className="h-full flex gap-2 border border-[#ece4d8] bg-[#fdfaf6]">
-        <div
-          ref={setEditorScrollElement}
-          className="rounded-sm flex-1 overflow-auto bg-white shadow-[0_1px_0_rgba(63,53,45,0.05)]"
-        >
-          <div className="w-200 mx-auto">
+    <EditorAgentProvider
+      selectionInfo={editorAgent.selectionInfo}
+      actions={actions}
+    >
+      <div className="h-screen p-4 bg-[#fbf7f2]">
+        <div className="h-full flex gap-2 border border-[#ece4d8] bg-[#fdfaf6]">
+          <div
+            ref={setEditorScrollElement}
+            className="rounded-sm flex-1 overflow-auto bg-white shadow-[0_1px_0_rgba(63,53,45,0.05)]"
+          >
+            <div className="w-200 mx-auto">
+              <ErrorBoundary>
+                <TiptapEditor
+                  initialContent={initialContent}
+                  onEditorReady={handleEditorReady}
+                  onDocumentChange={saveAgentEditorDocument}
+                  scrollTarget={editorScrollElement}
+                />
+              </ErrorBoundary>
+            </div>
+          </div>
+
+          <div className="rounded-sm w-150 overflow-hidden">
             <ErrorBoundary>
-              <TiptapEditor
-                initialContent={initialContent}
-                onEditorReady={handleEditorReady}
-                onDocumentChange={saveAgentEditorDocument}
-                scrollTarget={editorScrollElement}
-                onSelectionAISubmit={handleSelectionAISubmit}
-              />
+              <AgentChat ref={agentChatRef} editorAgent={editorAgent} />
             </ErrorBoundary>
           </div>
         </div>
-
-        <div className="rounded-sm w-150 overflow-hidden">
-          <ErrorBoundary>
-            <AgentChat ref={agentChatRef} editorAgent={editorAgent} />
-          </ErrorBoundary>
-        </div>
       </div>
-    </div>
+    </EditorAgentProvider>
   );
 }

@@ -6,6 +6,8 @@ import type {
   AgentChatSessionListItem,
   AgentChatSessionPatch,
   AgentChatState,
+  AtReference,
+  CompletionOrigin,
 } from "../types";
 import { agentChatKeys } from "./keys";
 import { updateAgentChatSessionListItem } from "./useAgentChatSessionList";
@@ -16,6 +18,8 @@ export async function createAgentChatCompletionRequest(input: {
   parentMessageId: number | null;
   thinkingEnabled: boolean;
   searchEnabled: boolean;
+  atReferences?: AtReference[];
+  origin?: CompletionOrigin;
 }) {
   return fetch("/api/agent-editor/chat/completion", {
     method: "POST",
@@ -26,6 +30,8 @@ export async function createAgentChatCompletionRequest(input: {
       chat_session_id: input.chatSessionId,
       parent_message_id: input.parentMessageId,
       prompt: input.prompt,
+      origin: input.origin ?? null,
+      at_references: input.atReferences ?? [],
       ref_file_ids: [],
       thinking_enabled: input.thinkingEnabled,
       search_enabled: input.searchEnabled,
@@ -99,6 +105,8 @@ export function useAgentChatCompletion() {
       parentMessageId: number | null;
       thinkingEnabled?: boolean;
       searchEnabled?: boolean;
+      atReferences?: AtReference[];
+      origin?: CompletionOrigin;
     }) => {
       const options = {
         chatSessionId: input.chatSessionId,
@@ -106,6 +114,8 @@ export function useAgentChatCompletion() {
         parentMessageId: input.parentMessageId,
         thinkingEnabled: input.thinkingEnabled ?? false,
         searchEnabled: input.searchEnabled ?? false,
+        atReferences: input.atReferences ?? [],
+        origin: input.origin,
         optimisticUserMessageId: nextOptimisticMessageId(),
       };
 

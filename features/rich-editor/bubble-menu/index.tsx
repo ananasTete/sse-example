@@ -21,7 +21,6 @@ import { getActiveNodeTypeId } from "./bubble-menu-config";
 interface BubbleMenuProps {
   editor: Editor;
   scrollTarget?: HTMLElement | Window | null;
-  onSelectionAISubmit?: (prompt: string) => boolean;
 }
 
 const alignMatchers: Array<{
@@ -45,7 +44,6 @@ function getActiveAlignId(editor: Editor): AlignId {
 export function BubbleMenu({
   editor,
   scrollTarget,
-  onSelectionAISubmit,
 }: BubbleMenuProps) {
   const [showAIPanel, setShowAIPanel] = useState(false);
 
@@ -203,7 +201,6 @@ export function BubbleMenu({
         <AIFloatingPanel
           editor={editor}
           onClose={handleCloseAIPanel}
-          onSelectionAISubmit={onSelectionAISubmit}
         />
       )}
     </>

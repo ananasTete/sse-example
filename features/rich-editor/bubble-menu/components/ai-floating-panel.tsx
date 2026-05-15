@@ -10,6 +10,7 @@ import {
   autoUpdate,
 } from "@floating-ui/react";
 import { getAISelectionRange } from "../../extensions/ai-selection-highlight";
+import { useEditorAgentActions } from "@/features/agent-editor/context/editor-agent-context";
 import { FloatingMenuLayer } from "./floating-menu-layer";
 
 type AIStatus = "input" | "error";
@@ -17,7 +18,6 @@ type AIStatus = "input" | "error";
 interface AIFloatingPanelProps {
   editor: Editor;
   onClose: (payload: AIPanelClosePayload) => void;
-  onSelectionAISubmit?: (prompt: string) => boolean;
 }
 
 export interface AIPanelClosePayload {
@@ -32,8 +32,8 @@ export interface AIPanelClosePayload {
 export function AIFloatingPanel({
   editor,
   onClose,
-  onSelectionAISubmit,
 }: AIFloatingPanelProps) {
+  const { submit: onSelectionAISubmit } = useEditorAgentActions();
   const [status, setStatus] = useState<AIStatus>("input");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
@@ -165,7 +165,7 @@ export function AIFloatingPanel({
       return;
     }
 
-    const submitted = onSelectionAISubmit?.(prompt) ?? false;
+    const submitted = onSelectionAISubmit(prompt);
     if (!submitted) {
       setErrorMessage("当前会话正在生成，或选区已失效。");
       setStatus("error");

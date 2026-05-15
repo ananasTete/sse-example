@@ -2,6 +2,7 @@ import { useCallback, useEffect } from "react";
 import { useEditorState } from "@tiptap/react";
 import { getAISelectionRange } from "@/features/rich-editor/extensions/ai-selection-highlight";
 import { createEditorAIRequest } from "../services/editor-ai-context";
+import type { DocumentSelectionReference } from "../chat/types";
 import type {
   EditorMode,
   ChatContext,
@@ -342,6 +343,48 @@ export function useEditorAgent({
     [editor],
   );
 
+  // ===============================================
+  // 构建选区引用（用于 completion 请求的 at_references）
+  // ===============================================
+
+  /**
+   * 从当前 plugin state 读取选区范围，构建带 <selection-start/> / <selection-end/>
+   * 标记的文档引用。纯字符串操作，不修改文档。
+   *
+   * 无选区时返回 null（全文模式下不需要 reference）。
+   */
+  const buildSelectionReference = useCallback(
+    (originId = "document"): DocumentSelectionReference | null => {
+      if (!editor) return null;
+
+      const range = getAISelectionRange(editor.state);
+      if (!range || range.from >= range.to) return null;
+
+      const doc = editor.state.doc;
+      const docSize = doc.content.size;
+
+      const beforeSelection = doc.textBetween(0, range.from, "\n\n");
+      const selectedText = doc.textBetween(range.from, range.to, "\n\n");
+      const afterSelection = doc.textBetween(range.to, docSize, "\n\n");
+
+      const contentWithSelection =
+        beforeSelection +
+        "<selection-start/>" +
+        selectedText +
+        "<selection-end/>" +
+        afterSelection;
+
+      return {
+        type: "selection",
+        content_with_selection: contentWithSelection,
+        is_full_content: true,
+        origin_id: originId,
+        origin_type: "document" as const,
+      };
+    },
+    [editor],
+  );
+
   return {
     editor,
     mode,
@@ -353,6 +396,7 @@ export function useEditorAgent({
     scrollToPosition,
     getContext,
     createAIRequest,
+    buildSelectionReference,
     // Inline Diff 相关
     insertDiffNode,
     insertDiffByText,

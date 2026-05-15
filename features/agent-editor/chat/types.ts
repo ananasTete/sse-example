@@ -129,3 +129,35 @@ export interface AgentChatCompletionOptions {
   searchEnabled: boolean;
   optimisticUserMessageId?: number;
 }
+
+// ============================================================
+// Reference types（at_references）
+// ============================================================
+
+/**
+ * 带选区标记的文档引用
+ * content_with_selection 中用 <selection-start/> 和 <selection-end/> 标记选区范围
+ */
+export interface DocumentSelectionReference {
+  type: "selection";
+  /** 带选区标记的完整文档文本 */
+  content_with_selection: string;
+  /** true = 包含完整文档；false = 因文档过长而截断 */
+  is_full_content: boolean;
+  /** 来源文档 ID */
+  origin_id: string;
+  /** 来源类型 */
+  origin_type: "document";
+}
+
+/** 顶层文档来源引用 */
+export interface DocumentOriginReference {
+  type: "document";
+  id: string;
+}
+
+/** 未来可扩展：引用其他文档、文件等 */
+export type AtReference = DocumentSelectionReference;
+
+/** completion 请求的顶层 origin 字段 */
+export type CompletionOrigin = DocumentOriginReference;

@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import tsConfigPaths from "vite-tsconfig-paths";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 
-const APP_PORT = Number(process.env.PORT ?? 3673);
+const APP_PORT = Number(process.env.PORT ?? 3766);
 
 export default defineConfig({
   server: {

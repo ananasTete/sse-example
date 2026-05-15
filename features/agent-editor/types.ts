@@ -1,5 +1,6 @@
 import type { Editor } from "@tiptap/react";
 import type { EditorAIRequest } from "./services/editor-ai-context";
+import type { DocumentSelectionReference } from "./chat/types";
 
 // 交互模式
 export type EditorMode = "fulltext" | "selection";
@@ -67,6 +68,7 @@ export interface UseEditorAgentReturn {
   scrollToPosition: (from: number) => void;
   getContext: () => ChatContext;
   createAIRequest: (message: string) => EditorAIRequest | null;
+  buildSelectionReference: (originId?: string) => DocumentSelectionReference | null;
   // Inline Diff 相关
   insertDiffNode: (
     from: number,

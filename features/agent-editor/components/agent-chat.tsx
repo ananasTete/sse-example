@@ -21,6 +21,7 @@ import {
   useAgentDraftSession,
   useAgentResumeChatCompletion,
 } from "../chat/hooks";
+import { ContextBar } from "./context-bar";
 import { AgentChatHistoryPopover } from "../chat/components/agent-chat-history-popover";
 import { AgentChatMessageList } from "../chat/components/agent-chat-message-list";
 import { AgentChatPromptInput } from "../chat/components/agent-chat-prompt-input";
@@ -40,8 +41,6 @@ function getSessionTitle(title: string | null | undefined) {
 
 export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
   function AgentChat(props, ref) {
-    void props.editorAgent;
-
     const queryClient = useQueryClient();
     const submitLockRef = useRef(false);
     const resumeKeyRef = useRef<string | null>(null);
@@ -151,12 +150,22 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
         setPanelError(null);
         try {
           const targetState = await ensureActiveSession();
+
+          // 固定文档 ID，待文档系统接入后替换为真实 ID
+          const DOCUMENT_ID = "agent-editor-document";
+
+          // 发送时实时读取选区快照，不在 BubbleMenu 侧提前生成
+          const selectionRef = props.editorAgent.buildSelectionReference(DOCUMENT_ID);
+          const atReferences = selectionRef ? [selectionRef] : [];
+
           await createCompletion({
             chatSessionId: targetState.chat_session.id,
             prompt: messageText,
             parentMessageId: targetState.chat_session.current_message_id,
             thinkingEnabled: false,
             searchEnabled: false,
+            atReferences,
+            origin: { type: "document", id: DOCUMENT_ID },
           });
           return true;
         } catch (error) {
@@ -168,7 +177,7 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
           submitLockRef.current = false;
         }
       },
-      [createCompletion, ensureActiveSession, isStreaming],
+      [createCompletion, ensureActiveSession, isStreaming, props.editorAgent],
     );
 
     useImperativeHandle(
@@ -251,6 +260,7 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
               </div>
             ) : null}
             <div className="shrink-0 bg-gradient-to-t from-[#faf7f3] via-[#faf7f3] to-transparent px-3 pb-4 pt-3">
+              <ContextBar />
               <AgentChatPromptInput
                 disabled={isStreaming}
                 isSending={isStreaming || isPreparingDraft}
