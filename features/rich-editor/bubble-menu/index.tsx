@@ -10,35 +10,13 @@ import {
 } from "./components/ai-floating-panel";
 import "./bubble-menu.css";
 import { Divider } from "./components/divider";
-import { NodeTypeSelect } from "./components/node-type-select";
-import { AlignSelect, type AlignId } from "./components/align-select";
-import { ColorSelect } from "./components/color-select";
 import { MoreMenu } from "./components/more-menu";
 import { FormatButtons } from "./components/format-buttons";
 import { getAISelectionRange } from "../extensions/ai-selection-highlight";
-import { getActiveNodeTypeId } from "./bubble-menu-config";
 
 interface BubbleMenuProps {
   editor: Editor;
   scrollTarget?: HTMLElement | Window | null;
-}
-
-const alignMatchers: Array<{
-  id: AlignId;
-  isActive: (editor: Editor) => boolean;
-}> = [
-  {
-    id: "center",
-    isActive: (editor) => editor.isActive({ textAlign: "center" }),
-  },
-  {
-    id: "right",
-    isActive: (editor) => editor.isActive({ textAlign: "right" }),
-  },
-];
-
-function getActiveAlignId(editor: Editor): AlignId {
-  return alignMatchers.find((item) => item.isActive(editor))?.id ?? "left";
 }
 
 export function BubbleMenu({
@@ -50,16 +28,8 @@ export function BubbleMenu({
   const ui = useEditorState({
     editor,
     selector: ({ editor }) => {
-      const textColor = editor.getAttributes("textStyle").color || null;
-      const highlightColor = editor.getAttributes("highlight").color || null;
-
       return {
-        nodeTypeId: getActiveNodeTypeId(editor),
-        alignId: getActiveAlignId(editor),
-        textColor,
-        highlightColor,
         isBold: editor.isActive("bold"),
-        isCode: editor.isActive("code"),
         isItalic: editor.isActive("italic"),
         isStrike: editor.isActive("strike"),
         isUnderline: editor.isActive("underline"),
@@ -156,37 +126,13 @@ export function BubbleMenu({
 
           <Divider />
 
-          {/* Node Type Select */}
-          <NodeTypeSelect
-            editor={editor}
-            activeTypeId={ui.nodeTypeId}
-          />
-
-          {/* Alignment Select */}
-          <AlignSelect
-            editor={editor}
-            activeAlignId={ui.alignId}
-          />
-
-          <Divider />
-
           {/* Format Buttons */}
           <FormatButtons
             editor={editor}
             isBold={ui.isBold}
-            isCode={ui.isCode}
             isItalic={ui.isItalic}
             isStrike={ui.isStrike}
             isUnderline={ui.isUnderline}
-          />
-
-          <Divider />
-
-          {/* Color Select */}
-          <ColorSelect
-            editor={editor}
-            activeTextColor={ui.textColor}
-            activeHighlight={ui.highlightColor}
           />
 
           <Divider />

@@ -23,7 +23,6 @@ import {
   SlashCommandPluginKey,
   type SlashCommandPluginState,
 } from "../extensions/slash-command";
-import { getScriptNodeDefaultAttributes } from "../extensions/script-nodes";
 import "./slash-command.css";
 
 interface SlashCommandMenuProps {
@@ -81,30 +80,6 @@ function runSlashCommand(editor: Editor, commandId: SlashCommandId, slashFrom: n
     case "blockquote":
       chain.toggleBlockquote();
       break;
-    case "sceneHeading":
-      chain.setNode("sceneHeading", getScriptNodeDefaultAttributes("sceneHeading"));
-      break;
-    case "scene":
-      chain.setNode("scene", getScriptNodeDefaultAttributes("scene"));
-      break;
-    case "action":
-      chain.setNode("action", getScriptNodeDefaultAttributes("action"));
-      break;
-    case "character":
-      chain.setNode("character", getScriptNodeDefaultAttributes("character"));
-      break;
-    case "dialogue":
-      chain.setNode("dialogue", getScriptNodeDefaultAttributes("dialogue"));
-      break;
-    case "alignLeft":
-      chain.setTextAlign("left");
-      break;
-    case "alignCenter":
-      chain.setTextAlign("center");
-      break;
-    case "alignRight":
-      chain.setTextAlign("right");
-      break;
     case "bold":
       chain.toggleBold();
       break;
@@ -116,9 +91,6 @@ function runSlashCommand(editor: Editor, commandId: SlashCommandId, slashFrom: n
       break;
     case "strike":
       chain.toggleStrike();
-      break;
-    case "inlineCode":
-      chain.toggleCode();
       break;
     case "headingMore":
       // Should never be executed.

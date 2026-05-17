@@ -1,11 +1,10 @@
 import { memo } from 'react'
 import { type Editor } from '@tiptap/react'
-import { Bold, Code, Italic, Strikethrough, Underline } from 'lucide-react'
+import { Bold, Italic, Strikethrough, Underline } from 'lucide-react'
 
 interface FormatButtonsProps {
   editor: Editor
   isBold: boolean
-  isCode: boolean
   isItalic: boolean
   isStrike: boolean
   isUnderline: boolean
@@ -14,7 +13,6 @@ interface FormatButtonsProps {
 export const FormatButtons = memo(function FormatButtons({
   editor,
   isBold,
-  isCode,
   isItalic,
   isStrike,
   isUnderline,
@@ -28,14 +26,6 @@ export const FormatButtons = memo(function FormatButtons({
         title="Bold (⌘B)"
       >
         <Bold size={16} />
-      </button>
-      <button
-        type="button"
-        onClick={() => editor.chain().focus().toggleCode().run()}
-        className={isCode ? 'is-active' : ''}
-        title="Inline Code (⌘E)"
-      >
-        <Code size={16} />
       </button>
       <button
         type="button"

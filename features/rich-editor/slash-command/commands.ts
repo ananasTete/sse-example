@@ -11,20 +11,11 @@ import {
   ListOrdered,
   Code2,
   Quote,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
   Bold,
   Italic,
   Underline,
   Strikethrough,
-  Code,
   ChevronRight,
-  Clapperboard,
-  Map,
-  Activity,
-  User,
-  MessageSquare,
 } from "lucide-react";
 
 export type SlashCommandId =
@@ -40,19 +31,10 @@ export type SlashCommandId =
   | "orderedList"
   | "codeBlock"
   | "blockquote"
-  | "sceneHeading"
-  | "scene"
-  | "action"
-  | "character"
-  | "dialogue"
-  | "alignLeft"
-  | "alignCenter"
-  | "alignRight"
   | "bold"
   | "italic"
   | "underline"
-  | "strike"
-  | "inlineCode";
+  | "strike";
 
 export interface SlashMenuItem {
   id: SlashCommandId;
@@ -140,56 +122,6 @@ const rootSections: SlashMenuSection[] = [
     ],
   },
   {
-    id: "script",
-    title: "Script",
-    items: [
-      {
-        id: "sceneHeading",
-        label: "Scene Heading",
-        icon: Clapperboard,
-        keywords: ["scene heading", "scene title", "slugline"],
-      },
-      {
-        id: "scene",
-        label: "Scene",
-        icon: Map,
-        keywords: ["setting", "environment"],
-      },
-      {
-        id: "action",
-        label: "Action",
-        icon: Activity,
-        keywords: ["movement", "description"],
-      },
-      {
-        id: "character",
-        label: "Character",
-        icon: User,
-        keywords: ["speaker", "role"],
-      },
-      {
-        id: "dialogue",
-        label: "Dialogue",
-        icon: MessageSquare,
-        keywords: ["line", "speech"],
-      },
-    ],
-  },
-  {
-    id: "align",
-    title: "Align",
-    items: [
-      { id: "alignLeft", label: "Align left", icon: AlignLeft, keywords: ["left"] },
-      {
-        id: "alignCenter",
-        label: "Align center",
-        icon: AlignCenter,
-        keywords: ["center", "middle"],
-      },
-      { id: "alignRight", label: "Align right", icon: AlignRight, keywords: ["right"] },
-    ],
-  },
-  {
     id: "style",
     title: "Style",
     items: [
@@ -202,7 +134,6 @@ const rootSections: SlashMenuSection[] = [
         icon: Strikethrough,
         keywords: ["strike", "del"],
       },
-      { id: "inlineCode", label: "Inline code", icon: Code, keywords: ["code"] },
     ],
   },
 ];

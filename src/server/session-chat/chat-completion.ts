@@ -5,10 +5,7 @@ import {
 import { stepCountIs, streamText } from "ai";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
-import {
-  SSE_HEADERS,
-  createSseResponse,
-} from "@/src/server/http/sse";
+import { SSE_HEADERS, createSseResponse } from "@/src/server/http/sse";
 import {
   bridgeAIStreamToPatches,
   createPatchEmitter,
@@ -36,11 +33,22 @@ interface CompletionRequestBody {
   chat_session_id: string;
   parent_message_id: number | null;
   prompt: string;
+  at_references: AtReference[];
   ref_file_ids: string[];
   thinking_enabled: boolean;
   search_enabled: boolean;
   preempt: boolean;
 }
+
+interface DocumentSelectionReference {
+  type: "selection";
+  content_with_selection: string;
+  is_full_content: boolean;
+  origin_id: string;
+  origin_type: "document";
+}
+
+type AtReference = DocumentSelectionReference;
 
 interface ResumeStreamRequestBody {
   chat_session_id: string;
@@ -61,10 +69,7 @@ class CompletionHttpError extends Error {
   }
 }
 
-const activeCompletionControllers = new Map<
-  string,
-  ActiveCompletionRun
->();
+const activeCompletionControllers = new Map<string, ActiveCompletionRun>();
 
 interface ActiveCompletionRun {
   chatSessionId: string;
@@ -86,6 +91,64 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
 const toEpochSeconds = (date: Date) => date.getTime() / 1000;
+
+function parseAtReferences(value: unknown): AtReference[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new Error("at_references must be an array");
+  }
+
+  return value.flatMap((item) => {
+    if (!isRecord(item)) return [];
+    if (item.type !== "selection") return [];
+
+    if (
+      typeof item.content_with_selection !== "string" ||
+      !/<selection>[\s\S]+<\/selection>/i.test(item.content_with_selection) ||
+      typeof item.origin_id !== "string" ||
+      !item.origin_id.trim()
+    ) {
+      throw new Error("selection reference is invalid");
+    }
+
+    return [
+      {
+        type: "selection",
+        content_with_selection: item.content_with_selection,
+        is_full_content:
+          typeof item.is_full_content === "boolean"
+            ? item.is_full_content
+            : false,
+        origin_id: item.origin_id.trim(),
+        origin_type: "document",
+      } satisfies DocumentSelectionReference,
+    ];
+  });
+}
+
+function buildPromptWithReferences(prompt: string, references: AtReference[]) {
+  if (references.length === 0) return prompt;
+
+  const referenceText = references
+    .map((reference, index) => {
+      return [
+        `[reference ${index + 1}: selection]`,
+        `origin_id: ${reference.origin_id}`,
+        `is_full_content: ${reference.is_full_content ? "true" : "false"}`,
+        reference.content_with_selection,
+        `[/reference ${index + 1}]`,
+      ].join("\n");
+    })
+    .join("\n\n");
+
+  return [
+    "用户请求：",
+    prompt,
+    "",
+    "引用内容如下。<selection>...</selection> 标记用户当前选区：",
+    referenceText,
+  ].join("\n");
+}
 
 function parseCompletionRequestBody(body: unknown): CompletionRequestBody {
   if (!isRecord(body)) {
@@ -118,6 +181,7 @@ function parseCompletionRequestBody(body: unknown): CompletionRequestBody {
     chat_session_id: chatSessionId.trim(),
     parent_message_id: parentMessageId ?? null,
     prompt: prompt.trim(),
+    at_references: parseAtReferences(body.at_references),
     ref_file_ids: Array.isArray(body.ref_file_ids)
       ? body.ref_file_ids.filter(
           (fileId): fileId is string => typeof fileId === "string",
@@ -211,7 +275,10 @@ function createLifecycleSseResponse(
   const stream = new ReadableStream({
     start(controller) {
       const emitter = createPatchEmitter(controller);
-      if (event === "done") emitter.sendDone(data as { status: "finished" | "failed" | "cancelled" });
+      if (event === "done")
+        emitter.sendDone(
+          data as { status: "finished" | "failed" | "cancelled" },
+        );
       else emitter.sendError(data as { message: string; code?: string });
       controller.close();
     },
@@ -391,7 +458,8 @@ function applyPatchToRunSnapshot(
   if (!run.snapshot) return;
 
   // Save previous non-batch op for batch item inheritance.
-  const prevOp = run.patchContext.lastOp !== "batch" ? run.patchContext.lastOp : null;
+  const prevOp =
+    run.patchContext.lastOp !== "batch" ? run.patchContext.lastOp : null;
 
   // Update sticky context
   run.patchContext.lastOp = o;
@@ -408,45 +476,92 @@ function applyPatchToRunSnapshot(
   }
 }
 
-function upsertRunSnapshot(run: ActiveCompletionRun, message: Record<string, unknown>) {
+function upsertRunSnapshot(
+  run: ActiveCompletionRun,
+  message: Record<string, unknown>,
+) {
   run.snapshot = cloneRecord(message);
 }
 
-function sendRunReady(run: ActiveCompletionRun, data: Parameters<PatchEmitter["sendReady"]>[0]) {
+function sendRunReady(
+  run: ActiveCompletionRun,
+  data: Parameters<PatchEmitter["sendReady"]>[0],
+) {
   for (const sub of [...run.subscribers]) {
-    try { sub.emitter.sendReady(data); } catch { run.subscribers.delete(sub); }
+    try {
+      sub.emitter.sendReady(data);
+    } catch {
+      run.subscribers.delete(sub);
+    }
   }
 }
 
-function sendRunUpsertMessage(run: ActiveCompletionRun, message: Record<string, unknown>) {
+function sendRunUpsertMessage(
+  run: ActiveCompletionRun,
+  message: Record<string, unknown>,
+) {
   upsertRunSnapshot(run, message);
   for (const sub of [...run.subscribers]) {
-    try { sub.emitter.sendUpsertMessage(message); } catch { run.subscribers.delete(sub); }
+    try {
+      sub.emitter.sendUpsertMessage(message);
+    } catch {
+      run.subscribers.delete(sub);
+    }
   }
 }
 
-function sendRunSession(run: ActiveCompletionRun, data: Parameters<PatchEmitter["sendSession"]>[0]) {
+function sendRunSession(
+  run: ActiveCompletionRun,
+  data: Parameters<PatchEmitter["sendSession"]>[0],
+) {
   for (const sub of [...run.subscribers]) {
-    try { sub.emitter.sendSession(data); } catch { run.subscribers.delete(sub); }
+    try {
+      sub.emitter.sendSession(data);
+    } catch {
+      run.subscribers.delete(sub);
+    }
   }
 }
 
-function sendRunDone(run: ActiveCompletionRun, data: Parameters<PatchEmitter["sendDone"]>[0]) {
+function sendRunDone(
+  run: ActiveCompletionRun,
+  data: Parameters<PatchEmitter["sendDone"]>[0],
+) {
   for (const sub of [...run.subscribers]) {
-    try { sub.emitter.sendDone(data); } catch { run.subscribers.delete(sub); }
+    try {
+      sub.emitter.sendDone(data);
+    } catch {
+      run.subscribers.delete(sub);
+    }
   }
 }
 
-function sendRunError(run: ActiveCompletionRun, data: Parameters<PatchEmitter["sendError"]>[0]) {
+function sendRunError(
+  run: ActiveCompletionRun,
+  data: Parameters<PatchEmitter["sendError"]>[0],
+) {
   for (const sub of [...run.subscribers]) {
-    try { sub.emitter.sendError(data); } catch { run.subscribers.delete(sub); }
+    try {
+      sub.emitter.sendError(data);
+    } catch {
+      run.subscribers.delete(sub);
+    }
   }
 }
 
-function sendRunPatch(run: ActiveCompletionRun, o: PatchOp, p: string, v: unknown) {
+function sendRunPatch(
+  run: ActiveCompletionRun,
+  o: PatchOp,
+  p: string,
+  v: unknown,
+) {
   applyPatchToRunSnapshot(run, o, p, v);
   for (const sub of [...run.subscribers]) {
-    try { sub.emitter.sendPatch(o, p, v); } catch { run.subscribers.delete(sub); }
+    try {
+      sub.emitter.sendPatch(o, p, v);
+    } catch {
+      run.subscribers.delete(sub);
+    }
   }
 }
 
@@ -547,6 +662,8 @@ async function createCompletionTurn(body: CompletionRequestBody) {
             localId: 1,
             type: "text",
             content: body.prompt,
+            referencesJson:
+              body.at_references as unknown as Prisma.InputJsonArray,
           },
         },
       },
@@ -669,13 +786,22 @@ export async function chatCompletionHandler(
       };
       unsubscribeMain = addRunSubscriber(activeRun, mainSubscriber);
       const emitter = {
-        sendReady: (data: Parameters<PatchEmitter["sendReady"]>[0]) => sendRunReady(activeRun, data),
-        sendUpsertMessage: (msg: Record<string, unknown>) => sendRunUpsertMessage(activeRun, msg),
-        sendSession: (data: Parameters<PatchEmitter["sendSession"]>[0]) => sendRunSession(activeRun, data),
-        sendDone: (data: Parameters<PatchEmitter["sendDone"]>[0]) => sendRunDone(activeRun, data),
-        sendError: (data: Parameters<PatchEmitter["sendError"]>[0]) => sendRunError(activeRun, data),
-        sendPatch: (o: PatchOp, p: string, v: unknown) => sendRunPatch(activeRun, o, p, v),
-        sendBatch: (p: string, items: Parameters<PatchEmitter["sendBatch"]>[1]) => sendRunPatch(activeRun, "batch", p, items),
+        sendReady: (data: Parameters<PatchEmitter["sendReady"]>[0]) =>
+          sendRunReady(activeRun, data),
+        sendUpsertMessage: (msg: Record<string, unknown>) =>
+          sendRunUpsertMessage(activeRun, msg),
+        sendSession: (data: Parameters<PatchEmitter["sendSession"]>[0]) =>
+          sendRunSession(activeRun, data),
+        sendDone: (data: Parameters<PatchEmitter["sendDone"]>[0]) =>
+          sendRunDone(activeRun, data),
+        sendError: (data: Parameters<PatchEmitter["sendError"]>[0]) =>
+          sendRunError(activeRun, data),
+        sendPatch: (o: PatchOp, p: string, v: unknown) =>
+          sendRunPatch(activeRun, o, p, v),
+        sendBatch: (
+          p: string,
+          items: Parameters<PatchEmitter["sendBatch"]>[1],
+        ) => sendRunPatch(activeRun, "batch", p, items),
       } satisfies PatchEmitter;
       const createdBlockIds = new Set<number>();
       const responseBlockDbIdByLocalId = new Map<number, number>();
@@ -830,7 +956,7 @@ export async function chatCompletionHandler(
           ),
           ...(body.search_enabled ? { system: SEARCH_SYSTEM_PROMPT } : {}),
           ...(tools ? { tools, stopWhen: stepCountIs(5) } : {}),
-          prompt: body.prompt,
+          prompt: buildPromptWithReferences(body.prompt, body.at_references),
           abortSignal: completionController.signal,
           providerOptions: {
             deepseek: {
@@ -995,7 +1121,8 @@ export async function resumeChatCompletionStreamHandler(request: Request) {
     return createLifecycleSseResponse(
       "error",
       {
-        message: error instanceof Error ? error.message : "Invalid request body",
+        message:
+          error instanceof Error ? error.message : "Invalid request body",
       },
       400,
     );
@@ -1003,10 +1130,7 @@ export async function resumeChatCompletionStreamHandler(request: Request) {
 
   const activeRun = activeCompletionControllers.get(body.chat_session_id);
 
-  if (
-    activeRun &&
-    activeRun.assistantMessageLocalId === body.message_id
-  ) {
+  if (activeRun && activeRun.assistantMessageLocalId === body.message_id) {
     let unsubscribe: (() => void) | null = null;
     const stream = new ReadableStream({
       start(controller) {

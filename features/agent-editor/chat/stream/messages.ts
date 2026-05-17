@@ -1,7 +1,4 @@
-import type {
-  AgentChatCompletionOptions,
-  AgentChatMessage,
-} from "../types";
+import type { AgentChatCompletionOptions, AgentChatMessage } from "../types";
 
 const toEpochSeconds = () => Date.now() / 1000;
 
@@ -27,6 +24,7 @@ export function createUserMessage(
       {
         type: "text",
         content: options.prompt,
+        references: options.atReferences ?? [],
       },
     ],
     has_pending_block: false,

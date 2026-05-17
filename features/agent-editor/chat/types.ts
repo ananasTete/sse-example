@@ -48,10 +48,7 @@ export interface AgentChatSessionListItem {
 export type { TextBlock, ReasoningBlock };
 export type { ToolCallBlock as AgentChatToolCallBlock };
 
-export type AgentChatMessageBlock =
-  | TextBlock
-  | WebSearchBlock
-  | ReasoningBlock;
+export type AgentChatMessageBlock = TextBlock | WebSearchBlock | ReasoningBlock;
 
 export interface AgentChatMessage extends CoreMessage {
   role: AgentChatRole;
@@ -127,6 +124,7 @@ export interface AgentChatCompletionOptions {
   parentMessageId: number | null;
   thinkingEnabled: boolean;
   searchEnabled: boolean;
+  atReferences?: AtReference[];
   optimisticUserMessageId?: number;
 }
 
@@ -136,11 +134,11 @@ export interface AgentChatCompletionOptions {
 
 /**
  * 带选区标记的文档引用
- * content_with_selection 中用成对的 selection boundary 标签标记选区范围
+ * content_with_selection 中用单个 <selection>...</selection> 包裹选区范围
  */
-export interface DocumentSelectionReference {
+export interface DocumentSelectionReference extends Record<string, unknown> {
   type: "selection";
-  /** 带选区标记的完整文档 HTML */
+  /** 带选区标记的完整文档纯文本 */
   content_with_selection: string;
   /** true = 包含完整文档；false = 因文档过长而截断 */
   is_full_content: boolean;

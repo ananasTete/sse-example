@@ -1,8 +1,8 @@
 import { useCallback, useEffect } from "react";
 import { useEditorState } from "@tiptap/react";
-import { DOMSerializer } from "@tiptap/pm/model";
 import { getAISelectionRange } from "@/features/rich-editor/extensions/ai-selection-highlight";
 import { createEditorAIRequest } from "../services/editor-ai-context";
+import { buildDocumentSelectionReference } from "../services/selection-reference";
 import type { DocumentSelectionReference } from "../chat/types";
 import type {
   EditorMode,
@@ -14,7 +14,6 @@ import type {
 export function useEditorAgent({
   editor,
 }: UseEditorAgentOptions): UseEditorAgentReturn {
-
   // 订阅 Plugin.state from/to 数据变化
   const selectionInfo = useEditorState({
     editor,
@@ -59,7 +58,6 @@ export function useEditorAgent({
     editor.commands.setAISelectionHighlight(from, to);
     return true;
   }, [editor]);
-
 
   useEffect(() => {
     if (!editor) return;
@@ -262,7 +260,12 @@ export function useEditorAgent({
         });
 
         if (foundFrom !== -1) {
-          positions.push({ from: foundFrom, to: foundTo, newText, suggestionId });
+          positions.push({
+            from: foundFrom,
+            to: foundTo,
+            newText,
+            suggestionId,
+          });
         }
       });
 
@@ -349,8 +352,8 @@ export function useEditorAgent({
   // ===============================================
 
   /**
-   * 从当前 plugin state 读取选区范围，构建带 selection boundary
-   * 标记的完整 HTML 文档引用。
+   * 从当前 plugin state 读取选区范围，构建带 <selection>
+   * 标记的完整纯文本文档引用。
    *
    * 无选区时返回 null（全文模式下不需要 reference）。
    */
@@ -358,27 +361,7 @@ export function useEditorAgent({
     (originId = "document"): DocumentSelectionReference | null => {
       if (!editor) return null;
 
-      const range = getAISelectionRange(editor.state);
-      if (!range || range.from >= range.to) return null;
-
-      const startBoundary = editor.state.schema.nodes.selectionStartBoundary;
-      const endBoundary = editor.state.schema.nodes.selectionEndBoundary;
-      if (!startBoundary || !endBoundary) return null;
-
-      const tr = editor.state.tr
-        .insert(range.to, endBoundary.create())
-        .insert(range.from, startBoundary.create());
-      const serializer = DOMSerializer.fromSchema(editor.state.schema);
-      const container = document.createElement("div");
-      container.appendChild(serializer.serializeFragment(tr.doc.content));
-
-      return {
-        type: "selection",
-        content_with_selection: container.innerHTML,
-        is_full_content: true,
-        origin_id: originId,
-        origin_type: "document" as const,
-      };
+      return buildDocumentSelectionReference(editor, originId);
     },
     [editor],
   );

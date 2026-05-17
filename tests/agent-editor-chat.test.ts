@@ -31,6 +31,7 @@ function createCompletionRequest(input: {
   chatSessionId: string;
   prompt?: string;
   parentMessageId?: number | null;
+  atReferences?: unknown[];
 }) {
   return new Request("http://localhost/api/agent-editor/chat/completion", {
     method: "POST",
@@ -41,6 +42,7 @@ function createCompletionRequest(input: {
       chat_session_id: input.chatSessionId,
       parent_message_id: input.parentMessageId ?? null,
       prompt: input.prompt ?? "hello",
+      at_references: input.atReferences,
       ref_file_ids: [],
       thinking_enabled: false,
       search_enabled: false,
@@ -187,9 +189,8 @@ before(async () => {
   ({ prisma } = await import("@/lib/prisma"));
   ({ createAgentEditorChatSession, fetchAgentEditorChatSessionsPageHandler } =
     await import("@/src/server/agent-editor-chat/chat-session"));
-  ({ agentEditorHistoryMessagesHandler } = await import(
-    "@/src/server/agent-editor-chat/history-messages"
-  ));
+  ({ agentEditorHistoryMessagesHandler } =
+    await import("@/src/server/agent-editor-chat/history-messages"));
   ({
     agentEditorChatCompletionHandler,
     agentEditorResumeChatCompletionStreamHandler,
@@ -276,6 +277,68 @@ test("completion persists messages and history reads them back", async () => {
   );
 });
 
+test("completion sends selection reference content to the model", async () => {
+  const chatSessionId = await createAgentEditorSessionId();
+  let modelPrompt = "";
+
+  async function* stream() {
+    yield { type: "text-delta", text: "ok" };
+    yield { type: "finish", totalUsage: { totalTokens: 1 } };
+  }
+
+  const streamText: StreamTextOverride = ((input: { prompt?: string }) => {
+    modelPrompt = input.prompt ?? "";
+    return { fullStream: stream() };
+  }) as unknown as StreamTextOverride;
+
+  const response = await agentEditorChatCompletionHandler(
+    createCompletionRequest({
+      chatSessionId,
+      prompt: "hi",
+      atReferences: [
+        {
+          type: "selection",
+          content_with_selection:
+            "黑板报\njkhb iu共和<selection>国计划计划讲话稿</selection>",
+          is_full_content: true,
+          origin_id: "agent-editor-document",
+          origin_type: "document",
+        },
+      ],
+    }),
+    { streamText },
+  );
+
+  assert.equal(response.status, 200);
+  await response.text();
+
+  assert.match(modelPrompt, /用户请求：\nhi/);
+  assert.match(
+    modelPrompt,
+    /jkhb iu共和<selection>国计划计划讲话稿<\/selection>/,
+  );
+
+  const userBlock = await prisma.messageBlock.findFirstOrThrow({
+    where: {
+      message: {
+        chatSessionId,
+        role: "USER",
+      },
+    },
+  });
+
+  assert.deepEqual(userBlock.referencesJson, [
+    {
+      type: "selection",
+      content_with_selection:
+        "黑板报\njkhb iu共和<selection>国计划计划讲话稿</selection>",
+      is_full_content: true,
+      origin_id: "agent-editor-document",
+      origin_type: "document",
+    },
+  ]);
+});
+
 test("resume reconnects a pending assistant message through the agent endpoint", async () => {
   const chatSessionId = await createAgentEditorSessionId();
   await prisma.chatSession.update({
@@ -341,8 +404,5 @@ test("completion rejects chat sessions owned by another agent", async () => {
   );
 
   assert.equal(response.status, 404);
-  assert.equal(
-    await prisma.chatMessage.count({ where: { chatSessionId } }),
-    0,
-  );
+  assert.equal(await prisma.chatMessage.count({ where: { chatSessionId } }), 0);
 });

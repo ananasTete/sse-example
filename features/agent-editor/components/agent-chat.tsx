@@ -155,7 +155,9 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
           const DOCUMENT_ID = "agent-editor-document";
 
           // 发送时实时读取选区快照，不在 BubbleMenu 侧提前生成
-          const selectionRef = props.editorAgent.buildSelectionReference(DOCUMENT_ID);
+          const selectionRef = props.editorAgent.selectionInfo
+            ? props.editorAgent.buildSelectionReference(DOCUMENT_ID)
+            : null;
           const atReferences = selectionRef ? [selectionRef] : [];
 
           await createCompletion({
