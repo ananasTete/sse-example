@@ -279,15 +279,17 @@ test("completion persists messages and history reads them back", async () => {
 
 test("completion sends selection reference content to the model", async () => {
   const chatSessionId = await createAgentEditorSessionId();
-  let modelPrompt = "";
+  let modelMessages: Array<{ role: string; content: unknown }> = [];
 
   async function* stream() {
     yield { type: "text-delta", text: "ok" };
     yield { type: "finish", totalUsage: { totalTokens: 1 } };
   }
 
-  const streamText: StreamTextOverride = ((input: { prompt?: string }) => {
-    modelPrompt = input.prompt ?? "";
+  const streamText: StreamTextOverride = ((input: {
+    messages?: Array<{ role: string; content: unknown }>;
+  }) => {
+    modelMessages = input.messages ?? [];
     return { fullStream: stream() };
   }) as unknown as StreamTextOverride;
 
@@ -312,9 +314,10 @@ test("completion sends selection reference content to the model", async () => {
   assert.equal(response.status, 200);
   await response.text();
 
-  assert.match(modelPrompt, /用户请求：\nhi/);
+  const currentUserContent = String(modelMessages.at(-1)?.content ?? "");
+  assert.match(currentUserContent, /用户请求：\nhi/);
   assert.match(
-    modelPrompt,
+    currentUserContent,
     /jkhb iu共和<selection>国计划计划讲话稿<\/selection>/,
   );
 
@@ -337,6 +340,72 @@ test("completion sends selection reference content to the model", async () => {
       origin_type: "document",
     },
   ]);
+});
+
+test("completion restores previous selection references into model history", async () => {
+  const chatSessionId = await createAgentEditorSessionId();
+  let secondTurnMessages: Array<{ role: string; content: unknown }> = [];
+
+  async function* firstStream() {
+    yield {
+      type: "text-delta",
+      text: "告诉我 1 / 2 / 3，我来帮你修改。",
+    };
+    yield { type: "finish", totalUsage: { totalTokens: 8 } };
+  }
+
+  const firstResponse = await agentEditorChatCompletionHandler(
+    createCompletionRequest({
+      chatSessionId,
+      prompt: "改写这句",
+      atReferences: [
+        {
+          type: "selection",
+          content_with_selection:
+            "郭芙蓉：你见过哪个<selection>摆渡的不收钱呢？</selection>",
+          is_full_content: true,
+          origin_id: "agent-editor-document",
+          origin_type: "document",
+        },
+      ],
+    }),
+    { streamText: createStreamTextOverride(firstStream()) },
+  );
+
+  assert.equal(firstResponse.status, 200);
+  await firstResponse.text();
+
+  async function* secondStream() {
+    yield { type: "finish", totalUsage: { totalTokens: 1 } };
+  }
+
+  const streamText: StreamTextOverride = ((input: {
+    messages?: Array<{ role: string; content: unknown }>;
+  }) => {
+    secondTurnMessages = input.messages ?? [];
+    return { fullStream: secondStream() };
+  }) as unknown as StreamTextOverride;
+
+  const secondResponse = await agentEditorChatCompletionHandler(
+    createCompletionRequest({
+      chatSessionId,
+      prompt: "3",
+    }),
+    { streamText },
+  );
+
+  assert.equal(secondResponse.status, 200);
+  await secondResponse.text();
+
+  assert.equal(secondTurnMessages.at(-1)?.role, "user");
+  assert.equal(secondTurnMessages.at(-1)?.content, "3");
+
+  const previousUserContent = String(secondTurnMessages[0]?.content ?? "");
+  assert.match(previousUserContent, /用户请求：\n改写这句/);
+  assert.match(
+    previousUserContent,
+    /郭芙蓉：你见过哪个<selection>摆渡的不收钱呢？<\/selection>/,
+  );
 });
 
 test("resume reconnects a pending assistant message through the agent endpoint", async () => {

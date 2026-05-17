@@ -3,6 +3,9 @@ import {
   chatCompletionHandler,
   resumeChatCompletionStreamHandler,
 } from "@/src/server/session-chat/chat-completion";
+import { proposeEditsTool } from "@/src/server/session-chat/tools/propose-edits";
+import { applyEditTool } from "@/src/server/session-chat/tools/apply-edit";
+import { AGENT_EDITOR_SYSTEM_PROMPT } from "./prompts";
 import { AGENT_EDITOR_CHAT_AGENT } from "./chat-session";
 
 function createJsonError(message: string, status: number) {
@@ -84,6 +87,12 @@ async function assertAgentEditorSession(chatSessionId: unknown) {
   return { ok: true as const };
 }
 
+/** agent-editor 专用工具集 */
+const AGENT_EDITOR_TOOLS = {
+  propose_edits: proposeEditsTool,
+  apply_edit: applyEditTool,
+};
+
 export async function agentEditorChatCompletionHandler(
   request: Request,
   options: Parameters<typeof chatCompletionHandler>[1] = {},
@@ -95,7 +104,12 @@ export async function agentEditorChatCompletionHandler(
     return createSseError(check.message, check.status);
   }
 
-  return chatCompletionHandler(request, options);
+  return chatCompletionHandler(request, {
+    ...options,
+    extraTools: AGENT_EDITOR_TOOLS,
+    systemPrompt: AGENT_EDITOR_SYSTEM_PROMPT,
+    loadHistory: true,
+  });
 }
 
 export async function agentEditorResumeChatCompletionStreamHandler(

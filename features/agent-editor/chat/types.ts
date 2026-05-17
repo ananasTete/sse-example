@@ -48,7 +48,11 @@ export interface AgentChatSessionListItem {
 export type { TextBlock, ReasoningBlock };
 export type { ToolCallBlock as AgentChatToolCallBlock };
 
-export type AgentChatMessageBlock = TextBlock | WebSearchBlock | ReasoningBlock;
+export type AgentChatMessageBlock =
+  | TextBlock
+  | WebSearchBlock
+  | ReasoningBlock
+  | ToolCallBlock;
 
 export interface AgentChatMessage extends CoreMessage {
   role: AgentChatRole;

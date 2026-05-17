@@ -16,18 +16,33 @@ import {
   ChatResponse,
   extractCitationsFromBlocks,
 } from "@/lib/chat-core";
+import type { UseEditorAgentReturn } from "../../types";
 import type {
   AgentChatMessage,
   AgentChatMessageBlock,
+  AgentChatToolCallBlock,
 } from "../types";
+import { ProposeEditsBlock } from "../../components/propose-edits-block";
+import { ApplyEditBlock } from "../../components/apply-edit-block";
+import type { ProposeEditsInput } from "@/src/server/session-chat/tools/propose-edits";
+import type { ApplyEditInput } from "@/src/server/session-chat/tools/apply-edit";
 
 interface AgentChatMessageListProps {
   messages: AgentChatMessage[];
   isSending?: boolean;
+  sessionId: string;
+  editorAgent: UseEditorAgentReturn;
+  onRetryEdit: (toolCallId: string, editId: string) => void;
+  /** 每次 apply/retry 后 bump，强制工具块 UI 重读 localStorage 状态 */
+  uiTick?: number;
 }
 
 interface AgentChatMessageItemProps {
   message: AgentChatMessage;
+  sessionId: string;
+  editorAgent: UseEditorAgentReturn;
+  onRetryEdit: (toolCallId: string, editId: string) => void;
+  uiTick?: number;
 }
 
 function getUserMessageText(message: AgentChatMessage) {
@@ -37,14 +52,26 @@ function getUserMessageText(message: AgentChatMessage) {
     .join("");
 }
 
+function isToolCallBlock(block: AgentChatMessageBlock): block is AgentChatToolCallBlock {
+  return block.type === "tool_call";
+}
+
 function AssistantBlocks({
+  message,
   blocks,
   citations,
   isStreaming,
+  sessionId,
+  editorAgent,
+  onRetryEdit,
 }: {
+  message: AgentChatMessage;
   blocks: AgentChatMessageBlock[];
   citations: ReturnType<typeof extractCitationsFromBlocks>;
   isStreaming: boolean;
+  sessionId: string;
+  editorAgent: UseEditorAgentReturn;
+  onRetryEdit: (toolCallId: string, editId: string) => void;
 }) {
   const lastTextIndex = blocks.reduce(
     (last, block, index) => (block.type === "text" ? index : last),
@@ -66,6 +93,41 @@ function AssistantBlocks({
           );
         }
 
+        if (isToolCallBlock(block)) {
+          if (block.tool_name === "propose_edits") {
+            const input = Array.isArray(block.input) && block.input.length > 0
+              ? (block.input[0] as ProposeEditsInput)
+              : { edits: [] };
+            return (
+              <ProposeEditsBlock
+                key={index}
+                toolCallId={block.tool_call_id}
+                messageId={message.message_id}
+                sessionId={sessionId}
+                input={input}
+                editor={editorAgent.editor}
+                onRetry={onRetryEdit}
+              />
+            );
+          }
+
+          if (block.tool_name === "apply_edit") {
+            const input = Array.isArray(block.input) && block.input.length > 0
+              ? (block.input[0] as ApplyEditInput)
+              : { edits: [] };
+            return (
+              <ApplyEditBlock
+                key={index}
+                toolCallId={block.tool_call_id}
+                messageId={message.message_id}
+                sessionId={sessionId}
+                input={input}
+                onRetry={onRetryEdit}
+              />
+            );
+          }
+        }
+
         return (
           <BlockRenderer
             key={index}
@@ -79,6 +141,10 @@ function AssistantBlocks({
 
 const AgentChatMessageItem = memo(function AgentChatMessageItem({
   message,
+  sessionId,
+  editorAgent,
+  onRetryEdit,
+  uiTick: _uiTick, // 仅用于触发 memo 重渲染，不直接使用
 }: AgentChatMessageItemProps) {
   const isUser = message.role === "USER";
   const isStreaming = message.role === "ASSISTANT" && message.status === "WIP";
@@ -106,9 +172,13 @@ const AgentChatMessageItem = memo(function AgentChatMessageItem({
           <div className="whitespace-pre-wrap">{getUserMessageText(message)}</div>
         ) : (
           <AssistantBlocks
+            message={message}
             blocks={message.blocks}
             citations={citations}
             isStreaming={isStreaming}
+            sessionId={sessionId}
+            editorAgent={editorAgent}
+            onRetryEdit={onRetryEdit}
           />
         )}
       </MessageContent>
@@ -119,6 +189,10 @@ const AgentChatMessageItem = memo(function AgentChatMessageItem({
 export function AgentChatMessageList({
   messages,
   isSending,
+  sessionId,
+  editorAgent,
+  onRetryEdit,
+  uiTick,
 }: AgentChatMessageListProps) {
   return (
     <Conversation className="min-h-0 flex-1">
@@ -132,7 +206,14 @@ export function AgentChatMessageList({
         ) : null}
 
         {messages.map((message) => (
-          <AgentChatMessageItem key={message.message_id} message={message} />
+          <AgentChatMessageItem
+            key={message.message_id}
+            message={message}
+            sessionId={sessionId}
+            editorAgent={editorAgent}
+            onRetryEdit={onRetryEdit}
+            uiTick={uiTick}
+          />
         ))}
 
         {isSending && messages.at(-1)?.role === "USER" ? (

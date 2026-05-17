@@ -20,7 +20,7 @@ export function buildDocumentSelectionReference(
   const range = getAISelectionRange(editor.state);
   if (!range || range.from >= range.to) return null;
 
-  const selectedText = editor.state.doc.textBetween(range.from, range.to, "\n");
+  const selectedText = editor.state.doc.textBetween(range.from, range.to, "\n\n");
   if (!selectedText.trim()) return null;
 
   const startBoundary = editor.state.schema.nodes.selectionStartBoundary;
@@ -38,7 +38,7 @@ export function buildDocumentSelectionReference(
     content_with_selection: tr.doc.textBetween(
       0,
       tr.doc.content.size,
-      "\n",
+      "\n\n",
       (leaf) => selectionBoundaryText(leaf, startBoundary, endBoundary),
     ),
     is_full_content: true,

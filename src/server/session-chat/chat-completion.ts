@@ -2,7 +2,14 @@ import {
   createDeepSeek,
   type DeepSeekLanguageModelOptions,
 } from "@ai-sdk/deepseek";
-import { stepCountIs, streamText } from "ai";
+import {
+  stepCountIs,
+  streamText,
+  type Tool,
+  type ModelMessage,
+  type AssistantModelMessage,
+  type ToolModelMessage,
+} from "ai";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { SSE_HEADERS, createSseResponse } from "@/src/server/http/sse";
@@ -58,6 +65,12 @@ interface ResumeStreamRequestBody {
 interface ChatCompletionHandlerOptions {
   streamText?: typeof streamText;
   webSearch?: WebSearchFn;
+  /** 额外注入的工具（agent-editor 专用工具） */
+  extraTools?: Record<string, Tool>;
+  /** 覆盖 system prompt */
+  systemPrompt?: string;
+  /** 是否加载会话历史消息（多轮上下文） */
+  loadHistory?: boolean;
 }
 
 class CompletionHttpError extends Error {
@@ -150,6 +163,124 @@ function buildPromptWithReferences(prompt: string, references: AtReference[]) {
   ].join("\n");
 }
 
+/**
+ * 把历史消息的 blocks 序列化为 AI SDK ModelMessage content
+ * - text block → 拼入文本
+ * - reasoning block → 跳过（避免 thinking 内容污染上下文）
+ * - tool_call block → 还原为 tool-call part + 对应 tool result message
+ * - search block → 跳过
+ */
+function serializeBlocksToModelContent(
+  blocks: Array<{
+    type: string;
+    content: string | null;
+    toolName: string | null;
+    toolCallId: string | null;
+    toolInputJson: unknown;
+    toolOutputJson: unknown;
+  }>,
+): { textContent: string; toolParts: Array<{ toolCallId: string; toolName: string; input: unknown; output: unknown }> } {
+  let textContent = "";
+  const toolParts: Array<{ toolCallId: string; toolName: string; input: unknown; output: unknown }> = [];
+
+  for (const block of blocks) {
+    if (block.type === "text") {
+      textContent += block.content ?? "";
+    } else if (block.type === "tool_call" && block.toolCallId && block.toolName) {
+      const input = Array.isArray(block.toolInputJson) && block.toolInputJson.length > 0
+        ? block.toolInputJson[0]
+        : block.toolInputJson;
+      const output = Array.isArray(block.toolOutputJson) && block.toolOutputJson.length > 0
+        ? block.toolOutputJson[0]
+        : block.toolOutputJson;
+      toolParts.push({ toolCallId: block.toolCallId, toolName: block.toolName, input, output });
+    }
+    // reasoning / search → 跳过
+  }
+
+  return { textContent, toolParts };
+}
+
+function getStoredReferences(value: unknown): AtReference[] {
+  try {
+    return parseAtReferences(value);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 加载会话历史消息，构建 ModelMessage 数组（多轮上下文）
+ * 不包含本轮新建的 user/assistant 占位消息（按 localId 过滤）
+ */
+async function loadConversationMessages(
+  chatSessionId: string,
+  currentTurnUserLocalId: number,
+  currentTurn: { userPrompt: string; references: AtReference[] },
+): Promise<ModelMessage[]> {
+  const history = await prisma.chatMessage.findMany({
+    where: {
+      chatSessionId,
+      status: "FINISHED",
+      role: { in: ["USER", "ASSISTANT"] },
+      localId: { lt: currentTurnUserLocalId },
+    },
+    orderBy: { localId: "asc" },
+    include: { blocks: { orderBy: { localId: "asc" } } },
+  });
+
+  const messages: ModelMessage[] = [];
+
+  for (const msg of history) {
+    if (msg.role === "USER") {
+      const textBlock = msg.blocks.find((b) => b.type === "text");
+      const content = textBlock?.content ?? "";
+      const references = getStoredReferences(textBlock?.referencesJson);
+      messages.push({
+        role: "user",
+        content:
+          references.length > 0
+            ? buildPromptWithReferences(content, references)
+            : content,
+      });
+    } else if (msg.role === "ASSISTANT") {
+      const { textContent, toolParts } = serializeBlocksToModelContent(msg.blocks);
+
+      if (toolParts.length === 0) {
+        const assistantMsg: AssistantModelMessage = { role: "assistant", content: textContent };
+        messages.push(assistantMsg);
+      } else {
+        const assistantContent: AssistantModelMessage["content"] = [];
+        if (textContent) {
+          assistantContent.push({ type: "text", text: textContent });
+        }
+        for (const part of toolParts) {
+          assistantContent.push({ type: "tool-call", toolCallId: part.toolCallId, toolName: part.toolName, input: part.input ?? {} });
+        }
+        const assistantMsg: AssistantModelMessage = { role: "assistant", content: assistantContent };
+        messages.push(assistantMsg);
+
+        // 对应的 tool result messages
+        for (const part of toolParts) {
+          const toolMsg: ToolModelMessage = {
+            role: "tool",
+            content: [{ type: "tool-result", toolCallId: part.toolCallId, toolName: part.toolName, output: { type: "json", value: (part.output ?? {}) as import("ai").JSONValue } }],
+          };
+          messages.push(toolMsg);
+        }
+      }
+    }
+  }
+
+  // 追加本轮 user 消息
+  messages.push({
+    role: "user",
+    content: buildPromptWithReferences(currentTurn.userPrompt, currentTurn.references),
+  });
+
+  return messages;
+}
+
 function parseCompletionRequestBody(body: unknown): CompletionRequestBody {
   if (!isRecord(body)) {
     throw new Error("request body must be an object");
@@ -184,8 +315,8 @@ function parseCompletionRequestBody(body: unknown): CompletionRequestBody {
     at_references: parseAtReferences(body.at_references),
     ref_file_ids: Array.isArray(body.ref_file_ids)
       ? body.ref_file_ids.filter(
-          (fileId): fileId is string => typeof fileId === "string",
-        )
+        (fileId): fileId is string => typeof fileId === "string",
+      )
       : [],
     thinking_enabled:
       typeof body.thinking_enabled === "boolean"
@@ -423,8 +554,8 @@ function createResumeSnapshotSseResponse(input: {
   userMessageId: number;
   snapshot: Record<string, unknown>;
   terminal:
-    | { event: "done"; data: Parameters<PatchEmitter["sendDone"]>[0] }
-    | { event: "error"; data: Parameters<PatchEmitter["sendError"]>[0] };
+  | { event: "done"; data: Parameters<PatchEmitter["sendDone"]>[0] }
+  | { event: "error"; data: Parameters<PatchEmitter["sendError"]>[0] };
 }) {
   const stream = new ReadableStream({
     start(controller) {
@@ -731,7 +862,7 @@ export async function chatCompletionHandler(
       error instanceof CompletionHttpError
         ? error.status
         : error instanceof Prisma.PrismaClientKnownRequestError &&
-            error.code === "P2025"
+          error.code === "P2025"
           ? 404
           : 500;
     const message =
@@ -947,16 +1078,42 @@ export async function chatCompletionHandler(
       });
 
       try {
-        const tools = body.search_enabled
+        const searchTools = body.search_enabled
           ? { web_search: createWebSearchTool({ search: webSearch }) }
           : undefined;
+        const allTools = {
+          ...(searchTools ?? {}),
+          ...(options.extraTools ?? {}),
+        };
+        const hasTools = Object.keys(allTools).length > 0;
+
+        // 构建 system prompt
+        let systemPrompt: string | undefined;
+        if (options.systemPrompt) {
+          systemPrompt = options.systemPrompt;
+        } else if (body.search_enabled) {
+          systemPrompt = SEARCH_SYSTEM_PROMPT;
+        }
+
+        // 构建消息（多轮上下文 or 单轮 prompt）
+        const useHistory = options.loadHistory ?? false;
+        const messagesOrPrompt = useHistory
+          ? {
+            messages: await loadConversationMessages(
+              body.chat_session_id,
+              turn.userMessage.localId,
+              { userPrompt: body.prompt, references: body.at_references },
+            ),
+          }
+          : { prompt: buildPromptWithReferences(body.prompt, body.at_references) };
+
         const result = streamTextFn({
           model: modelProvider.chat(
             process.env[MODEL_NAME_ENV] ?? DEFAULT_MODEL_NAME,
           ),
-          ...(body.search_enabled ? { system: SEARCH_SYSTEM_PROMPT } : {}),
-          ...(tools ? { tools, stopWhen: stepCountIs(5) } : {}),
-          prompt: buildPromptWithReferences(body.prompt, body.at_references),
+          ...(systemPrompt ? { system: systemPrompt } : {}),
+          ...(hasTools ? { tools: allTools, stopWhen: stepCountIs(5) } : {}),
+          ...messagesOrPrompt,
           abortSignal: completionController.signal,
           providerOptions: {
             deepseek: {
