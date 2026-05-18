@@ -50,36 +50,6 @@ function runSlashCommand(editor: Editor, commandId: SlashCommandId, slashFrom: n
     case "paragraph":
       chain.setParagraph();
       break;
-    case "heading1":
-      chain.setHeading({ level: 1 });
-      break;
-    case "heading2":
-      chain.setHeading({ level: 2 });
-      break;
-    case "heading3":
-      chain.setHeading({ level: 3 });
-      break;
-    case "heading4":
-      chain.setHeading({ level: 4 });
-      break;
-    case "heading5":
-      chain.setHeading({ level: 5 });
-      break;
-    case "heading6":
-      chain.setHeading({ level: 6 });
-      break;
-    case "bulletList":
-      chain.toggleBulletList();
-      break;
-    case "orderedList":
-      chain.toggleOrderedList();
-      break;
-    case "codeBlock":
-      chain.toggleCodeBlock();
-      break;
-    case "blockquote":
-      chain.toggleBlockquote();
-      break;
     case "bold":
       chain.toggleBold();
       break;
@@ -91,9 +61,6 @@ function runSlashCommand(editor: Editor, commandId: SlashCommandId, slashFrom: n
       break;
     case "strike":
       chain.toggleStrike();
-      break;
-    case "headingMore":
-      // Should never be executed.
       break;
   }
 

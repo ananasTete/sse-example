@@ -7,6 +7,7 @@ import { AIButton } from "./components/ai-button";
 import {
   AIFloatingPanel,
   type AIPanelClosePayload,
+  type AIAnchorRect,
 } from "./components/ai-floating-panel";
 import "./bubble-menu.css";
 import { Divider } from "./components/divider";
@@ -23,7 +24,7 @@ export function BubbleMenu({
   editor,
   scrollTarget,
 }: BubbleMenuProps) {
-  const [showAIPanel, setShowAIPanel] = useState(false);
+  const [aiAnchorRect, setAIAnchorRect] = useState<AIAnchorRect | null>(null);
 
   const ui = useEditorState({
     editor,
@@ -44,12 +45,12 @@ export function BubbleMenu({
       }
 
       editor.commands.clearAISelectionHighlight();
-      setShowAIPanel(false);
+      setAIAnchorRect(null);
     },
     [editor],
   );
 
-  // 点击 AI 按钮时，将当前选区写入统一的高亮插件状态
+  // 点击 AI 按钮时，将当前选区写入统一的高亮插件状态，并快照坐标
   const handleAIButtonClick = useCallback(() => {
     const { from, to, empty } = editor.state.selection;
     if (empty) return;
@@ -57,8 +58,19 @@ export function BubbleMenu({
     const text = editor.state.doc.textBetween(from, to, " ");
     if (!text.trim()) return;
 
+    // 设置选取高亮（ use-agent-editor 中会有自动划词设置高亮这里还要设置是为了避免 AI 面板的选区依赖其他功能 ）
     editor.commands.setAISelectionHighlight(from, to);
-    setShowAIPanel(true);
+
+    // 保存选区静态 rect 用于 AI 面板创建 virtualReference 来定位
+    const fromCoords = editor.view.coordsAtPos(from);
+    const toCoords = editor.view.coordsAtPos(to);
+    
+    setAIAnchorRect({
+      top: Math.min(fromCoords.top, toCoords.top),
+      bottom: Math.max(fromCoords.bottom, toCoords.bottom),
+      left: Math.min(fromCoords.left, toCoords.left),
+      right: Math.max(fromCoords.right, toCoords.right),
+    });
   }, [editor]);
 
   // 关闭 AI 面板时，清除高亮
@@ -78,7 +90,7 @@ export function BubbleMenu({
       }
 
       if (payload.reason === "submit") {
-        setShowAIPanel(false);
+        setAIAnchorRect(null);
         return;
       }
 
@@ -90,7 +102,7 @@ export function BubbleMenu({
   return (
     <>
       {/* 原始工具栏 - AI 面板显示时不渲染 */}
-      {!showAIPanel && (
+      {!aiAnchorRect && (
         <TiptapBubbleMenu
           editor={editor}
           pluginKey="richEditorBubbleMenu"
@@ -143,9 +155,10 @@ export function BubbleMenu({
       )}
 
       {/* 独立的 AI 浮动面板 */}
-      {showAIPanel && (
+      {aiAnchorRect && (
         <AIFloatingPanel
           editor={editor}
+          anchorRect={aiAnchorRect}
           onClose={handleCloseAIPanel}
         />
       )}

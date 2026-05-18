@@ -22,8 +22,9 @@ function AgentEditorPage() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const agentChatRef = useRef<AgentChatHandle>(null);
   const [editorScrollElement, setEditorScrollElement] =
-    useState<HTMLDivElement | null>(null);
-  const [initialContent] = useState(() => loadAgentEditorDocument()?.raw);
+    useState<HTMLDivElement | null>(null); // 将滚动容器设置到编辑器的 bubble-menu 上用于滚动时的更新位置
+  const [initialContent] = useState(() => loadAgentEditorDocument()?.raw); // 从缓存加载初始化内容
+
   const editorAgent = useEditorAgent({ editor });
 
   const handleEditorReady = (editorInstance: Editor) => {

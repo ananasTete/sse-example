@@ -1,5 +1,3 @@
-"use client";
-
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { type Editor } from "@tiptap/react";
 import { ArrowRight } from "lucide-react";
@@ -15,8 +13,16 @@ import { FloatingMenuLayer } from "./floating-menu-layer";
 
 type AIStatus = "input" | "error";
 
+export interface AIAnchorRect {
+  top: number;
+  bottom: number;
+  left: number;
+  right: number;
+}
+
 interface AIFloatingPanelProps {
   editor: Editor;
+  anchorRect: AIAnchorRect;
   onClose: (payload: AIPanelClosePayload) => void;
 }
 
@@ -31,79 +37,29 @@ export interface AIPanelClosePayload {
  */
 export function AIFloatingPanel({
   editor,
+  anchorRect,
   onClose,
 }: AIFloatingPanelProps) {
   const { submit: onSelectionAISubmit } = useEditorAgentActions();
   const [status, setStatus] = useState<AIStatus>("input");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [inputValue, setInputValue] = useState("");
-  const [transactionVersion, setTransactionVersion] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    const handleTransaction = () => {
-      setTransactionVersion((version) => version + 1);
-    };
-
-    editor.on("transaction", handleTransaction);
-
-    return () => {
-      editor.off("transaction", handleTransaction);
-    };
-  }, [editor]);
-
-  const selectionRange = useMemo(() => {
-    const range = getAISelectionRange(editor.state);
-    if (!range) return null;
-    if (range.from >= range.to) return null;
-    if (range.to > editor.state.doc.content.size) return null;
-
-    return {
-      from: range.from,
-      to: range.to,
-    };
-  }, [editor, transactionVersion]);
-
-  // 创建虚拟参考元素，基于选区位置
-  const virtualReference = useMemo(() => {
-    return {
-      getBoundingClientRect: () => {
-        if (!selectionRange) {
-          return {
-            top: 0,
-            bottom: 0,
-            left: 0,
-            right: 0,
-            width: 0,
-            height: 0,
-            x: 0,
-            y: 0,
-          };
-        }
-
-        // 获取选区的坐标
-        const fromCoords = editor.view.coordsAtPos(selectionRange.from);
-        const toCoords = editor.view.coordsAtPos(selectionRange.to);
-
-        // 计算选区的边界框
-        const top = Math.min(fromCoords.top, toCoords.top);
-        const bottom = Math.max(fromCoords.bottom, toCoords.bottom);
-        const left = Math.min(fromCoords.left, toCoords.left);
-        const right = Math.max(fromCoords.right, toCoords.right);
-
-        return {
-          top,
-          bottom,
-          left,
-          right,
-          width: right - left,
-          height: bottom - top,
-          x: left,
-          y: top,
-        };
-      },
-    };
-  }, [editor, selectionRange]);
+  // 创建虚拟参考元素，基于点击时快照的坐标，整个生命周期只创建一次
+  // anchorRect 是点击时的快照，面板存续期间不会变化，无需列入依赖
+  const virtualReference = useRef({
+    getBoundingClientRect: () => ({
+      top: anchorRect.top,
+      bottom: anchorRect.bottom,
+      left: anchorRect.left,
+      right: anchorRect.right,
+      width: anchorRect.right - anchorRect.left,
+      height: anchorRect.bottom - anchorRect.top,
+      x: anchorRect.left,
+      y: anchorRect.top,
+    }),
+  }).current;
 
   const { refs, floatingStyles, elements, context } = useFloating({
     strategy: "fixed",
@@ -116,8 +72,7 @@ export function AIFloatingPanel({
   });
 
   // 判断是否已定位完成，用于处理首次渲染闪烁
-  const isPositioned =
-    !!selectionRange && !!elements.floating && floatingStyles.transform;
+  const isPositioned = !!elements.floating && !!floatingStyles.transform;
 
   // 计算安全的浮动样式
   const safeFloatingStyles = useMemo(
@@ -129,7 +84,7 @@ export function AIFloatingPanel({
     [floatingStyles, isPositioned],
   );
 
-  // 将虚拟参考元素设置为 reference
+  // 将虚拟参考元素设置为 reference（只执行一次）
   useEffect(() => {
     refs.setReference(virtualReference);
   }, [refs, virtualReference]);
@@ -141,14 +96,9 @@ export function AIFloatingPanel({
     }
   }, []);
 
-  useEffect(() => {
-    if (!selectionRange) {
-      onClose({ reason: "selection-lost" });
-    }
-  }, [selectionRange, onClose]);
-
   // 处理确定按钮点击
   const handleSubmit = useCallback(() => {
+    const selectionRange = getAISelectionRange(editor.state);
     if (!selectionRange) {
       setErrorMessage("请先选择需要处理的文本。");
       setStatus("error");
@@ -173,7 +123,7 @@ export function AIFloatingPanel({
     }
 
     onClose({ reason: "submit" });
-  }, [inputValue, onClose, onSelectionAISubmit, selectionRange]);
+  }, [editor, inputValue, onClose, onSelectionAISubmit]);
 
   // 处理键盘事件
   const handleKeyDown = useCallback(
@@ -241,7 +191,7 @@ export function AIFloatingPanel({
           type="button"
           className="ai-panel-btn ai-panel-btn-submit"
           onClick={handleSubmit}
-          disabled={!inputValue.trim() || !selectionRange}
+          disabled={!inputValue.trim()}
         >
           <ArrowRight size={14} />
         </button>

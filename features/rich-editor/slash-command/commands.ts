@@ -1,36 +1,14 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Type,
-  Heading1,
-  Heading2,
-  Heading3,
-  Heading4,
-  Heading5,
-  Heading6,
-  List,
-  ListOrdered,
-  Code2,
-  Quote,
   Bold,
   Italic,
   Underline,
   Strikethrough,
-  ChevronRight,
 } from "lucide-react";
 
 export type SlashCommandId =
   | "paragraph"
-  | "heading1"
-  | "heading2"
-  | "heading3"
-  | "heading4"
-  | "heading5"
-  | "heading6"
-  | "headingMore"
-  | "bulletList"
-  | "orderedList"
-  | "codeBlock"
-  | "blockquote"
   | "bold"
   | "italic"
   | "underline"
@@ -57,68 +35,12 @@ export interface SlashMenuModel {
   flatItems: SlashMenuItem[];
 }
 
-const otherHeadingChildren: SlashMenuItem[] = [
-  {
-    id: "heading4",
-    label: "Heading 4",
-    icon: Heading4,
-    keywords: ["h4"],
-  },
-  {
-    id: "heading5",
-    label: "Heading 5",
-    icon: Heading5,
-    keywords: ["h5"],
-  },
-  {
-    id: "heading6",
-    label: "Heading 6",
-    icon: Heading6,
-    keywords: ["h6"],
-  },
-];
-
 const rootSections: SlashMenuSection[] = [
   {
     id: "basic",
     title: "Basic",
     items: [
       { id: "paragraph", label: "Text", icon: Type, keywords: ["p", "text"] },
-      { id: "heading1", label: "Heading 1", icon: Heading1, keywords: ["h1"] },
-      { id: "heading2", label: "Heading 2", icon: Heading2, keywords: ["h2"] },
-      { id: "heading3", label: "Heading 3", icon: Heading3, keywords: ["h3"] },
-      {
-        id: "headingMore",
-        label: "Other heading",
-        icon: Heading4,
-        rightIcon: ChevronRight,
-        keywords: ["h4", "h5", "h6", "heading 4", "heading 5", "heading 6"],
-        children: otherHeadingChildren,
-      },
-      {
-        id: "bulletList",
-        label: "Bulleted list",
-        icon: List,
-        keywords: ["ul", "bullet", "list"],
-      },
-      {
-        id: "orderedList",
-        label: "Numbered list",
-        icon: ListOrdered,
-        keywords: ["ol", "ordered", "numbered", "list"],
-      },
-      {
-        id: "codeBlock",
-        label: "Code block",
-        icon: Code2,
-        keywords: ["code", "block"],
-      },
-      {
-        id: "blockquote",
-        label: "Quote",
-        icon: Quote,
-        keywords: ["quote", "blockquote"],
-      },
     ],
   },
   {

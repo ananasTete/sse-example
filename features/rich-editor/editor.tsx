@@ -1,6 +1,15 @@
 import { useEditor, EditorContent, Editor } from "@tiptap/react";
 import type { JSONContent } from "@tiptap/core";
-import { StarterKit } from "@tiptap/starter-kit";
+import { Document } from "@tiptap/extension-document";
+import { Paragraph } from "@tiptap/extension-paragraph";
+import { Text } from "@tiptap/extension-text";
+import { History } from "@tiptap/extension-history";
+import { Bold } from "@tiptap/extension-bold";
+import { Italic } from "@tiptap/extension-italic";
+import { Strike } from "@tiptap/extension-strike";
+import { HardBreak } from "@tiptap/extension-hard-break";
+import { Dropcursor } from "@tiptap/extension-dropcursor";
+import { Gapcursor } from "@tiptap/extension-gapcursor";
 import { AISelectionHighlight } from "./extensions/ai-selection-highlight";
 import {
   SelectionEndBoundary,
@@ -43,7 +52,16 @@ const TiptapEditor = ({
 }: TiptapEditorProps) => {
   const editor = useEditor({
     extensions: [
-      StarterKit,
+      Document,
+      Paragraph,
+      Text,
+      History,
+      Bold,
+      Italic,
+      Strike,
+      HardBreak,
+      Dropcursor,
+      Gapcursor,
       Underline,
       SlashCommand,
       AISelectionHighlight,
@@ -63,6 +81,7 @@ const TiptapEditor = ({
     }
   }, [editor, onEditorReady]);
 
+  // 自动保存
   useEffect(() => {
     if (!editor || !onDocumentChange) return;
 

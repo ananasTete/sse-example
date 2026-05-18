@@ -14,33 +14,6 @@ import type {
 export function useEditorAgent({
   editor,
 }: UseEditorAgentOptions): UseEditorAgentReturn {
-  // 订阅 Plugin.state from/to 数据变化
-  const selectionInfo = useEditorState({
-    editor,
-    selector: ({ editor: currentEditor }) => {
-      if (!currentEditor) return null;
-
-      const range = getAISelectionRange(currentEditor.state);
-      if (!range) return null;
-
-      const text = currentEditor.state.doc.textBetween(
-        range.from,
-        range.to,
-        " ",
-      );
-
-      if (!text.trim()) return null;
-
-      return { ...range, text };
-    },
-    equalityFn: (a, b) => {
-      if (!a && !b) return true;
-      if (!a || !b) return false;
-
-      return a.from === b.from && a.to === b.to && a.text === b.text;
-    },
-  });
-  const mode: EditorMode = selectionInfo ? "selection" : "fulltext";
 
   // ===================================================================
   // 监听选区变化，触发 plugin.state 中 from/to 更新并设置 Decoration 高亮
@@ -68,6 +41,38 @@ export function useEditorAgent({
       editor.off("selectionUpdate", setCurrentSelectionAsDiscussion);
     };
   }, [editor, setCurrentSelectionAsDiscussion]);
+
+  // ===================================================================
+  //  订阅 Plugin.state from/to 数据变化，获取  selectionInfo
+  // ===================================================================
+
+  const selectionInfo = useEditorState({
+    editor,
+    selector: ({ editor: currentEditor }) => {
+      if (!currentEditor) return null;
+
+      const range = getAISelectionRange(currentEditor.state);
+      if (!range) return null;
+
+      const text = currentEditor.state.doc.textBetween(
+        range.from,
+        range.to,
+        " ",
+      );
+
+      if (!text.trim()) return null;
+
+      return { ...range, text };
+    },
+    equalityFn: (a, b) => {
+      if (!a && !b) return true;
+      if (!a || !b) return false;
+
+      return a.from === b.from && a.to === b.to && a.text === b.text;
+    },
+  });
+  
+  const mode: EditorMode = selectionInfo ? "selection" : "fulltext";
 
   // ===============================================
   // 清除选区
