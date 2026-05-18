@@ -35,6 +35,54 @@ export function locateParagraph(
 }
 
 /**
+ * 定位连续多个 textblock 拼接后与 originalText 完全相等的范围。
+ *
+ * 用于兼容 apply_edit 偶发把跨段选区放进单条 edit 的情况。
+ * 段间用 "\n\n" 拼接，仍然要求每个 textblock 都完整参与匹配。
+ */
+export function locateParagraphSequence(
+    doc: ProseMirrorNode,
+    originalText: string,
+    occurrenceIndex = 0,
+): { from: number; to: number } | null {
+    const blocks: Array<{ from: number; to: number; text: string }> = [];
+
+    doc.descendants((node, pos) => {
+        if (node.type.name === "diffBlock") return false;
+        if (!node.isTextblock) return true;
+
+        blocks.push({
+            from: pos,
+            to: pos + node.nodeSize,
+            text: node.textBetween(0, node.content.size, "\n"),
+        });
+        return true;
+    });
+
+    const candidates: Array<{ from: number; to: number }> = [];
+
+    for (let start = 0; start < blocks.length; start += 1) {
+        let text = "";
+
+        for (let end = start; end < blocks.length; end += 1) {
+            text = end === start ? blocks[end].text : `${text}\n\n${blocks[end].text}`;
+
+            if (text === originalText) {
+                candidates.push({
+                    from: blocks[start].from,
+                    to: blocks[end].to,
+                });
+                break;
+            }
+
+            if (text.length >= originalText.length) break;
+        }
+    }
+
+    return candidates[occurrenceIndex] ?? null;
+}
+
+/**
  * 检查编辑器中是否已存在指定 suggestionId 的 DiffBlock
  * 用于兜底去重（覆盖内存记录丢失等极端场景）
  */

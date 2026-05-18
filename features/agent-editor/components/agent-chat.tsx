@@ -29,8 +29,10 @@ import type { AgentChatState, AgentChatToolCallBlock } from "../chat/types";
 import { editApplyRecords } from "../services/edit-apply-records";
 import {
   locateParagraph,
+  locateParagraphSequence,
   hasDiffBlockBySuggestionId,
 } from "../services/locate-paragraph";
+import { createApplyEditReplacementNodes } from "../services/apply-edit-replacement";
 import { getAISelectionRange } from "@/features/rich-editor/extensions/ai-selection-highlight";
 import type { ProposeEditsInput } from "@/src/server/session-chat/tools/propose-edits";
 import type { ApplyEditInput } from "@/src/server/session-chat/tools/apply-edit";
@@ -126,7 +128,15 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
           return;
         }
 
-        const located = locateParagraph(editor.state.doc, params.originalText, params.occurrenceIndex);
+        const located =
+          locateParagraph(editor.state.doc, params.originalText, params.occurrenceIndex) ??
+          (params.mode === "apply"
+            ? locateParagraphSequence(
+                editor.state.doc,
+                params.originalText,
+                params.occurrenceIndex,
+              )
+            : null);
 
         if (!located) {
           if (params.mode === "apply") {
@@ -136,9 +146,18 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
               : "";
 
             if (range && selectedText === params.originalText) {
-              const chain = editor.chain().focus().setTextSelection(range).deleteSelection();
-              if (params.newText) chain.insertContent(params.newText);
-              chain.run();
+              const { tr, schema } = editor.state;
+              if (params.newText === "") {
+                editor.view.dispatch(tr.delete(range.from, range.to));
+              } else {
+                editor.view.dispatch(
+                  tr.replaceWith(
+                    range.from,
+                    range.to,
+                    createApplyEditReplacementNodes(schema, params.newText),
+                  ),
+                );
+              }
 
               editApplyRecords.markApplied(params.toolCallId, params.editId);
               setRetryTick((t) => t + 1);
@@ -159,10 +178,13 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
           if (params.newText === "") {
             editor.view.dispatch(tr.delete(located.from, located.to));
           } else {
-            const paragraphs = params.newText
-              .split(/\n{2,}/)
-              .map((t) => schema.nodes.paragraph.create(null, t ? schema.text(t) : undefined));
-            editor.view.dispatch(tr.replaceWith(located.from, located.to, paragraphs));
+            editor.view.dispatch(
+              tr.replaceWith(
+                located.from,
+                located.to,
+                createApplyEditReplacementNodes(schema, params.newText),
+              ),
+            );
           }
         }
 
@@ -254,7 +276,7 @@ export const AgentChat = forwardRef<AgentChatHandle, AgentChatProps>(
       }
     }, [activeChatSessionId, chatState, applyProposeEdits, applyApplyEdit, retryTick]);
 
-    const handleRetryEdit = useCallback((_toolCallId: string, _editId: string) => {
+    const handleRetryEdit = useCallback(() => {
       setRetryTick((t) => t + 1);
     }, []);
 
